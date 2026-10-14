@@ -630,6 +630,16 @@
   implementors, which today only a constructor-derived fact reaches; the entry protocol is gone (the empty
   prologue entry) and the row sits at 7.6–7.8: what stands between that and the design's 5 is the boxed
   argument array and the loop around the call.
+- **`field*` with a constant index and `new*` read and build the instance in place** (`field_star_index`,
+  `builtin_head` in compiler.c; `clj_c_field_at`, `clj_c_new` in compiled_internal.h). A deftype method body binds
+  each field it names to `(field* this i)` (core.clj's method wrap) and a constructor is `(new* T fields...)`; both
+  were `clj_c_invoke` of the builtin. Now `(field* x i)` loads the slot when the var still holds the builtin
+  (`CLJC_NATIVE_IS`, constant under `CLJ_CLOSED`), `x` is an instance and `i` is under its field count, and `(new*
+  T ...)` allocates through `clj_instance_make` (proto_internal.h, which `clj_instance_new` is too) when `T` is a
+  deftype (not a record: its extmap and meta slots are `clj_record_new`'s) and the count matches; every other case
+  is the builtin's own call and its own error. The checks are the builtin's, so `this` needs no type fact. Both
+  modes; `CLJ_NO_OPT=dispatch` writes the plain call. core.c has 168 such sites (the agents' and the refs'
+  `field*` reads, every core deftype's constructor). Fixtures `instances.clj`, `instances-rebind.clj`.
 - **A `lazy-seq` site builds its cell without a fn object** (`clj_lazy_seq_site`, optimizer.c, the shape both
   backends test; `emit_lazy_seq` in compiler.c; `clj_lazy_seq_code` in seq.c). `(lazy-seq* (fn* [] body))` whose fn has the one arity, no rest and no self slot
   emits the fn's functions as usual, then `clj_lazy_seq_code(<base>_a0, captures, n)`: the cell holds the arity's

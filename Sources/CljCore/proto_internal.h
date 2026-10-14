@@ -31,6 +31,18 @@ static inline clj_proto_reader *clj_proto_window_open_inline(void) {
 
 static inline void clj_proto_window_close_inline(clj_proto_reader *r) { atomic_store_explicit(&r->active, 0, memory_order_seq_cst); }
 
+// field* and new*, the builtins a compiled site checks for before reading or building an instance in place.
+clj_value clj_b_field_star(const clj_value *args, size_t n);
+clj_value clj_b_new_star(const clj_value *args, size_t n);
+
+// A deftype instance of ut over n == ut->nfields fields, each retained.
+static inline clj_value clj_instance_make(const clj_user_type *ut, const clj_value *fields, size_t n) {
+	clj_instance *o = clj_alloc(&ut->t, sizeof *o + n * sizeof *o->fields);
+	for (size_t i = 0; i < n; i++) clj_slot_init(&o->h, &o->fields[i], clj_retain(fields[i]));
+	clj_retain(clj_from_ptr((void *)ut));
+	return clj_from_ptr(o);
+}
+
 // The slot that hands its fn to the type's IReduceInit method, Clojure code that may keep it.
 bool clj_proto_reduce_is_user(const clj_type *t);
 

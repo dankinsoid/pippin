@@ -2387,6 +2387,21 @@ static void emit_owned_call(fnctx *f, const clj_node *n, const direct_entry *d, 
 	sb_free(&rel);
 }
 
+// A call of clojure.core's own `name` builtin; the site checks at run time that the var still holds it.
+static bool builtin_head(const clj_node *n, const char *name) {
+	const clj_node *head = n->u.invoke.fn;
+	return head->kind == CLJ_NODE_VAR && !clj_var_of(head->u.var.v)->dynamic && var_named(head->u.var.v, "clojure.core", name) && !clj_opt_off(CLJ_NO_OPT_DISPATCH);
+}
+
+// The constant field index of (field* x i), -1 for any other call.
+static int64_t field_star_index(const clj_node *n) {
+	if (n->u.invoke.n != 2 || !builtin_head(n, "field*")) return -1;
+	const clj_node *i = n->u.invoke.args[1];
+	if (i->kind != CLJ_NODE_CONST || !clj_is_fixnum(i->u.value.v)) return -1;
+	int64_t k = clj_fixnum_val(i->u.value.v);
+	return k >= 0 && k <= UINT32_MAX ? k : -1;
+}
+
 // The call as written without a worker, into rname: a protocol chain, a folded predicate, a direct call by name or
 // through the registry, or the generic invoke.
 static void emit_invoke_boxed(fnctx *f, const clj_node *n, direct_entry *d, bool direct, const char *rname) {
@@ -2448,6 +2463,12 @@ static void emit_invoke_boxed(fnctx *f, const clj_node *n, direct_entry *d, bool
 		sb_printf(&f->out, "\t%s = CLJC_FN_%s ? CLJC_FN_%s(clj_var_root_relaxed(V[%zu]), NULL, %s, %u) : clj_c_invoke(%s, %s, %u);\n#else\n", r.name, target, target, vi, array, nargs,
 		          fn.name, array, nargs);
 		sb_printf(&f->out, "\t%s = clj_c_invoke(%s, %s, %u);\n#endif\n", r.name, fn.name, array, nargs);
+	} else if (!folded && !d && field_star_index(n) >= 0) {
+		sb_printf(&f->out, "\t%s = clj_c_field_at(%s, %s, %u);\n", r.name, fn.name, array, (uint32_t)field_star_index(n));
+		f->u->slots.instance_sites++;
+	} else if (!folded && !d && nargs >= 1 && builtin_head(n, "new*")) {
+		sb_printf(&f->out, "\t%s = clj_c_new(%s, %s, %u);\n", r.name, fn.name, array, nargs);
+		f->u->slots.instance_sites++;
 	} else if (!folded) {
 		sb_printf(&f->out, "\t%s = clj_c_invoke(%s, %s, %u);\n", r.name, fn.name, array, nargs);
 	}

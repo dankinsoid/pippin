@@ -78,7 +78,7 @@ checks the tree and the facts between passes in debug builds; one option turns e
   | `drop` | a compiled frame's dead slot released where it dies, not at its rebind or the frame's exit (NOTES "Compiler", dead slots dropped); decided at emission, so the boot units keep theirs |
   | `fuse` | the fusion pass over `(sequence XF src)`, a map over two or three colls, `mapv`, `(into to XF P)`, `transduce`, `frequencies`, `group-by` and `reductions` (NOTES "Analyzer and evaluator", the fusion pass), and the compiled step's mapcat, dedupe, distinct, partition-all and reductions stages and its stage fns that are a core var or a keyword (NOTES "Compiler", fused stages) |
   | `acyclic` | the local cycle collection's acyclic marks (NOTES "RC", the acyclic marks): every local walk enters all it reaches, so a leak that goes away with it is a bug of the marks |
-  | `dispatch` | the compiled `(.-f x)` cell's fills (NOTES "Type descriptor", field reads) |
+  | `dispatch` | the compiled `(.-f x)` cell's fills (NOTES "Type descriptor", field reads); `field*` and `new*` in place (NOTES "Compiler"), decided at emission |
 
   Not turned off, each because it is no optimization: lazy defs (semantics of design §4, `CLJ_LAZY_DEFS=eager` is
   their control), the analyzer's folding of a literal collection into a constant, the evaluator's borrowing

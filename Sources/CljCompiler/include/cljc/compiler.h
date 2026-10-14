@@ -84,6 +84,7 @@ typedef struct {
 	uint64_t prim_bound;     // of those, bound to a worker of the set
 	uint64_t kw_sites;       // keyword-lookup sites with an inline cache: (:k m) and (get m :k) with a literal keyword
 	uint64_t field_sites;    // (.-f x) sites reading a deftype's or record's field through a per-site cell
+	uint64_t instance_sites; // (field* x i) with a constant i and (new* T ...) sites reading or building the instance in place
 	uint64_t reuse_tokens;   // cons sites built in the cell of a value dying there (drop-guided reuse)
 	uint64_t reuse_consumes; // next/rest sites that hand their dying operand over
 	uint64_t inlined;        // inlined calls written with their body (optimizer.c), the guard 1 in a closed set binding the fn

@@ -20425,7 +20425,7 @@ CLJC_FRAME clj_value clojure_core_async_mult_a1(clj_value self, const clj_value 
 	clj_value t16 = clj_c_closure(CLJ_NIL, clojure_core_async_mult__3, c6, 1, 0x2, 1, 1);
 	clj_value a1[5] = {t5, t13, t14, t15, t16};
 	(void)a1;
-	t3 = clj_c_invoke(t4, a1, 5);
+	t3 = clj_c_new(t4, a1, 5);
 	clj_release(t16);
 	clj_release(t15);
 	clj_release(t14);
@@ -23166,7 +23166,7 @@ CLJC_FRAME clj_value clojure_core_async_mix_a1(clj_value self, const clj_value *
 	clj_value t33 = clj_c_closure(CLJ_NIL, clojure_core_async_mix__10, c14, 3, 0x4, 2, 2);
 	clj_value a7[7] = {t20, t28, t29, t30, t31, t32, t33};
 	(void)a7;
-	t18 = clj_c_invoke(t19, a7, 7);
+	t18 = clj_c_new(t19, a7, 7);
 	clj_release(t33);
 	clj_release(t32);
 	clj_release(t31);
@@ -25022,7 +25022,7 @@ CLJC_FRAME clj_value clojure_core_async_pub_a3(clj_value self, const clj_value *
 	clj_value t17 = clj_c_closure(CLJ_NIL, clojure_core_async_pub__6, c7, 1, 0x6, 1, 2);
 	clj_value a2[5] = {t6, t14, t15, t16, t17};
 	(void)a2;
-	t4 = clj_c_invoke(t5, a2, 5);
+	t4 = clj_c_new(t5, a2, 5);
 	clj_release(t17);
 	clj_release(t16);
 	clj_release(t15);

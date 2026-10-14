@@ -1,0 +1,3 @@
+[3 7 10 true 7] [[:a :b] [:c :d] [:e :f]]
+[field* index out of range field* expects a deftype instance, got: map field* expects a deftype instance, got: nil fixture.instances.P has 2 fields, got 1 fixture.instances.R has 2 fields, got 1 new* expects a deftype, got: long new* expects a deftype, got: nil]
+3 [1 2] 6 [4 5] fixture.instances.P has 3 fields, got 2

@@ -55,11 +55,13 @@ static inline bool clj_c_catch_selected(clj_value m, bool *undecided) {
 #define CLJC_FUSED(guards, n) 1
 #define CLJC_LOWERED(var, how) 1
 #define CLJC_LAZY_SEQ_INLINE(var) 1
+#define CLJC_NATIVE_IS(fn, code) 1
 #else
 #define CLJC_GUARD(var, boot) (clj_var_root_relaxed(var) == (boot))
 #define CLJC_FUSED(guards, n) clj_fusion_guard(guards, n)
 #define CLJC_LOWERED(var, how) (clj_var_root_relaxed(var) == clj_lowered_root(how))
 #define CLJC_LAZY_SEQ_INLINE(var) clj_lazy_seq_star_is(clj_var_root_relaxed(var))
+#define CLJC_NATIVE_IS(fn, code) (clj_is_fn(fn) && clj_fn_of(fn)->kind == CLJ_FN_NATIVE && clj_fn_of(fn)->u.native.fn == (code))
 #endif
 
 // A cell runs its thunk with self nil, the closure path with the fn; a non-seq tail is seq'd by the cons and may throw.
@@ -538,6 +540,25 @@ static inline clj_value clj_c_proto_ic_call(clj_cproto_ic *ic, clj_value method,
 		return clj_c_call_impl(ic->impl, args, n);
 	}
 	return clj_c_proto_miss(ic, method, args, n, t, epoch);
+}
+
+// (field* x i) with a constant i: b_field's checks, then the slot; anything else throws through the builtin.
+static inline clj_value clj_c_field_at(clj_value fn, const clj_value *args, uint32_t i) {
+	clj_value x = args[0];
+	if (CLJC_NATIVE_IS(fn, clj_b_field_star) && clj_is_instance(x) && i < ((const clj_user_type *)clj_type_of(x))->nfields) {
+		return clj_retain(((const clj_instance *)clj_to_ptr(x))->fields[i].v);
+	}
+	return clj_c_invoke(fn, args, 2);
+}
+
+// (new* T args...) of a deftype: the instance built in place; a record, a wrong count or a non-type through the builtin.
+static inline clj_value clj_c_new(clj_value fn, const clj_value *args, size_t n) {
+	clj_value type = args[0];
+	if (CLJC_NATIVE_IS(fn, clj_b_new_star) && clj_is_user_type(type)) {
+		const clj_user_type *ut = (const clj_user_type *)clj_to_ptr(type);
+		if (!(ut->t.core_bits & CLJ_CORE_RECORD) && ut->nfields == n - 1) return clj_instance_make(ut, args + 1, n - 1);
+	}
+	return clj_c_invoke(fn, args, n);
 }
 
 // ---- field reads, (.-f x) with no arguments (NOTES.md "Type descriptor"): one word per site, the serial of the

@@ -1072,10 +1072,7 @@ clj_value clj_instance_new(clj_value type, const clj_value *fields, size_t n) {
 	if (!clj_is_user_type(type)) return clj_throw_msg("new* expects a deftype, got: %s", clj_type_name(type));
 	clj_user_type *ut = clj_to_ptr(type);
 	if (n != ut->nfields) return clj_throw_msg("%s has %u fields, got %zu", ut->t.name, ut->nfields, n);
-	clj_instance *o = clj_alloc(&ut->t, sizeof *o + n * sizeof *o->fields);
-	for (size_t i = 0; i < n; i++) clj_slot_init(&o->h, &o->fields[i], clj_retain(fields[i]));
-	clj_retain(type);
-	return clj_from_ptr(o);
+	return clj_instance_make(ut, fields, n);
 }
 
 clj_value clj_instance_field(clj_value obj, uint32_t i) {
@@ -1118,12 +1115,12 @@ static clj_value b_protocol_method(const clj_value *args, size_t n) {
 
 static clj_value b_deftype(const clj_value *args, size_t n) { return clj_user_type_new(args[0], args[1], args + 2, n - 2); }
 
-static clj_value b_new(const clj_value *args, size_t n) {
+CLJ_UNIT_ENTRY clj_value clj_b_new_star(const clj_value *args, size_t n) {
 	if (clj_is_record_type(args[0])) return clj_record_new(args[0], args + 1, n - 1);
 	return clj_instance_new(args[0], args + 1, n - 1);
 }
 
-static clj_value b_field(const clj_value *args, size_t n) {
+CLJ_UNIT_ENTRY clj_value clj_b_field_star(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_instance(args[0])) return clj_throw_msg("field* expects a deftype instance, got: %s", clj_type_name(args[0]));
 	uint32_t nfields = ((const clj_user_type *)clj_type_of(args[0]))->nfields;
@@ -1270,7 +1267,7 @@ void clj_proto_install(void) {
 		uint32_t      min, max;
 	} fns[] = {
 		{"protocol*", b_protocol, 2, 2},       {"protocol-method*", b_protocol_method, 2, 2}, {"deftype*", b_deftype, 2, CLJ_ARITY_ANY},
-		{"new*", b_new, 1, CLJ_ARITY_ANY},     {"field*", b_field, 2, 2},                     {"reify-type*", b_reify_type, 2, CLJ_ARITY_ANY},
+		{"new*", clj_b_new_star, 1, CLJ_ARITY_ANY},     {"field*", clj_b_field_star, 2, 2},                     {"reify-type*", b_reify_type, 2, CLJ_ARITY_ANY},
 		{"extend*", b_extend, 3, 3},           {"satisfies?", b_satisfies, 2, 2},             {"extends?", b_extends, 2, 2},
 		{"instance?", b_instance, 2, 2},       {"type", b_type, 1, 1},
 		{"protocol-epoch*", b_proto_epoch, 0, 0},
