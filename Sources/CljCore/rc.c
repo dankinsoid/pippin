@@ -27,7 +27,8 @@ static bool release_reaches_zero(clj_header *h) {
 	CLJ_OWNER_CHECK(h);
 	uint32_t rc = CLJ_RC_UNSHARED_LOAD(h);
 	CLJ_ASSERT((rc & CLJ_RC_COUNT_MASK) > 0, "release of a freed object");
-	if (rc != 1 && (flags & CLJ_FLAG_REACH_LOCAL) && !(rc & CLJ_RC_BUFFERED) && clj_cc_enabled()) {
+	if (rc != 1 && (flags & CLJ_FLAG_REACH_LOCAL) && !(rc & CLJ_RC_BUFFERED) && clj_cc_enabled() &&
+	    !((flags & CLJ_FLAG_ACYCLIC) && clj_cc_local_unfiled(h))) {
 		CLJ_RC_UNSHARED_STORE(h, (rc - 1) | CLJ_RC_BUFFERED);
 		clj_cc_local_candidate(h);
 		return false;

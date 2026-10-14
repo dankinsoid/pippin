@@ -27,6 +27,7 @@ enum {
 	CLJ_CC_STAT_MARKED,          // acyclic marks set by local collections (design §7, «Метка «ацикличен»»)
 	CLJ_CC_STAT_SKIPPED,         // marked nodes a local walk did not enter, candidates among them
 	CLJ_CC_STAT_EPOCHS,          // edges stored into a guarded reference type, each voiding every mark
+	CLJ_CC_STAT_UNFILED,         // nonzero releases of a validly marked node, filed as no candidate
 	CLJ_CC_STAT_COUNT
 };
 void clj_debug_cc_stats(int64_t out[CLJ_CC_STAT_COUNT]);

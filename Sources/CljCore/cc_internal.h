@@ -15,6 +15,8 @@
 bool clj_cc_enabled(void);
 bool clj_cc_shared_candidate(clj_header *h);
 void clj_cc_local_candidate(clj_header *h);
+// An unshared object with CLJ_FLAG_ACYCLIC whose mark the running execution's checked table makes valid.
+bool clj_cc_local_unfiled(clj_header *h);
 // A shared object's RC changed while a collection watched it.
 void clj_cc_unwatch(clj_header *h);
 // A shared object reached zero while a collection runs: true when it is kept whole until the collection ends.

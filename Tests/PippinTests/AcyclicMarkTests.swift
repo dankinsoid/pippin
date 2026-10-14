@@ -164,4 +164,67 @@ extension CoreTests.CycleTests {
 		#expect(stat(CLJ_CC_STAT_FREED) - freed >= 1)
 		base.check()
 	}
+
+	// A vector over an array, marked by two local collections; owned by the caller.
+	private func markedVector() -> clj_value {
+		let arr = clj_array_new(CLJ_ARRAY_OBJECT, 1)
+		let v = clj_vector_conj(clj_vector_empty(), arr)
+		clj_release(arr)
+		for _ in 0..<2 {
+			clj_debug_cc_file_local(v)
+			_ = clj_debug_cc_collect_local()
+		}
+		return v
+	}
+
+	// A validly marked node released to a nonzero count is no candidate (rc.c, release_reaches_zero).
+	@Test func aMarkedNodeReleasedToNonzeroFilesNothing() throws {
+		try marksPrepared()
+		let base = CoroBaseline()
+		let v = markedVector()
+		#expect(clj_debug_cc_acyclic(v) != 0)
+		let off = clj_no_opt() & clj_no_opt_parse("unfiled") != 0
+		let pending = clj_debug_cc_pending_local(), unfiled = stat(CLJ_CC_STAT_UNFILED)
+		clj_release(clj_retain(v))
+		#expect(clj_debug_cc_pending_local() - pending == (off ? 1 : 0))
+		if !off { #expect(stat(CLJ_CC_STAT_UNFILED) - unfiled >= 1) }
+		_ = clj_debug_cc_collect_local()
+		clj_release(v)
+		base.check()
+	}
+
+	// The closing store voids the mark, so the release that leaves the cycle garbage files the once-marked node.
+	@Test(arguments: [false, true]) func theLastReleaseIsOfANodeMarkedBeforeTheCycle(youngFirst: Bool) throws {
+		try marksPrepared()
+		let base = CoroBaseline()
+		let freed = stat(CLJ_CC_STAT_FREED)
+		let v = markedVector()
+		#expect(clj_debug_cc_acyclic(v) != 0)
+		let old = clj_vector_nth(v, 0), young = clj_array_new(CLJ_ARRAY_OBJECT, 1)
+		if youngFirst { _ = clj_array_set(young, 0, v) }
+		_ = clj_array_set(old, 0, young)
+		if !youngFirst { _ = clj_array_set(young, 0, v) }
+		#expect(clj_debug_cc_acyclic(v) == 0)
+		clj_release(young)
+		let pending = clj_debug_cc_pending_local()
+		clj_release(v)
+		#expect(clj_debug_cc_pending_local() - pending == 1)
+		_ = clj_debug_cc_collect_local()
+		#expect(stat(CLJ_CC_STAT_FREED) - freed >= 3)
+		base.check()
+	}
+
+	// The same through Clojure, the marked root's release last; a ring through a realized lazy seq is never marked.
+	@Test func cyclesClosedUnderAMarkedRootGoWhenItsReleaseIsLast() throws {
+		for form in [
+			"(let [arr (object-array 1) root (Node. arr)] (let [m (mark! root) y (object-array [root])] (aset arr 0 y) m))",
+			"(let [arr (object-array 1) root (Node. arr)] (let [m (mark! root) y (object-array 1)] (aset arr 0 y) (aset y 0 root) m))",
+			"(let [v (volatile! 0) root (Node. (object-array [v]))] (let [m (mark! root)] (vreset! v [root]) m))",
+		] {
+			try collectedThroughMark(form, marked: true)
+		}
+		try collectedThroughMark("""
+		(let [v (volatile! nil) s (lazy-seq (cons 1 @v))] (vreset! v s) (first s) (mark! (Node. (object-array [s]))))
+		""", marked: false)
+	}
 }

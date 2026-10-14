@@ -251,18 +251,23 @@
   every node from its owned root down); `clj_realloc` and `clj_cell_reborn` drop it. A table of 2^17 entries starts
   over. Debug builds audit one skip in 16 per thread (`clj_debug_cc_audit_every`; every skip in the mark tests): a
   bounded walk below the node finds no way back to it, no hot node, no unguarded `MUTABLE` and no unshared transient
-  child, or dies with `cc/acyclic-mark`. `CLJ_NO_OPT=acyclic` turns it off. Stats `CLJ_CC_STAT_MARKED`, `_SKIPPED`,
-  `_EPOCHS`; `clj_debug_cc_collect_local`, `clj_debug_cc_file_local` and `clj_debug_cc_acyclic` drive it from the
+  child, or dies with `cc/acyclic-mark`. `CLJ_NO_OPT=acyclic` turns it off. A nonzero release of an object with
+  `ACYCLIC` asks the running execution's table before it files (`clj_cc_local_unfiled`, from `release_reaches_zero`):
+  a valid mark files nothing, so the object takes no `BUFFERED`, no buffer slot and no lookup at the collection, and
+  stays unique for an in-place edit; the release that leaves a cycle garbage is of a member, whose mark the closing store
+  voided (design §7, «Отпускание помеченного кандидата не подаёт»). A release inside a running local collection files
+  as before, so the table never starts over under it; the same audit samples these skips. `CLJ_NO_OPT=unfiled` files
+  every one. Stats `CLJ_CC_STAT_MARKED`, `_SKIPPED`, `_EPOCHS`, `_UNFILED` (counted per thread in batches of 1024; the
+  calling thread's rest is added on read); `clj_debug_cc_collect_local`, `clj_debug_cc_file_local` and `clj_debug_cc_acyclic` drive it from the
   tests, in CycleTests (`AcyclicMarkTests.swift`; a suite of their own moved the committed shard deal): a marked tree
   skipped by the next walk, a live ring below that leaves the node above unmarked, and a cycle closed through a marked
   structure by an `aset` into a marked array, a volatile in a deftype field, an atom (the shared collection takes it), a
   transient map below the mark or stored after it, a lazy seq realized, and an in-place `assoc` down a marked vector
-  trie. Measured (bench/RESULTS.md, "The acyclic marks", run 38549012720): datascript closed 4122 → 1134 ms, 8.0× the
+  trie; a marked node released to a nonzero count filing nothing, and a cycle closed under a marked node whose own
+  release comes last (an old array taking a young one that points back, in both orders; a volatile). Measured (bench/RESULTS.md, "The acyclic marks", run 38549012720): datascript closed 4122 → 1134 ms, 8.0× the
   JVM where it was 28–30×, nodes visited per iteration 55.0M → 0.99M, the collector's share of busy samples 78.5 % →
   17.5 %; the other twelve workloads' geomean 1.000 / 1.004 / 0.998 / 1.011 (interp / core+interp / dev / closed).
   Not done: the shared and the deep collections take no mark, so a large published structure is still walked again by
-  the background thread (trigger: a profile of a workload whose shared collections walk the same live graph); a marked
-  object released to a nonzero count is still filed, 5.8M candidates per datascript iteration, each dropped at the
-  collection by a table lookup (`collect_local` 216 of 5098 samples; trigger: that frame leading a profile); the closed
+  the background thread (trigger: a profile of a workload whose shared collections walk the same live graph); the closed
   geomean's +1.1 % (nested-update +3.9 %, group-freq +2.9 %, neither filing a candidate) points at the inline mask in
   `clj_reach_from` and the bit test in `clj_is_unique` (trigger: a `bench-ab` that confirms it).

@@ -58,7 +58,8 @@ enum {
 	CLJ_NO_OPT_FUSE       = 1u << 14, // fusion over sequence, multi-coll map and mapv; the stateful stages a fused step runs
 	CLJ_NO_OPT_ACYCLIC    = 1u << 15, // the local collection's acyclic marks: every walk enters all it reaches
 	CLJ_NO_OPT_DISPATCH   = 1u << 16, // field-read cells, direct field* and new*, implementor arms, the 2-entry protocol cache
-	CLJ_NO_OPT_ALL        = (1u << 17) - 1,
+	CLJ_NO_OPT_UNFILED    = 1u << 17, // a validly marked node released to a nonzero count is filed as a candidate
+	CLJ_NO_OPT_ALL        = (1u << 18) - 1,
 };
 // "1"/"all", ""/"0", or a comma list of the names above; UINT32_MAX for an unknown word.
 uint32_t clj_no_opt_parse(const char *spec);

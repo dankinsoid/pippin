@@ -690,6 +690,24 @@ void clj_debug_cc_audit_every(uint32_t n) { (void)n; }
 #define audit_skip(x) ((void)0)
 #endif
 
+// Counted per thread and added in batches: every release of a marked node passes here.
+static _Thread_local int64_t unfiled_here;
+
+// On no cycle now, so no member of a garbage one; a cycle closed through it later voids the mark first, and the
+// release that leaves that cycle garbage finds the mark void (design §7, «Метка «ацикличен»»).
+bool clj_cc_local_unfiled(clj_header *h) {
+	if (clj_opt_off(CLJ_NO_OPT_UNFILED)) return false;
+	clj_coro *c = clj_coro_current();
+	// A collection's table must not start over under it: a release inside its teardown files as before.
+	if (!c->cc_local || c->cc_collecting || !ck_valid(ck_current(c->cc_local), h)) return false;
+	audit_skip(h);
+	if (++unfiled_here == 1024) {
+		stat_add(CLJ_CC_STAT_UNFILED, unfiled_here);
+		unfiled_here = 0;
+	}
+	return true;
+}
+
 // A child read without its owner's lock: alive (frees are deferred) but maybe at zero, so a CAS from a nonzero count.
 static bool try_retain(clj_header *c) {
 	uint32_t cur = atomic_load_explicit(&c->rc, memory_order_relaxed);
@@ -1431,6 +1449,7 @@ void clj_cc_execution_free(clj_coro *c) {
 
 void clj_debug_cc_stats(int64_t out[CLJ_CC_STAT_COUNT]) {
 	for (int i = 0; i < CLJ_CC_STAT_COUNT; i++) out[i] = atomic_load_explicit(&stats[i], memory_order_relaxed);
+	out[CLJ_CC_STAT_UNFILED] += unfiled_here;
 }
 
 int64_t clj_debug_cc_pending_local(void) {

@@ -246,7 +246,8 @@ if opts.stats {
 	for (i, name) in ["rc_plain", "rc_shared", "rc_immortal"].enumerated() { out("stat \(name) \(Double(rc1[i] - rc0[i]) / k)") }
 	out("stat coro_switches \(Double(sw1 - sw0) / k)")
 	for (i, name) in [(CLJ_CC_STAT_CANDIDATES, "cc_candidates"), (CLJ_CC_STAT_COLLECTIONS, "cc_collections"),
-	                  (CLJ_CC_STAT_VISITED, "cc_visited"), (CLJ_CC_STAT_FREED, "cc_freed")] {
+	                  (CLJ_CC_STAT_VISITED, "cc_visited"), (CLJ_CC_STAT_FREED, "cc_freed"),
+	                  (CLJ_CC_STAT_UNFILED, "cc_unfiled")] {
 		out("stat \(name) \(Double(cc1[Int(i)] - cc0[Int(i)]) / k)")
 	}
 	out("rc_op_ns_stats \(clj_debug_rc_op_ns(20_000_000))")
