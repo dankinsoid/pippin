@@ -33,15 +33,15 @@ extension CoreTests {
 		init() {
 			// A host error interns its ex-type keyword on the first error of that Swift type (design §4).
 			for k in ["k", "tag", "x", "PippinTests/DefineError"] { _ = kw(k) }
+			// A redefinition forces every lazy def an earlier suite left pending (var.c): here, not inside a count.
+			for _ in 0..<2 { rt.define("df-barrier") { _ in nil } }
 		}
 
 		// A defined fn is the var's root and lives with it: baselines are taken after the define, and a test
 		// ends by defining a fn of the same shape again.
 		@Test func definesAndRedefines() throws {
 			let v = rt.define("df-twice", arity: 1...1) { args in Value(args[0].int! + 1) }
-			let before = settledLiveObjects("before the define test"), census = LiveCensus()
-			var steps: [String] = []
-			func step(_ name: String) { steps.append("\(name) \(LiveCensus().moves(since: census)) retired \(clj_debug_retired_roots())") }
+			let before = clj_debug_live_objects(), census = LiveCensus()
 			do {
 				#expect(v.description == "#'user/df-twice")
 				#expect(v.typeName == "var")
@@ -49,34 +49,19 @@ extension CoreTests {
 				#expect(try rt.eval("#'df-twice") == v)
 				#expect(try rt.eval("(var df-twice)") == v)
 				#expect(try rt.eval("(map df-twice [1 2])") == Value(list: [2, 3]))
-				step("map")
 				let site = try rt.eval("(fn [x] (df-twice x))")
 				#expect(try site(1) == 2)
-				step("site")
 				let again = rt.define("df-twice", arity: 1...1) { args in Value(args[0].int! * 10) }
-				step("again")
 				#expect(again == v)
 				#expect(try site(1) == 10)
 				#expect(try rt.eval("(df-twice 1)") == 10)
-				step("call")
 				// A Clojure def takes the var over, and a define takes it back.
 				_ = try rt.eval("(def df-twice (fn [x] (- x)))")
-				step("def")
 				#expect(try site(1) == -1)
 				rt.define("df-twice", arity: 1...1) { args in Value(args[0].int! + 100) }
-				step("define")
 				#expect(try site(1) == 101)
 			}
-			step("end")
-			let after = settledLiveObjects("after the define test")
-			if after != before {
-				let pending = "pending local \(clj_debug_cc_pending_local()) shared \(clj_debug_cc_pending_shared())"
-				let local = clj_debug_cc_collect_local()
-				clj_cc_collect()
-				steps.append("\(pending); collected local \(local); then \(LiveCensus().moves(since: census))")
-				clj_debug_coro_dump()
-			}
-			#expect(after == before, "\(steps)")
+			#expect(clj_debug_live_objects() == before, "\(LiveCensus().moves(since: census))")
 		}
 
 		@Test func arityErrorsNameTheVar() throws {

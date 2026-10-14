@@ -236,6 +236,12 @@
   map was a hash map, two objects (runs 37190622763–37191593504, x86_64). The test now declares the var before its
   baseline, as it does its other defs. `ShapeTests` met the same mark on `{:a}` after `ModelTests.compiled()` when
   a new suite moved the deal (run 38037525105); its layout assertions use keys of its own (NOTES "Shapes").
+  `DefineTests.definesAndRedefines` read "fn +4", settled or not, whenever the suites ahead of it in the process
+  left inferred lazy defs pending (runs 38546580048, 38547779987, 38548925500): the first rebind of a bound var
+  is the redefinition barrier (var.c), which forces every pending lazy def of the process, and four forced roots
+  were fns. Not a leak: the step counts of run 38560303388 put all four at the first `define` over `df-twice`,
+  the replaced root freed. The suite's `init` rebinds a var of its own, so the barrier fires before any
+  baseline.
   `HostErrorTests.deriveGroupsAHostError` measured a
   `derive`/`underive` round trip on the process-global hierarchy, which is object-neutral only while no other
   suite has derived into it: `underive` rebuilds the hierarchy from `(make-hierarchy)`, and the value it
