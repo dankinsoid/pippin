@@ -1,29 +1,18 @@
 // @ai-generated(guided)
 import CljCore
 
-// Core fns implemented in Swift and bound into clojure.core after boot: the escape hatch of the design (§6b).
-// A primitive lives next to the Clojure implementation that stays its specification, and PrimitiveTests runs
-// both through Runtime.differential. Both bodies are now one C call each (compare.h): the ordering and the
-// merge sort live in the core, where the sorted collections reach them without a host at all. `compare` is
-// the leaf with no Clojure specification — nothing in Clojure orders two strings — and is checked by table.
-// clj_init's host hook: the primitives are part of every boot, whichever entry point runs it.
+// clj_init's host hook: the host types and the Swift stubs are part of every boot, whichever entry point runs it.
+// `compare` and `sort` are C builtins (compare.c); this file keeps the host's door to them and the Clojure
+// specification `sort` is checked against (CompareTests, through Runtime.differential).
 @_cdecl("clj_host_boot")
 func hostBoot() {
 	Runtime.installHostTypes()
 	Runtime.installSwiftStubs()
-	Runtime.installPrimitives()
 }
 
 extension Runtime {
-	static func installPrimitives() {
-		bind("compare", in: "clojure.core", doc: "Comparator. Returns -1, 0 or 1 as x is less than, equal to or greater than y; nil is less than everything.",
-		     Value(function: "clojure.core/compare", arity: 2...2) { args in try Value(compare(args[0], args[1])) })
-		bind("sort", in: "clojure.core", doc: "Returns a sorted sequence of the items in coll, by compare or the comparator comp.",
-		     Value(function: "clojure.core/sort", arity: 1...2) { args in args.count == 1 ? try sort(args[0]) : try sort(args[1], by: args[0]) })
-	}
-
 	/// Clojure `compare`: -1, 0 or 1 as a is below, equal to or above b. The ordering itself lives in C
-	/// (`clj_compare`, compare.h); this is the host's door to it, and PrimitiveTests checks it by table.
+	/// (`clj_compare`, compare.h); this is the host's door to it, and CompareTests checks it by table.
 	public static func compare(_ a: Value, _ b: Value) throws -> Int {
 		try withExtendedLifetime((a, b)) { try compare(a.raw, b.raw) }
 	}
@@ -57,7 +46,7 @@ extension Runtime {
 	}
 
 	/// The Clojure implementation `sort` is checked against: a stable merge sort over `compare`, as a fn form.
-	/// Kept here so the primitive and its specification change together (PrimitiveTests, bench).
+	/// The bench and CompareTests run it against the builtin.
 	public static let sortSpecification = """
 	(fn sort-spec [coll]
 	  (let [merge (fn [xs ys]

@@ -1502,9 +1502,8 @@
   (reduce (fn [_ x] (proc x)) nil coll)
   nil)
 
-;; compare and sort are host primitives bound after boot (Primitives.swift); both delegate to the C
-;; comparator (compare.h), which sort-by* and the sorted collections reach without the host at all.
-(declare compare sort)
+(alter-meta! #'compare assoc :doc "Comparator. Returns -1, 0 or 1 as x is less than, equal to or greater than y; nil is less than everything.")
+(alter-meta! #'sort assoc :doc "Returns a sorted sequence of the items in coll, by compare or the comparator comp.")
 
 (defn sort-by
   "Returns a sorted sequence of the items in coll, by (compare (keyfn a) (keyfn b)) or comp on the keys."

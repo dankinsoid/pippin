@@ -1729,7 +1729,7 @@ if let f = protoUnitClosedFn { clj_release(f) }
 if let f = protoUnitDevFn { clj_release(f) }
 clj_release(protoBiFn)
 
-// (sort v) over shuffled fixnums: the Swift primitive, the Clojure merge sort that is its specification, and
+// (sort v) over shuffled fixnums: the C builtin, the Clojure merge sort that is its specification, and
 // Swift's own sort of the same numbers.
 _ = cljEval("(def bench-sort-spec \(Runtime.sortSpecification))")
 let sortFn = cljEval("(fn [v] (first (sort v)))")
@@ -1769,12 +1769,12 @@ for r in callRows {
 }
 print("\nns per iteration; counting loop = (loop [i 0] (if (< i n) (recur (inc i)) i)), closure call = the same with (f i) for (def f (fn [x] (inc x))), C builtin call = (def f inc), host fn call = f made by Runtime.define, let-bound = f bound by a let around the loop, local helper = (let [add (fn [x] (+ acc x))] ...) inside the loop body, update-in = (update-in m [:a :b :c] inc) on a 3-level map, protocol call = the same with (+ i (m x)) for a one-method protocol extended to a deftype and to Long")
 
-print("\n| scenario | n | Swift primitive | Clojure spec | Swift sorted | spec / primitive |")
+print("\n| scenario | n | C builtin | Clojure spec | Swift sorted | spec / primitive |")
 print("|---|---:|---:|---:|---:|---:|")
 for r in sortRows {
 	print("| sort, shuffled fixnums | \(r.n) | \(fmt(r.primitive)) | \(fmt(r.spec)) | \(fmt(r.swift)) | \(ratio(r.primitive, r.spec)) |")
 }
-print("\nns per element; Swift primitive = (sort v) bound by Runtime.define, Clojure spec = Runtime.sortSpecification evaluated in user, Swift sorted = [Int].sorted()")
+print("\nns per element; C builtin = (sort v), clj_sort, Clojure spec = Runtime.sortSpecification evaluated in user, Swift sorted = [Int].sorted()")
 
 // MARK: - Sorted collections and multimethods
 

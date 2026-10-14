@@ -135,18 +135,15 @@
   in another argument order). It is public API, not a test helper: the escape hatch is for host libraries
   (hiccup diff, JSON, sorting) whose own tests cannot import ours, and it returns data, so it binds to no
   test framework.
-- [~] **`compare` and `sort` are the first residents** (Primitives.swift), and both bodies are now one C call
-  each: `clj_compare` and `clj_sort` (compare.c) do the work, the Swift fns are the vars. They bind into
-  `clojure.core` from `clj_host_boot`, a weak C hook `clj_init` calls last, defined by the Swift module with
-  `@_cdecl`: a raw `clj_init()` and `Runtime()` boot the same core, tests take baselines after either. Their
-  roots are ordinary (not immortal, read owned). `Runtime.sortSpecification` is the top-down merge sort in
-  Clojure in the same file, evaluated by PrimitiveTests and the bench; `compare` is the leaf without a
-  Clojure spec, since nothing in Clojure here orders two strings or chars (no `int` of a char, no `subs`),
-  and it is checked by table. A `(sort ...)` call from Clojure therefore costs one crossing, not one per
-  comparison; `sort-by` reaches `clj_sort_by` directly through a builtin and never crosses at all. A C-only
-  host has `sort-by` and the sorted collections but not `compare` or `sort` as vars. Trigger for dropping
-  the Swift residents entirely: char/int conversion landing, so a Clojure `compare` spec becomes writable
-  and the differential can take the C builtin as its subject.
+- **`compare` and `sort` are C builtins** (builtins.c over `clj_compare2` and `clj_sort`, compare.c), bound
+  with the rest of the core before core.clj, so `compare` is an intrinsic (intrinsics.c) and a call from compiled C
+  never crosses into Swift. They were the first Swift residents of this mechanism until a profile of datascript
+  put 16–17 % of its time in the crossing (`clj_c_invoke` → `Value.invokeNative`); nothing kept them in Swift but
+  history: `clj_compare` already ordered every type, host values included, by itself. `Runtime.compare` and
+  `Runtime.sort` stay as the host's API over the same C functions. `Runtime.sortSpecification` is the top-down
+  merge sort in Clojure (Primitives.swift), which CompareTests runs against the builtin through
+  `Runtime.differential` and the bench times; `compare` has no Clojure spec, since nothing in Clojure here
+  orders two strings or chars, and it is checked by table.
 - **Deviations from Clojure's `compare`**: −1/0/1 always (the JVM returns the char or length difference
   for strings); strings order by code point, the JVM by UTF-16 unit (they differ only between an astral
   char and U+E000–U+FFFF); the mixed-type message names the runtime's types (`long cannot be cast to a
@@ -154,8 +151,7 @@
   inside the core, so the 2-arity `(sort nil coll)` refuses it by hand, the way invoking nil would.
 - **Limits.** Varargs are `arity: nil` plus a check in the body, as with `Value(function:)`. core.clj
   cannot call a primitive at load time and cannot reference one without `(declare ...)`: the hook runs
-  after core.clj. A C-only host has neither `compare` nor `sort` as vars, though `sort-by` and the sorted
-  collections reach the same C functions. Meta is `:doc` only; `:private`,
+  after core.clj. Meta is `:doc` only; `:private`,
   `:dynamic`, `:arglists`, `:tag` need a `def` afterwards. `define` on another thread against a running
   call is the concurrent-`def` race of the evaluator section.
 - [~] **Cost** (bench/RESULTS.md, "Host-defined fns"): a host fn call is ~64 ns over a C builtin at the same

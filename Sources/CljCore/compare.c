@@ -109,6 +109,12 @@ clj_value clj_compare(clj_value a, clj_value b, int *out) {
 	return cast_error(a, "Comparable");
 }
 
+clj_value clj_compare2(clj_value a, clj_value b) {
+	int c;
+	if (clj_compare(a, b, &c) == CLJ_THROWN) return CLJ_THROWN;
+	return clj_fixnum(c);
+}
+
 // The dispatch above, as a predicate: every branch it has, and nothing else.
 bool clj_compare_orders(clj_value v) {
 	return clj_is_nil(v) || clj_is_number(v) || clj_is_bool(v) || clj_is_char(v) || clj_is_string(v) || clj_is_keyword(v) ||

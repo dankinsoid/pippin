@@ -1706,6 +1706,18 @@ static clj_value b_sorted_set_by(const clj_value *args, size_t n) { return sorte
 static clj_value b_sorted_map(const clj_value *args, size_t n) { return sorted_from_args(true, CLJ_NIL, args, n); }
 static clj_value b_sorted_set(const clj_value *args, size_t n) { return sorted_from_args(false, CLJ_NIL, args, n); }
 
+// (sort nil coll) refuses the comparator as invoking nil would: inside the core nil is the default one.
+static clj_value b_sort(const clj_value *args, size_t n) {
+	if (n == 1) return clj_sort(args[0], CLJ_NIL);
+	if (clj_is_nil(args[0])) return clj_throw_msg("nil cannot be invoked");
+	return clj_sort(args[1], args[0]);
+}
+
+static clj_value b_compare(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_compare2(args[0], args[1]);
+}
+
 // (sort-by keyfn coll) takes the C comparator; the 3-arity needs a real fn, as a nil comparator is a
 // NullPointerException on the JVM and the suite tests for the throw.
 static clj_value b_sort_by(const clj_value *args, size_t n) {
@@ -1764,7 +1776,7 @@ static const entry entries[] = {
 	{"vector", b_vector, 0, ANY},  {"hash-map", b_hash_map, 0, ANY}, {"hash-set", b_hash_set, 0, ANY}, {"set", b_set, 1, 1},
 	{"disj", b_disj, 1, ANY},      {"empty", b_empty_coll, 1, 1}, {"str", b_str, 0, ANY}, {"str-join*", b_str_join, 2, 2}, {"str-escape*", b_str_escape, 2, 2},    {"pr-str", b_pr_str, 0, ANY},
 	{"sorted-map-by", b_sorted_map_by, 1, ANY}, {"sorted-set-by", b_sorted_set_by, 1, ANY}, {"sorted?", b_sorted_p, 1, 1},
-	{"sorted-map*", b_sorted_map, 0, ANY}, {"sorted-set*", b_sorted_set, 0, ANY}, {"sort-by*", b_sort_by, 2, 3},
+	{"sorted-map*", b_sorted_map, 0, ANY}, {"sorted-set*", b_sorted_set, 0, ANY}, {"sort-by*", b_sort_by, 2, 3}, {"sort", b_sort, 1, 2}, {"compare", b_compare, 2, 2},
 	{"sorted-seq*", b_sorted_seq, 2, 2}, {"sorted-seq-from*", b_sorted_seq_from, 3, 3}, {"sorted-compare*", b_sorted_compare, 3, 3},
 	{"pr", b_pr, 0, ANY},          {"prn", b_prn, 0, ANY},       {"print", b_print, 0, ANY},    {"println", b_println, 0, ANY},
 	{"identity", b_identity, 1, 1}, {"apply", b_apply, 2, ANY},  {"seq", b_seq, 1, 1},          {"lazy-seq*", clj_lazy_seq_star, 1, 1},

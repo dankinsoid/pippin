@@ -46,7 +46,6 @@
       {:keys [number tag word]} (summarize tokens)]
   (println (mapv render tokens))
   (println (summarize tokens) number tag word @counter)
-  ;; sort and compare are host primitives (Primitives.swift) and a C-only clj-load has neither.
   (println (sort-by identity (map str (set/union #{:a :b} #{:b :c}))))
   (println (into [] (comp (map inc) (filter odd?) (take 3)) (range 20)))
   (println (take 5 (iterate (partial * 2) 1)) (apply str (interpose "," (map str [1 2 3]))))
