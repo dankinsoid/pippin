@@ -738,7 +738,7 @@ static bool dbl_slot(const fnctx *f, uint32_t i) { return i < 64 && ((f->dbls >>
 
 // ---- unboxed arithmetic (NOTES.md, "Compiler": unboxed arithmetic, int64 and double slots, entry-checked frames)
 
-typedef enum { UNBOX_NONE, UNBOX_ADD, UNBOX_SUB, UNBOX_MUL, UNBOX_DIV, UNBOX_QUOT, UNBOX_REM, UNBOX_INC, UNBOX_DEC, UNBOX_LT, UNBOX_LE, UNBOX_GT, UNBOX_GE, UNBOX_EQ, UNBOX_ZERO, UNBOX_POS, UNBOX_NEG, UNBOX_NUMEQ, UNBOX_LONG, UNBOX_INT, UNBOX_CMP, UNBOX_ICMP } unbox_op;
+typedef enum { UNBOX_NONE, UNBOX_ADD, UNBOX_SUB, UNBOX_MUL, UNBOX_DIV, UNBOX_QUOT, UNBOX_REM, UNBOX_INC, UNBOX_DEC, UNBOX_LT, UNBOX_LE, UNBOX_GT, UNBOX_GE, UNBOX_EQ, UNBOX_ZERO, UNBOX_POS, UNBOX_NEG, UNBOX_NUMEQ, UNBOX_LONG, UNBOX_INT, UNBOX_CMP, UNBOX_ALENGTH, UNBOX_ICMP } unbox_op;
 
 // The C representation of an unboxed value: int64_t or double.
 typedef enum { UK_NONE, UK_INT, UK_DBL } ukind;
@@ -756,7 +756,7 @@ static unbox_op unbox_op_of(const clj_intrinsic *op) {
 		{"clojure.core/>=", 2, UNBOX_GE},   {"clojure.core/=", 2, UNBOX_EQ},    {"clojure.core/zero?", 1, UNBOX_ZERO},
 		{"clojure.core/pos?", 1, UNBOX_POS}, {"clojure.core/neg?", 1, UNBOX_NEG}, {"clojure.core/==", 2, UNBOX_NUMEQ},
 		{"clojure.core/long", 1, UNBOX_LONG}, {"clojure.core/int", 1, UNBOX_INT}, {"clojure.core/compare", 2, UNBOX_CMP},
-		{"Integer/compare", 2, UNBOX_ICMP},
+		{"clojure.core/alength", 1, UNBOX_ALENGTH}, {"Integer/compare", 2, UNBOX_ICMP},
 	};
 	for (size_t i = 0; i < sizeof table / sizeof *table; i++) {
 		if (table[i].arity == op->arity && strcmp(table[i].name, op->name) == 0) return table[i].op;
@@ -1131,7 +1131,7 @@ static temp  emit_borrowed(fnctx *f, const clj_node *n);
 static void  release_temp(fnctx *f, const temp *t);
 static const char *fast_cname(const clj_intrinsic *op);
 
-// compare, Integer/compare, long and int as an int64: on the C values where the arguments allow, else the fast arm over
+// compare, Integer/compare, long, int and alength as an int64: on the C values where the arguments allow, else the fast arm over
 // the boxed arguments, whose result is a fixnum or a long box with the guard constant (unboxable is closed only).
 // @ai-generated(solo)
 static itemp emit_raw_int_valued(fnctx *f, const clj_node *n, unbox_op op) {
@@ -2636,6 +2636,7 @@ static const char *fast_cname(const clj_intrinsic *op) {
 		{"clj_pos_p", "clj_c_pos_p"}, {"clj_neg_p", "clj_c_neg_p"}, {"clj_count", "clj_c_count"},   {"clj_nth2", "clj_c_nth2"},
 		{"clj_nth3", "clj_c_nth3"},   {"clj_first", "clj_c_first"}, {"clj_compare2", "clj_c_compare"}, {"clj_num_eq2", "clj_c_num_eq"},
 		{"clj_long_cast", "clj_c_long"}, {"clj_int_cast", "clj_c_int"}, {"clj_integer_compare", "clj_c_integer_compare"},
+		{"clj_aget", "clj_c_aget"},   {"clj_aset", "clj_c_aset"},   {"clj_alength", "clj_c_alength"},
 	};
 	if (clj_opt_off(CLJ_NO_OPT_INLINE)) return op->cname;
 	for (size_t i = 0; i < sizeof fast / sizeof *fast; i++) {

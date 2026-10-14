@@ -107856,7 +107856,7 @@ L3: ;
 	(void)a3;
 	clj_value t16;
 	if (CLJC_GUARD(V[359], B[50])) {
-	t16 = clj_aset(t10, t11, t12);
+	t16 = clj_c_aset(t10, t11, t12);
 	} else {
 	t16 = clj_c_intrinsic_fallback(V[359], a3, 3);
 	}
@@ -149442,7 +149442,7 @@ CLJC_INLINE clj_value clojure_core_ArrayChunk__r2__1_a1_i(clj_value self, const 
 	(void)a4;
 	clj_value t19;
 	if (CLJC_GUARD(V[509], B[53])) {
-	t19 = clj_aget(t17, t18);
+	t19 = clj_c_aget(t17, t18);
 	} else {
 	t19 = clj_c_intrinsic_fallback(V[509], a4, 2);
 	}
@@ -149970,7 +149970,7 @@ L3: ;
 	(void)a5;
 	clj_value t24;
 	if (CLJC_GUARD(V[509], B[53])) {
-	t24 = clj_aget(t22, t23);
+	t24 = clj_c_aget(t22, t23);
 	} else {
 	t24 = clj_c_intrinsic_fallback(V[509], a5, 2);
 	}
@@ -150528,7 +150528,7 @@ static CLJC_FRAME clj_value clojure_core_ArrayChunk__r2__6_a2(clj_value self, co
 	(void)a6;
 	clj_value t30;
 	if (CLJC_GUARD(V[509], B[53])) {
-	t30 = clj_aget(t26, t29);
+	t30 = clj_c_aget(t26, t29);
 	} else {
 	t30 = clj_c_intrinsic_fallback(V[509], a6, 2);
 	}
@@ -152489,7 +152489,7 @@ CLJC_FRAME clj_value clojure_core_chunk_append_a2(clj_value self, const clj_valu
 	(void)a0;
 	clj_value t13;
 	if (CLJC_GUARD(V[359], B[50])) {
-	t13 = clj_aset(t0, t6, t12);
+	t13 = clj_c_aset(t0, t6, t12);
 	} else {
 	t13 = clj_c_intrinsic_fallback(V[359], a0, 3);
 	}

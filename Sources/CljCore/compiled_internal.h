@@ -239,6 +239,32 @@ static inline clj_value clj_c_first(clj_value v) {
 	return clj_first(v);
 }
 
+// NULL leaves the errors and the other element kinds to aget/aset.
+static inline clj_slot *clj_c_object_slot(clj_value a, clj_value i) {
+	if (!clj_is_array(a) || !clj_is_fixnum(i)) return NULL;
+	clj_array *arr = clj_array_of(a);
+	intptr_t   k = clj_fixnum_val(i);
+	if (arr->kind != CLJ_ARRAY_OBJECT || k < 0 || (uint64_t)k >= arr->count) return NULL;
+	return (clj_slot *)arr->data + k;
+}
+
+static inline clj_value clj_c_aget(clj_value a, clj_value i) {
+	clj_slot *s = clj_c_object_slot(a, i);
+	return s ? clj_retain(s->v) : clj_aget(a, i);
+}
+
+// clj_array_set's store: clj_slot_store dirties the array and tells a GUARDED one's acyclic walk (object.h).
+static inline clj_value clj_c_aset(clj_value a, clj_value i, clj_value v) {
+	clj_slot *s = clj_c_object_slot(a, i);
+	if (!s) return clj_aset(a, i, v);
+	clj_value old = s->v;
+	clj_slot_store(&clj_array_of(a)->h, s, clj_retain(v));
+	clj_release(old);
+	return clj_retain(v);
+}
+
+static inline clj_value clj_c_alength(clj_value a) { return clj_is_array(a) ? clj_fixnum((intptr_t)clj_array_count(a)) : clj_alength(a); }
+
 // The dev guard of an inlined call (optimizer.c): the var still holds a closure of the fn compiled as `code`.
 static inline bool clj_c_root_runs(clj_value var, clj_native_ctx_fn code) {
 	if (clj_var_of(var)->dynamic) return false;

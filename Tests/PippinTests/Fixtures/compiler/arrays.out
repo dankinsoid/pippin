@@ -1,0 +1,3 @@
+6 [[3 3] [1 1] [2 2] [0 0]] 4 [2 2] :x :x nil [[3 3] [1 1] :x nil]
+2 40 [1 40 3] 1.5 0.25 [1.5 0.25] i H Hi true [false true] 3 2 2
+[true :end] Index 4 out of bounds for length 4 Index -1 out of bounds for length 4 Index 4 out of bounds for length 4 Index -1 out of bounds for length 4 aget: double cannot be cast to an integer aget: string cannot be cast to an integer aget: nil cannot be cast to an integer aset: keyword cannot be cast to an integer aget not supported on this type: vector aset not supported on this type: nil alength not supported on this type: vector alength not supported on this type: nil string cannot be cast to a number 1.5 Index 3 out of bounds for length 3 string cannot be cast to a char Index 0 out of bounds for length 0
