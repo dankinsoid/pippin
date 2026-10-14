@@ -32,6 +32,19 @@ static const char *const names[CLJ_STAT_COUNT] = {
 	[CLJ_STAT_TOKEN_USED] = "token_used",
 	[CLJ_STAT_TOKEN_SKIPPED] = "token_skipped",
 	[CLJ_STAT_TAKEN_OUT] = "taken_out",
+	[CLJ_STAT_SC_EDGES] = "sc_edges",
+	[CLJ_STAT_SC_HEAPREF_SET] = "sc_heapref_set",
+	[CLJ_STAT_SC_MUT] = "sc_mut",
+	[CLJ_STAT_SC_MUT_HEAPREF] = "sc_mut_heapref",
+	[CLJ_STAT_SC_IMM_HEAPREF] = "sc_imm_heapref",
+	[CLJ_STAT_SC_WALKS] = "sc_walks",
+	[CLJ_STAT_SC_WALKS_LAZY] = "sc_walks_lazy",
+	[CLJ_STAT_SC_WALK_NODES] = "sc_walk_nodes",
+	[CLJ_STAT_SC_WALK_LONG] = "sc_walk_long",
+	[CLJ_STAT_SC_WALK_CAPPED] = "sc_walk_capped",
+	[CLJ_STAT_SC_CYCLES] = "sc_cycles",
+	[CLJ_STAT_SC_SHARED] = "sc_shared",
+	[CLJ_STAT_SC_SHARED_REACH] = "sc_shared_reach",
 };
 
 const char *clj_debug_stat_name(int k) { return k >= 0 && k < CLJ_STAT_COUNT ? names[k] : "?"; }

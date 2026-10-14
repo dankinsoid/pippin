@@ -31,6 +31,21 @@ typedef enum {
 	CLJ_STAT_TOKEN_SKIPPED,
 	// A take-out get moved a unique child out of its unique parent for the assoc that puts it back.
 	CLJ_STAT_TAKEN_OUT,
+	// The store check's census (cc.c, design §7 «Проверка цикла в момент записи»): edges between unshared objects, the
+	// first one into an object, those into a reference type and into one with HEAPREF, and the walks a check would run.
+	CLJ_STAT_SC_EDGES,
+	CLJ_STAT_SC_HEAPREF_SET,
+	CLJ_STAT_SC_MUT,
+	CLJ_STAT_SC_MUT_HEAPREF,
+	CLJ_STAT_SC_IMM_HEAPREF,
+	CLJ_STAT_SC_WALKS,
+	CLJ_STAT_SC_WALKS_LAZY,
+	CLJ_STAT_SC_WALK_NODES,
+	CLJ_STAT_SC_WALK_LONG,
+	CLJ_STAT_SC_WALK_CAPPED,
+	CLJ_STAT_SC_CYCLES,
+	CLJ_STAT_SC_SHARED,
+	CLJ_STAT_SC_SHARED_REACH,
 	CLJ_STAT_COUNT
 } clj_stat;
 

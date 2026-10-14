@@ -95,6 +95,8 @@ _Static_assert(sizeof(clj_slot) == sizeof(clj_value), "a slot is the bare word")
 // A reference type that took an edge since a local walk last saw it.
 #define CLJ_FLAG_DIRTY       ((uint32_t)1 << 13)
 #define CLJ_FLAG_CC_LOCAL    (CLJ_FLAG_ACYCLIC | CLJ_FLAG_GUARDED | CLJ_FLAG_DIRTY)
+// Some heap object took an edge to it; never cleared, and implied by SHARED (design §7, «Проверка цикла в момент записи»).
+#define CLJ_FLAG_HEAPREF     ((uint32_t)1 << 14)
 // -DCLJ_STATS only: retained at least once, so its count passed 1 (the allocation census, stats.c).
 #define CLJ_FLAG_RETAINED    ((uint32_t)1 << 15)
 // Bits above it: the owning execution's tag in debug builds (clj_debug_owner_check), 0 for none; release leaves them 0.
@@ -253,6 +255,10 @@ bool      clj_is_shared(clj_value v);
 void      clj_cc_note_store(clj_header *owner, uint32_t flags);
 // An edge stored into a GUARDED owner: every acyclic mark is void (cc.c).
 void      clj_cc_guard_hit(void);
+#if CLJ_STATS
+// Before an edge owner → child, the flags of both as they were: the store check's census (cc.c).
+void      clj_cc_store_census(const clj_header *owner, uint32_t oflags, clj_header *child, uint32_t cflags);
+#endif
 // Marks v and everything reachable from it shared. Call before handing v to another thread.
 void      clj_share(clj_value v);
 // An environment failure (out of memory, a thread that would not start); an invariant is clj_ice (ice.h).
@@ -330,8 +336,18 @@ extern _Atomic uint64_t clj_debug_rc_counters[3];
 // gets none: the collector never enters it. Only a new bit is written, into an unshared or a shared unique owner, so
 // the plain write races with no reader; an ex-info's trace, stored after publication, brings none.
 // The new edge voids the owner's acyclic mark or dirties a reference type (design §7, «Метка «ацикличен»»).
+// A self-edge's HEAPREF may be lost to the owner's writes below: no other node reaches the owner through it.
 static inline void clj_reach_from(clj_header *owner, uint32_t flags, clj_value v) {
 	if (!clj_is_ptr(v)) return;
+	clj_header *c = clj_header_of(v);
+	uint32_t    f = c->flags;
+#if CLJ_STATS
+	clj_cc_store_census(owner, flags, c, f);
+#endif
+	if (!(f & (CLJ_FLAG_HEAPREF | CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL))) {
+		f |= CLJ_FLAG_HEAPREF;
+		c->flags = f;
+	}
 	if (__builtin_expect(flags & (CLJ_FLAG_MUTABLE | CLJ_FLAG_IMMORTAL | CLJ_FLAG_ACYCLIC), 0)) {
 		if (flags & (CLJ_FLAG_MUTABLE | CLJ_FLAG_IMMORTAL)) {
 			if (!(flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL | CLJ_FLAG_DIRTY))) {
@@ -343,7 +359,6 @@ static inline void clj_reach_from(clj_header *owner, uint32_t flags, clj_value v
 		flags &= ~CLJ_FLAG_ACYCLIC;
 		owner->flags = flags;
 	}
-	uint32_t f = clj_header_of(v)->flags;
 	uint32_t add = (f & (CLJ_FLAG_REACH | CLJ_FLAG_LAZY)) |
 	               ((f & (CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_SHARED)) == CLJ_FLAG_REACH_LOCAL ? CLJ_FLAG_REACH_LOCAL : 0);
 	if (!(add & ~flags)) return;

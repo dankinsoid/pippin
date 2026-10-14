@@ -1421,6 +1421,97 @@ void clj_cc_main_idle(void) {
 	while (buf_of(c)->n && clj_profile_now() - start < MAIN_IDLE_BUDGET_NS) collect_local(c, MAIN_IDLE_SLICE, true);
 }
 
+// ---- the store check's census (design §7, «Проверка цикла в момент записи»), -DCLJ_STATS builds only
+
+#if CLJ_STATS
+enum { SC_CAP = 1024, SC_LONG = 64, SC_SEEN = 4 * SC_CAP };
+
+typedef struct {
+	const clj_header *x;
+	struct {
+		const clj_header *h;
+		uint32_t          gen;
+	} seen[SC_SEEN];
+	clj_header *stack[SC_CAP];
+	uint32_t    gen, nstack, nodes;
+	bool        found, capped;
+} sc_walk;
+
+static _Thread_local sc_walk *sc_w;
+
+static bool sc_enterable(const clj_header *h) {
+	return (h->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL | CLJ_FLAG_REACH_LOCAL)) == CLJ_FLAG_REACH_LOCAL && !opaque(h->type);
+}
+
+static bool sc_first_visit(sc_walk *w, const clj_header *h) {
+	for (uint32_t i = ck_slot(SC_SEEN, h);; i = (i + 1) & (SC_SEEN - 1)) {
+		if (w->seen[i].gen != w->gen) {
+			w->seen[i].h = h;
+			w->seen[i].gen = w->gen;
+			return true;
+		}
+		if (w->seen[i].h == h) return false;
+	}
+}
+
+static void sc_visit(clj_value v, void *ctx) {
+	sc_walk *w = ctx;
+	if (!clj_is_ptr(v) || w->capped) return;
+	clj_header *c = clj_header_of(v);
+	if (c == w->x) {
+		w->found = true;
+		return;
+	}
+	if (!sc_enterable(c) || !sc_first_visit(w, c)) return;
+	if (w->nodes + w->nstack >= SC_CAP) {
+		w->capped = true;
+		return;
+	}
+	w->stack[w->nstack++] = c;
+}
+
+// The walk a check would run, with no acyclic mark skipped and to the end: the whole SCC of the owner is flagged.
+void clj_cc_store_census(const clj_header *owner, uint32_t oflags, clj_header *child, uint32_t cflags) {
+	if (oflags & CLJ_FLAG_SHARED) {
+		if (oflags & CLJ_FLAG_MUTABLE) {
+			CLJ_STAT(CLJ_STAT_SC_SHARED);
+			if (cflags & CLJ_FLAG_REACH) CLJ_STAT(CLJ_STAT_SC_SHARED_REACH);
+		}
+		return;
+	}
+	if ((oflags | cflags) & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL)) return;
+	CLJ_STAT(CLJ_STAT_SC_EDGES);
+	if (!(cflags & CLJ_FLAG_HEAPREF)) CLJ_STAT(CLJ_STAT_SC_HEAPREF_SET);
+	if (oflags & CLJ_FLAG_MUTABLE) CLJ_STAT(CLJ_STAT_SC_MUT);
+	bool self = child == owner;
+	if (!(oflags & CLJ_FLAG_HEAPREF) && !self) return;
+	CLJ_STAT((oflags & CLJ_FLAG_MUTABLE) ? CLJ_STAT_SC_MUT_HEAPREF : CLJ_STAT_SC_IMM_HEAPREF);
+	if (!(cflags & CLJ_FLAG_REACH_LOCAL) || opaque(child->type)) return;
+	CLJ_STAT(CLJ_STAT_SC_WALKS);
+	if (owner->type == &clj_lazy_seq_type) CLJ_STAT(CLJ_STAT_SC_WALKS_LAZY);
+	if (!sc_w && !(sc_w = calloc(1, sizeof *sc_w))) clj_fatal("out of memory");
+	sc_walk *w = sc_w;
+	w->x = owner;
+	w->gen++;
+	w->nstack = w->nodes = 0;
+	w->found = self;
+	w->capped = false;
+	if (!self) {
+		sc_first_visit(w, child);
+		w->stack[w->nstack++] = child;
+	}
+	while (w->nstack && !w->capped) {
+		clj_header *h = w->stack[--w->nstack];
+		w->nodes++;
+		if (h->type->each_child) h->type->each_child(h, sc_visit, w);
+	}
+	CLJ_STAT_ADD(CLJ_STAT_SC_WALK_NODES, w->nodes);
+	if (w->nodes > SC_LONG) CLJ_STAT(CLJ_STAT_SC_WALK_LONG);
+	if (w->capped) CLJ_STAT(CLJ_STAT_SC_WALK_CAPPED);
+	if (w->found) CLJ_STAT(CLJ_STAT_SC_CYCLES);
+}
+#endif
+
 // ---- executions: transfers, ends
 
 void *clj_cc_local_borrow(clj_coro *owner) {
