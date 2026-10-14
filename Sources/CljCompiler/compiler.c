@@ -819,7 +819,8 @@ static ukind unboxable_kind(const fnctx *f, const clj_node *n) {
 	}
 	case CLJ_NODE_INTRINSIC: {
 		unbox_op op = unbox_op_of(n->u.intrinsic.op);
-		if (unbox_is_int_valued(op)) return UK_INT;
+		// no facts is the kill switch's emit part: these forms go with the typed slots
+		if (unbox_is_int_valued(op)) return f->facts ? UK_INT : UK_NONE;
 		if (!unbox_is_arith(op)) return UK_NONE;
 		ukind a = unboxable_kind(f, n->u.intrinsic.args[0]);
 		ukind b = n->u.intrinsic.n == 2 ? unboxable_kind(f, n->u.intrinsic.args[1]) : UK_INT;

@@ -461,9 +461,9 @@
   with a hot loop over a parameter, then the parameter as a checked slot of the split (it is bound once, like a
   let's); a second split inside a fast branch — trigger: a nested loop whose inner entry is boxed, in a profile;
   a `let` without a loop, whose typed reads stay tag-checked — trigger: a hot straight-line body in a profile.
-- **`compare`, `Integer/compare`, `long`, `int` and `alength` are int64 whatever their arguments** (`unbox_is_int_valued`,
-  `emit_raw_int_valued`). Each answers a fixnum or a long box or throws, so under `--closed` such a node is
-  unboxable with no condition on its arguments: over int64 C values `compare` is `(a > b) - (a < b)` (over doubles
+- **`compare`, `Integer/compare`, `long`, `int` and `alength` are int64 whatever their arguments**
+  (`unbox_is_int_valued`, `emit_raw_int_valued`; off with the emitter's facts, `CLJ_NO_OPT=emit`). Each answers a
+  fixnum or a long box or throws, so under `--closed` such a node is unboxable with no condition on its arguments: over int64 C values `compare` is `(a > b) - (a < b)` (over doubles
   the same on the converted values, a NaN 0 both ways as `clj_compare` has it), `long` of an int64 is the value and
   `int` of one a range check whose failure calls `clj_int_cast` for the message; over boxed arguments the fast arm
   runs and `clj_c_unbox_long` takes its result. The facts call `long` fixnum|long and `int` fixnum (never a
