@@ -652,6 +652,18 @@
   is the builtin's own call and its own error. The checks are the builtin's, so `this` needs no type fact. Both
   modes; `CLJ_NO_OPT=dispatch` writes the plain call. core.c has 168 such sites (the agents' and the refs'
   `field*` reads, every core deftype's constructor). Fixtures `instances.clj`, `instances-rebind.clj`.
+- **Measured: field cells, `field*`/`new*` in place, implementor arms, the two-way cache** (the three entries above
+  and "Type descriptor", field reads). Same-runner corpus-bench against main: datascript alone with 8 pairs (run
+  38584003614) closed 0.903 [0.847–0.957], dev 0.939 [0.805–1.297], interp 0.989; the full bench (38583997797)
+  datascript closed 0.865 and dev 0.722 over its 2 pairs, suite-data closed 0.915 [0.859–0.968] and dev 0.983
+  [0.895–0.994] (its `c_invoke` −33 %: deftype constructors), every other cell's interval holding 1.000. Datascript
+  closed per iteration: protocol misses 226k → 1.2k, `c_invoke` −8.6 %, and `field_named`, `clj_c_proto_miss` and
+  the stack walk gone from the profile, which the cycle collector now leads. Its interpreted mode is bimodal on the
+  runner (~2.1 s or ~3.2 s a run, either side), so a 2-pair cell reads as ±25 %. Cost (x86_64 host, min of five
+  alternated): `boot/core.c` +226 bytes, clang `-O0` 3.91 → 3.89 s, `-O2` 25.71 → 25.72 s, `-O2 -DCLJ_CLOSED`
+  21.73 → 21.69 s; the five libraries' twelve dev units +0.02 % bytes with the paths normalized, clang in the host's
+  spread. Closed datascript writes its pss sites as 32 implementor switches (INode: Node, Leaf), 161 + 71 field
+  cells in db.cljc and pss, 120 in-place `field*`/`new*` in pss.
 - **A `lazy-seq` site builds its cell without a fn object** (`clj_lazy_seq_site`, optimizer.c, the shape both
   backends test; `emit_lazy_seq` in compiler.c; `clj_lazy_seq_code` in seq.c). `(lazy-seq* (fn* [] body))` whose fn has the one arity, no rest and no self slot
   emits the fn's functions as usual, then `clj_lazy_seq_code(<base>_a0, captures, n)`: the cell holds the arity's
