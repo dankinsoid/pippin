@@ -109,6 +109,12 @@ clj_value clj_compare(clj_value a, clj_value b, int *out) {
 	return cast_error(a, "Comparable");
 }
 
+CLJ_UNIT_ENTRY clj_value clj_compare_strings(clj_value a, clj_value b) { return clj_fixnum(compare_strings(a, b)); }
+
+CLJ_UNIT_ENTRY clj_value clj_compare_keywords(clj_value a, clj_value b) {
+	return clj_fixnum(compare_named(clj_keyword_ns(a), clj_keyword_name(a), clj_keyword_ns(b), clj_keyword_name(b)));
+}
+
 clj_value clj_compare2(clj_value a, clj_value b) {
 	int c;
 	if (clj_compare(a, b, &c) == CLJ_THROWN) return CLJ_THROWN;

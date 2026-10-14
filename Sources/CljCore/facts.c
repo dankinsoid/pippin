@@ -284,7 +284,7 @@ static const fact_sig sigs[] = {
 	F("=", 0, CLJ_T_BOOL), F("not=", 0, CLJ_T_BOOL), F("==", 0, CLJ_T_BOOL), F("identical?", 2, CLJ_T_BOOL),
 	F("compare", 2, CLJ_T_FIXNUM), F("hash", 1, CLJ_T_FIXNUM), F("count", 1, CLJ_T_FIXNUM), F("alength", 1, CLJ_T_FIXNUM),
 	RA("quot", 2, SIG_ARITH), RA("rem", 2, SIG_ARITH), F("mod", 2, T_NUM), F("min", 0, T_NUM), F("max", 0, T_NUM),
-	F("long", 1, T_INT), F("int", 1, T_INT), F("bigint", 1, T_INT), F("double", 1, CLJ_T_DOUBLE), F("float", 1, CLJ_T_DOUBLE),
+	F("long", 1, CLJ_T_FIXNUM | CLJ_T_LONG), F("int", 1, CLJ_T_FIXNUM), F("bigint", 1, T_INT), F("double", 1, CLJ_T_DOUBLE), F("float", 1, CLJ_T_DOUBLE),
 	F("bit-and", 0, T_INT), F("bit-or", 0, T_INT), F("bit-xor", 0, T_INT), F("bit-not", 1, T_INT),
 	F("bit-shift-left", 2, T_INT), F("bit-shift-right", 2, T_INT), F("unsigned-bit-shift-right", 2, T_INT),
 	F("parse-long", 1, T_INT | CLJ_T_NIL), F("parse-double", 1, CLJ_T_DOUBLE | CLJ_T_NIL),
@@ -407,6 +407,7 @@ static const fact_sig *sig_of_var(clj_value var, uint32_t arity) {
 	return sig_named(CLJ_STR(clj_symbol_name(clj_var_name(var))).bytes, arity);
 }
 
+// Integer/compare, the one entry outside clojure.core, reads as compare does: a fixnum, no refinement.
 static const fact_sig *sig_of_intrinsic(const clj_intrinsic *op) {
 	return sig_named(strchr(op->name, '/') + 1, op->arity);
 }

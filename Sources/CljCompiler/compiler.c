@@ -738,7 +738,7 @@ static bool dbl_slot(const fnctx *f, uint32_t i) { return i < 64 && ((f->dbls >>
 
 // ---- unboxed arithmetic (NOTES.md, "Compiler": unboxed arithmetic, int64 and double slots, entry-checked frames)
 
-typedef enum { UNBOX_NONE, UNBOX_ADD, UNBOX_SUB, UNBOX_MUL, UNBOX_DIV, UNBOX_QUOT, UNBOX_REM, UNBOX_INC, UNBOX_DEC, UNBOX_LT, UNBOX_LE, UNBOX_GT, UNBOX_GE, UNBOX_EQ, UNBOX_ZERO, UNBOX_POS, UNBOX_NEG } unbox_op;
+typedef enum { UNBOX_NONE, UNBOX_ADD, UNBOX_SUB, UNBOX_MUL, UNBOX_DIV, UNBOX_QUOT, UNBOX_REM, UNBOX_INC, UNBOX_DEC, UNBOX_LT, UNBOX_LE, UNBOX_GT, UNBOX_GE, UNBOX_EQ, UNBOX_ZERO, UNBOX_POS, UNBOX_NEG, UNBOX_NUMEQ, UNBOX_LONG, UNBOX_INT, UNBOX_CMP, UNBOX_ICMP } unbox_op;
 
 // The C representation of an unboxed value: int64_t or double.
 typedef enum { UK_NONE, UK_INT, UK_DBL } ukind;
@@ -754,7 +754,9 @@ static unbox_op unbox_op_of(const clj_intrinsic *op) {
 		{"clojure.core/quot", 2, UNBOX_QUOT}, {"clojure.core/rem", 2, UNBOX_REM},
 		{"clojure.core/<", 2, UNBOX_LT},    {"clojure.core/<=", 2, UNBOX_LE},   {"clojure.core/>", 2, UNBOX_GT},
 		{"clojure.core/>=", 2, UNBOX_GE},   {"clojure.core/=", 2, UNBOX_EQ},    {"clojure.core/zero?", 1, UNBOX_ZERO},
-		{"clojure.core/pos?", 1, UNBOX_POS}, {"clojure.core/neg?", 1, UNBOX_NEG},
+		{"clojure.core/pos?", 1, UNBOX_POS}, {"clojure.core/neg?", 1, UNBOX_NEG}, {"clojure.core/==", 2, UNBOX_NUMEQ},
+		{"clojure.core/long", 1, UNBOX_LONG}, {"clojure.core/int", 1, UNBOX_INT}, {"clojure.core/compare", 2, UNBOX_CMP},
+		{"Integer/compare", 2, UNBOX_ICMP},
 	};
 	for (size_t i = 0; i < sizeof table / sizeof *table; i++) {
 		if (table[i].arity == op->arity && strcmp(table[i].name, op->name) == 0) return table[i].op;
@@ -763,6 +765,8 @@ static unbox_op unbox_op_of(const clj_intrinsic *op) {
 }
 
 static bool unbox_is_arith(unbox_op op) { return op >= UNBOX_ADD && op <= UNBOX_DEC; }
+// An int64 or a throw whatever the arguments are, so always unboxable: the boxed ones go through the fast arm.
+static bool unbox_is_int_valued(unbox_op op) { return op >= UNBOX_LONG && op <= UNBOX_ICMP; }
 
 // The kind of an arithmetic result over the kinds of its arguments; an integer quotient may be a ratio, so it stays
 // boxed, and quot/rem over doubles round through the builtin.
@@ -815,6 +819,7 @@ static ukind unboxable_kind(const fnctx *f, const clj_node *n) {
 	}
 	case CLJ_NODE_INTRINSIC: {
 		unbox_op op = unbox_op_of(n->u.intrinsic.op);
+		if (unbox_is_int_valued(op)) return UK_INT;
 		if (!unbox_is_arith(op)) return UK_NONE;
 		ukind a = unboxable_kind(f, n->u.intrinsic.args[0]);
 		ukind b = n->u.intrinsic.n == 2 ? unboxable_kind(f, n->u.intrinsic.args[1]) : UK_INT;
@@ -1121,6 +1126,53 @@ static void emit_double_arith(fnctx *f, unbox_op op, const char *a, const char *
 }
 
 static itemp emit_prim_raw(fnctx *f, const clj_node *n);
+static itemp emit_raw(fnctx *f, const clj_node *n);
+static temp  emit_borrowed(fnctx *f, const clj_node *n);
+static void  release_temp(fnctx *f, const temp *t);
+static const char *fast_cname(const clj_intrinsic *op);
+
+// compare, Integer/compare, long and int as an int64: on the C values where the arguments allow, else the fast arm over
+// the boxed arguments, whose result is a fixnum or a long box with the guard constant (unboxable is closed only).
+// @ai-generated(solo)
+static itemp emit_raw_int_valued(fnctx *f, const clj_node *n, unbox_op op) {
+	const clj_node *const *args = n->u.intrinsic.args;
+	uint32_t               nargs = n->u.intrinsic.n;
+	ukind                  ka = unboxable_kind(f, args[0]), kb = nargs == 2 ? unboxable_kind(f, args[1]) : UK_NONE;
+	if (op == UNBOX_LONG && ka == UK_INT) return emit_raw(f, args[0]);
+	if (op == UNBOX_INT && ka == UK_INT) {
+		itemp x = emit_raw(f, args[0]);
+		sb_printf(&f->out, "\tif (__builtin_expect(%s < INT32_MIN || %s > INT32_MAX, 0)) {\n", x.name, x.name);
+		// the cast's own throw, so the message is the boxed path's
+		int k = f->naux++;
+		sb_printf(&f->out, "\tclj_value bx%d = clj_long_new(%s);\n\t(void)clj_int_cast(bx%d);\n\tclj_release(bx%d);\n", k, x.name, k, k);
+		emit_site(f);
+		emit_unwind(f);
+		sb_puts(&f->out, "\t}\n");
+		f->u->slots.unboxed++;
+		return x;
+	}
+	if ((op == UNBOX_CMP && ka != UK_NONE && kb != UK_NONE) || (op == UNBOX_ICMP && ka == UK_INT && kb == UK_INT)) {
+		itemp x = emit_raw(f, args[0]), y = emit_raw(f, args[1]);
+		itemp t = new_itemp(f, UK_INT);
+		// over doubles a NaN answers 0 both ways, as clj_compare's unordered pair does
+		if (ka == UK_INT && kb == UK_INT) sb_printf(&f->out, "\tint64_t %s = (%s > %s) - (%s < %s);\n", t.name, x.name, y.name, x.name, y.name);
+		else sb_printf(&f->out, "\tint64_t %s = ((double)%s > (double)%s) - ((double)%s < (double)%s);\n", t.name, x.name, y.name, x.name, y.name);
+		f->u->slots.unboxed++;
+		return t;
+	}
+	temp b[2];
+	for (uint32_t i = 0; i < nargs; i++) b[i] = emit_borrowed(f, args[i]);
+	int k = f->naux++;
+	sb_printf(&f->out, "\tclj_value r%d = %s(%s%s%s);\n", k, fast_cname(n->u.intrinsic.op), b[0].name, nargs == 2 ? ", " : "", nargs == 2 ? b[1].name : "");
+	emit_site(f);
+	sb_printf(&f->out, "\tif (r%d == CLJ_THROWN) {\n", k);
+	emit_unwind(f);
+	sb_puts(&f->out, "\t}\n");
+	itemp t = new_itemp(f, UK_INT);
+	sb_printf(&f->out, "\tint64_t %s = clj_c_unbox_long(r%d);\n", t.name, k);
+	for (uint32_t i = nargs; i-- > 0;) release_temp(f, &b[i]);
+	return t;
+}
 
 // n as an unboxed value: only for an unboxable node.
 static itemp emit_raw(fnctx *f, const clj_node *n) {
@@ -1145,6 +1197,7 @@ static itemp emit_raw(fnctx *f, const clj_node *n) {
 	}
 	case CLJ_NODE_INTRINSIC: {
 		unbox_op op = unbox_op_of(n->u.intrinsic.op);
+		if (unbox_is_int_valued(op)) return emit_raw_int_valued(f, n, op);
 		itemp    a = emit_raw(f, n->u.intrinsic.args[0]);
 		itemp    b = {"INT64_C(1)", UK_INT};
 		if (n->u.intrinsic.n == 2) b = emit_raw(f, n->u.intrinsic.args[1]);
@@ -1166,7 +1219,8 @@ static const char *unbox_compare(unbox_op op) {
 	case UNBOX_LE: return "<=";
 	case UNBOX_GT: return ">";
 	case UNBOX_GE: return ">=";
-	case UNBOX_EQ: return "==";
+	case UNBOX_EQ:
+	case UNBOX_NUMEQ:
 	case UNBOX_ZERO: return "==";
 	case UNBOX_POS: return ">";
 	case UNBOX_NEG: return "<";
@@ -2580,7 +2634,8 @@ static const char *fast_cname(const clj_intrinsic *op) {
 		{"clj_dec", "clj_c_dec"},     {"clj_lt", "clj_c_lt"},       {"clj_le", "clj_c_le"},         {"clj_gt", "clj_c_gt"},
 		{"clj_ge", "clj_c_ge"},       {"clj_eq", "clj_c_eq"},       {"clj_neq", "clj_c_neq"},       {"clj_zero_p", "clj_c_zero_p"},
 		{"clj_pos_p", "clj_c_pos_p"}, {"clj_neg_p", "clj_c_neg_p"}, {"clj_count", "clj_c_count"},   {"clj_nth2", "clj_c_nth2"},
-		{"clj_nth3", "clj_c_nth3"},   {"clj_first", "clj_c_first"},
+		{"clj_nth3", "clj_c_nth3"},   {"clj_first", "clj_c_first"}, {"clj_compare2", "clj_c_compare"}, {"clj_num_eq2", "clj_c_num_eq"},
+		{"clj_long_cast", "clj_c_long"}, {"clj_int_cast", "clj_c_int"}, {"clj_integer_compare", "clj_c_integer_compare"},
 	};
 	if (clj_opt_off(CLJ_NO_OPT_INLINE)) return op->cname;
 	for (size_t i = 0; i < sizeof fast / sizeof *fast; i++) {
@@ -2597,7 +2652,7 @@ static void emit_intrinsic_call(fnctx *f, const clj_intrinsic *op, const char *c
 
 // Every argument is an unboxable expression: the operation runs on the untagged values and only the result is boxed.
 static temp emit_unboxed(fnctx *f, const clj_node *n, unbox_op uop) {
-	if (unbox_is_arith(uop)) {
+	if (unbox_is_arith(uop) || unbox_is_int_valued(uop)) {
 		itemp r = emit_raw(f, n);
 		temp  t = new_temp(f, OWN_YES);
 		sb_printf(&f->out, "\tclj_value %s = %s(%s);\n", t.name, r.kind == UK_INT ? "clj_long_new" : "clj_double_new", r.name);
@@ -2773,7 +2828,8 @@ static temp emit_takeout(fnctx *f, const clj_node *n, const cljc_reuse_pair *pai
 static temp emit_intrinsic(fnctx *f, const clj_node *n) {
 	const clj_intrinsic *op = n->u.intrinsic.op;
 	unbox_op             uop = unbox_op_of(op);
-	if (uop != UNBOX_NONE) {
+	if (unbox_is_int_valued(uop) && unboxable_kind(f, n) == UK_INT) return emit_unboxed(f, n, uop);
+	if (uop != UNBOX_NONE && !unbox_is_int_valued(uop)) {
 		bool  all_unboxable = true, all_typed = true;
 		ukind kinds[2] = {UK_NONE, UK_NONE};
 		for (uint32_t i = 0; i < n->u.intrinsic.n; i++) {

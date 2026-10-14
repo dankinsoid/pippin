@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "clj/coll.h"
+#include "clj/compare.h"
 #include "clj/fn.h"
 #include "clj/ice.h"
 #include "clj/intrinsics.h"
@@ -15,6 +16,8 @@
 #define I2(nm, f, p) {"clojure.core/" nm, 2, CLJ_INTRINSIC_2, {.f2 = f}, #f, NULL, p, {.f2 = NULL}}
 #define I3(nm, f, p) {"clojure.core/" nm, 3, CLJ_INTRINSIC_3, {.f3 = f}, #f, NULL, p, {.f2 = NULL}}
 // The entry's function retains the collection before c, its consuming form.
+// A static of a class namespace (builtins_number.c), named in full.
+#define S2(full, f, p) {full, 2, CLJ_INTRINSIC_2, {.f2 = f}, #f, NULL, p, {.f2 = NULL}}
 #define C2(nm, f, c, p) {"clojure.core/" nm, 2, CLJ_INTRINSIC_2, {.f2 = f}, #f, #c, p, {.f2 = c}}
 #define C3(nm, f, c, p) {"clojure.core/" nm, 3, CLJ_INTRINSIC_3, {.f3 = f}, #f, #c, p, {.f3 = c}}
 
@@ -34,6 +37,11 @@ static const clj_intrinsic table[] = {
 	I2("=", clj_eq, true),
 	I2("not=", clj_neq, true),
 	I2("identical?", clj_identical, true),
+	I2("compare", clj_compare2, true),
+	I2("==", clj_num_eq2, true),
+	I1("long", clj_long_cast, true),
+	I1("int", clj_int_cast, true),
+	S2("Integer/compare", clj_integer_compare, true),
 	I1("not", clj_not, true),
 	I1("nil?", clj_nil_p, true),
 	I1("zero?", clj_zero_p, true),
@@ -156,13 +164,18 @@ const clj_intrinsic *clj_intrinsic_consuming(clj_value fn, uint32_t arity) {
 }
 
 void clj_intrinsics_install(void) {
-	clj_value core = clj_ns_core();
 	for (size_t i = 0; i < N; i++) {
 		if (table[i].arity != (uint32_t)table[i].kind) clj_ice("boot/intrinsic-table", NULL, "%s: arity does not match its kind", table[i].name);
-		clj_value sym = clj_symbol_from_cstr(strchr(table[i].name, '/') + 1);
-		clj_value var = clj_ns_resolve(core, sym);
+		const char *slash = strchr(table[i].name, '/');
+		clj_value   ns_name = clj_string_new(table[i].name, (size_t)(slash - table[i].name));
+		clj_value   ns_sym = clj_symbol_new(CLJ_NIL, ns_name);
+		clj_value   ns = clj_ns_find(ns_sym);
+		clj_release(ns_sym);
+		clj_release(ns_name);
+		clj_value sym = clj_symbol_from_cstr(slash + 1);
+		clj_value var = clj_is_nil(ns) ? CLJ_NIL : clj_ns_resolve(ns, sym);
 		clj_release(sym);
-		if (clj_is_nil(var)) clj_ice("boot/intrinsic-table", NULL, "%s names no core var", table[i].name);
+		if (clj_is_nil(var)) clj_ice("boot/intrinsic-table", NULL, "%s names no var", table[i].name);
 		clj_value fn = clj_var_root(var);
 		if (!clj_is_fn(fn) || clj_fn_of(fn)->kind != CLJ_FN_NATIVE) clj_ice("boot/intrinsic-table", NULL, "%s names a core var with no builtin root", table[i].name);
 		vars[i] = var;

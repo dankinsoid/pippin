@@ -9,6 +9,7 @@
 #include "clj/atom.h"
 #include "clj/bigint.h"
 #include "clj/coll.h"
+#include "clj/compare.h"
 #include "clj/compiled.h"
 #include "clj/cons.h"
 #include "clj/core.h"
@@ -186,6 +187,23 @@ static inline clj_value clj_c_neq(clj_value a, clj_value b) { return CLJ_C_FIX2(
 static inline clj_value clj_c_zero_p(clj_value v) { return clj_is_fixnum(v) ? clj_bool(clj_fixnum_val(v) == 0) : clj_zero_p(v); }
 static inline clj_value clj_c_pos_p(clj_value v) { return clj_is_fixnum(v) ? clj_bool(clj_fixnum_val(v) > 0) : clj_pos_p(v); }
 static inline clj_value clj_c_neg_p(clj_value v) { return clj_is_fixnum(v) ? clj_bool(clj_fixnum_val(v) < 0) : clj_neg_p(v); }
+// Identical values compare 0 in clj_compare too, a NaN box against itself included.
+static inline clj_value clj_c_compare(clj_value a, clj_value b) {
+	if (CLJ_C_FIX2(a, b)) return clj_fixnum((clj_fixnum_val(a) > clj_fixnum_val(b)) - (clj_fixnum_val(a) < clj_fixnum_val(b)));
+	if (a == b) return clj_fixnum(0);
+	if (clj_is_keyword(a) && clj_is_keyword(b)) return clj_compare_keywords(a, b);
+	if (clj_is_string(a) && clj_is_string(b)) return clj_compare_strings(a, b);
+	return clj_compare2(a, b);
+}
+static inline clj_value clj_c_num_eq(clj_value a, clj_value b) { return CLJ_C_FIX2(a, b) ? clj_bool(a == b) : clj_num_eq2(a, b); }
+static inline clj_value clj_c_long(clj_value v) { return clj_is_fixnum(v) ? v : clj_long_cast(v); }
+static inline clj_value clj_c_int(clj_value v) {
+	return clj_is_fixnum(v) && clj_fixnum_val(v) >= INT32_MIN && clj_fixnum_val(v) <= INT32_MAX ? v : clj_int_cast(v);
+}
+static inline clj_value clj_c_integer_compare(clj_value a, clj_value b) {
+	if (CLJ_C_FIX2(a, b)) return clj_fixnum((clj_fixnum_val(a) > clj_fixnum_val(b)) - (clj_fixnum_val(a) < clj_fixnum_val(b)));
+	return clj_integer_compare(a, b);
+}
 
 static inline clj_value clj_c_count(clj_value v) {
 	if (clj_is_vector(v)) return clj_fixnum((intptr_t)clj_vector_head_of(v)->count);

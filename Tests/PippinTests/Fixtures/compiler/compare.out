@@ -1,0 +1,6 @@
+[-1 1 0 0 -1 1 0 1 0 0 0 -1 1 -1 1 -1 1 0 -1 1 -1 1 -1 1 -1 1 0 1 -1 -1 -1 -1]
+[string cannot be cast to a number long cannot be cast to a string string cannot be cast to a keyword symbol cannot be cast to a keyword map cannot be cast to Comparable]
+[-1 1 0 -1 1 Integer/compare expects two integers, got: long and double Integer/compare expects two integers, got: nil and long Integer/compare expects two integers, got: string and long]
+[true false true true false false true true true string cannot be cast to a number nil cannot be cast to a number] true false string cannot be cast to a number
+[[7 7] [-7 -7] [1 1] [-1 -1] [97 97] [3000000000 Value out of range for int: 3000000000] [9223372036854775807 Value out of range for int: 9223372036854775807] [1 1] [2 2] [Value out of range for long: ##NaN Value out of range for int: ##NaN] [string cannot be cast to a number string cannot be cast to a number] [nil cannot be cast to a number nil cannot be cast to a number]]
+-1 1 -1 Integer/compare expects two integers, got: string and long string cannot be cast to a number 4 1 [-1 false -1 true 1 false] [0 0 false] [2147483646 2147483647 Value out of range for int: 2147483648] [Value out of range for int: -2147483649 -2147483648] [0 0 1 1 2 3]

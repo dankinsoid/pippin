@@ -6,6 +6,7 @@
 
 #include "clj/core.h"
 #include "clj/fn.h"
+#include "clj/intrinsics.h"
 
 // ---- promoting operators: only a 64-bit overflow reaches the bigint, everything else is the plain tower
 
@@ -57,12 +58,17 @@ static clj_value b_decp(const clj_value *args, size_t n) {
 
 // ---- numeric equality across kinds, where = keeps Clojure's category rule
 
+clj_value clj_num_eq2(clj_value a, clj_value b) {
+	int c;
+	if (clj_num_cmp(a, b, &c) == CLJ_THROWN) return CLJ_THROWN;
+	return clj_bool(c == 0);
+}
+
 static clj_value b_num_eq(const clj_value *args, size_t n) {
 	if (n == 1) return clj_is_number(args[0]) ? CLJ_TRUE : clj_throw_msg("%s cannot be cast to a number", clj_type_name(args[0]));
 	for (size_t i = 1; i < n; i++) {
-		int c;
-		if (clj_num_cmp(args[i - 1], args[i], &c) == CLJ_THROWN) return CLJ_THROWN;
-		if (c != 0) return CLJ_FALSE;
+		clj_value r = clj_num_eq2(args[i - 1], args[i]);
+		if (r != CLJ_TRUE) return r;
 	}
 	return CLJ_TRUE;
 }
@@ -134,14 +140,17 @@ static clj_value int_cast(clj_value v, const char *what, int64_t lo, int64_t hi,
 	return ok ? clj_long_new(i) : range_error(what, v);
 }
 
+clj_value clj_long_cast(clj_value v) { return int_cast(v, "long", INT64_MIN, INT64_MAX, true); }
+clj_value clj_int_cast(clj_value v) { return int_cast(v, "int", INT32_MIN, INT32_MAX, true); }
+
 static clj_value b_long(const clj_value *args, size_t n) {
 	(void)n;
-	return int_cast(args[0], "long", INT64_MIN, INT64_MAX, true);
+	return clj_long_cast(args[0]);
 }
 
 static clj_value b_int(const clj_value *args, size_t n) {
 	(void)n;
-	return int_cast(args[0], "int", INT32_MIN, INT32_MAX, true);
+	return clj_int_cast(args[0]);
 }
 
 static clj_value b_short(const clj_value *args, size_t n) {
@@ -542,12 +551,16 @@ static clj_value b_long_value_of(const clj_value *args, size_t n) {
 }
 
 // Integer.compare's -1, 0 or 1; a long here is the JVM's int widened, so the order is the same.
+clj_value clj_integer_compare(clj_value a, clj_value b) {
+	int64_t x, y;
+	if (!clj_int64_of(a, &x) || !clj_int64_of(b, &y))
+		return clj_throw_msg("Integer/compare expects two integers, got: %s and %s", clj_type_name(a), clj_type_name(b));
+	return clj_fixnum(x < y ? -1 : x > y ? 1 : 0);
+}
+
 static clj_value b_integer_compare(const clj_value *args, size_t n) {
 	(void)n;
-	int64_t x, y;
-	if (!clj_int64_of(args[0], &x) || !clj_int64_of(args[1], &y))
-		return clj_throw_msg("Integer/compare expects two integers, got: %s and %s", clj_type_name(args[0]), clj_type_name(args[1]));
-	return clj_fixnum(x < y ? -1 : x > y ? 1 : 0);
+	return clj_integer_compare(args[0], args[1]);
 }
 
 static clj_value b_math_sqrt(const clj_value *args, size_t n) {

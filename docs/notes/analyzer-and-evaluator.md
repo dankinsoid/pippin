@@ -613,7 +613,9 @@
 - **Intrinsics table** (intrinsics.h/.c): `{qualified name, arity, kind INTRINSIC_1/2/3, C function, pure,
   consume}` for `+ - * /` (2 args), `inc dec`, `< <= > >= = not= identical?` (2 args), `not nil? zero? pos?
   neg? even? odd?`, the type predicates, `empty? first rest next seq count`, `cons get(2,3) nth(2,3) conj(2)
-  assoc(3) dissoc(2) disj(2) with-meta(2) contains? set?`; a side table resolved at boot holds each entry's var and
+  assoc(3) dissoc(2) disj(2) with-meta(2) contains? set?`, `compare ==`(2 args) `long int`, `aget aset alength`,
+  and one static outside clojure.core, `Integer/compare`, whose class namespace builtins_number.c fills before
+  the table resolves; a side table resolved at boot holds each entry's var and
   native fn. The rule, kept by structure: the builtin bound to the same var calls the same function —
   single-arity builtins forward, variadic ones fold (`b_add` is a loop over `clj_add`), and the five that
   consume their collection at the core (`conj`, `assoc`, `dissoc`, `disj`, `with-meta`) list that core as their
@@ -622,8 +624,7 @@
   prepares per call). Consequences: `(+ a b c)` boxes a double at every step where the
   old accumulator did not, and a fixnum fold that overflows mid-way throws where the old one could
   recover (`(+ MAX MAX (- MAX))`); Clojure promotes both. `IntrinsicsTests` crosses every entry with
-  sample values of every type against `clj_invoke` and pins that core.clj rebinds none of them. `==`
-  is not an entry because no builtin exists; `str`, `hash`, `second`, `meta`, `apply` are left out
+  sample values of every type against `clj_invoke` and pins that core.clj rebinds none of them. `str`, `hash`, `second`, `meta`, `apply` are left out
   (variadic with no fixed core, throw on unhashable types, composed, or not one function).
 - **Intrinsic guard.** `eval_intrinsic` compares the var's root (relaxed load) with the boot fn from the
   side table before every call; on a mismatch it derefs the var and goes through `clj_invoke`, so

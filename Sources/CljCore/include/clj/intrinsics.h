@@ -29,6 +29,13 @@ clj_value clj_ge(clj_value a, clj_value b);
 clj_value clj_eq(clj_value a, clj_value b);
 clj_value clj_neq(clj_value a, clj_value b);
 clj_value clj_identical(clj_value a, clj_value b);
+// (== a b): numbers only, a NaN equal to nothing; compare is clj_compare2 of compare.h.
+clj_value clj_num_eq2(clj_value a, clj_value b);
+// (long v), (int v): the value as an integer of that range, or the cast's throw.
+clj_value clj_long_cast(clj_value v);
+clj_value clj_int_cast(clj_value v);
+// (Integer/compare a b): -1, 0 or 1 for two integers; anything else throws.
+clj_value clj_integer_compare(clj_value a, clj_value b);
 
 // ---- predicates: a boolean, never thrown, except zero?/pos?/neg? on a non-number and even?/odd? on a non-integer
 clj_value clj_not(clj_value v);

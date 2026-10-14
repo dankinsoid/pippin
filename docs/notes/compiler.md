@@ -461,6 +461,17 @@
   with a hot loop over a parameter, then the parameter as a checked slot of the split (it is bound once, like a
   let's); a second split inside a fast branch — trigger: a nested loop whose inner entry is boxed, in a profile;
   a `let` without a loop, whose typed reads stay tag-checked — trigger: a hot straight-line body in a profile.
+- **`compare`, `Integer/compare`, `long` and `int` are int64 whatever their arguments** (`unbox_is_int_valued`,
+  `emit_raw_int_valued`). Each answers a fixnum or a long box or throws, so under `--closed` such a node is
+  unboxable with no condition on its arguments: over int64 C values `compare` is `(a > b) - (a < b)` (over doubles
+  the same on the converted values, a NaN 0 both ways as `clj_compare` has it), `long` of an int64 is the value and
+  `int` of one a range check whose failure calls `clj_int_cast` for the message; over boxed arguments the fast arm
+  runs and `clj_c_unbox_long` takes its result. The facts call `long` fixnum|long and `int` fixnum (never a
+  bigint), so `(let [c (long (Integer/compare (.-e d1) (.-e d2)))] (if (== 0 c) ...))` — datascript's
+  `combine-cmp` over `int-compare` — keeps `c` in an `int64_t` and the test is a C compare. `==` of two arguments is
+  a comparison like `<`: unboxed or tag-checked, and an int64 beside a double compares as doubles, which is what
+  `clj_num_cmp` does for the pair. In dev the guard can see a rebound root, so these stay boxed behind their fast
+  arms (fixtures `compare.clj`, dev and closed, and `compare-rebind.clj`, dev).
 - [~] **The primitive entry: worker/wrapper** (design §6 "worker/wrapper = наши два входа, боксовый + примитивный", §6b
   "unboxed-конвенция между функциями"; `emit_worker`, `emit_result`, `prim_site_of`, `emit_prim`, `target_entry`;
   compiled_internal.h `clj_wlong`/`clj_wdouble`, `clj_c_as_int64`, `clj_c_unbox_long`, `clj_c_prim_fallback`,
@@ -1038,7 +1049,9 @@
   `inc dec` on fixnums with the overflow check, `< <= > >= = not=` and `zero? pos? neg?` on fixnums (two fixnums are
   equal exactly when identical: a long is a fixnum whenever one can hold it), `count` of a vector from its head,
   `nth` of a vector at a fixnum index within bounds (one load in a tuple, `clj_vector_nth` in a trie), `first` of a
-  cons, a list or a vector; anything else calls the function, so each arm answers what the function answers for the
+  cons, a list or a vector, `compare` of two fixnums or of one object with itself (with the keyword and string pairs
+  sent to `clj_compare_keywords`/`clj_compare_strings`, compare.c, past the type ladder), `==` and `Integer/compare`
+  of two fixnums, `long` of a fixnum and `int` of one in range; anything else calls the function, so each arm answers what the function answers for the
   representation it tests. The vector's shared head and the tuple's items are `clj_vector_head` (vector.h, asserted
   against vector.c's layouts). `get` with a literal keyword and `(:k m)` already have their site cache. Not done: `get`
   of another key, `next`/`rest` (their owned forms are the reuse planner's); trigger: a profile with `clj_get2` or

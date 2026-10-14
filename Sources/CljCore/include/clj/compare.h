@@ -13,6 +13,9 @@
 clj_value clj_compare(clj_value a, clj_value b, int *out);
 // The same as a value: -1, 0 or 1 as a fixnum, or CLJ_THROWN. What clojure.core/compare calls.
 clj_value clj_compare2(clj_value a, clj_value b);
+// clj_compare2 of two strings and of two keywords, the dispatch skipped: a compiled site's fast arms.
+clj_value clj_compare_strings(clj_value a, clj_value b);
+clj_value clj_compare_keywords(clj_value a, clj_value b);
 
 // The types clj_compare orders, Java's Comparable: anything else throws against every sibling, so a sorted
 // collection must refuse such a key where no sibling exists to reveal it (sorted.c).
