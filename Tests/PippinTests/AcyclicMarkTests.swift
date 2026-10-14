@@ -71,6 +71,11 @@ extension CoreTests {
 			base.check()
 		}
 
+		// A live ring below leaves the node above unmarked: once that node goes, RC alone could not free the ring.
+		@Test func aRingBelowIsNoMark() throws {
+			try collected("(let [v (volatile! nil) root (Node. (object-array [v]))] (vreset! v [v]) (mark! root))", marked: false)
+		}
+
 		@Test func asetIntoAMarkedArray() throws {
 			let epochs = stat(CLJ_CC_STAT_EPOCHS)
 			try collected("""

@@ -1033,10 +1033,10 @@ static bool self_edge(const graph *g, uint32_t v) {
 	return false;
 }
 
-// Components come sinks first, so whatever a component reaches outside itself is judged already.
+// Sinks first, so what a component reaches is judged. A cycle taints too: garbage below a skipped node goes by RC.
 static void mark_component(graph *g, const uint32_t *members, uint32_t n, void *ctx) {
 	(void)ctx;
-	bool taint = false;
+	bool taint = n > 1 || self_edge(g, members[0]);
 	for (uint32_t k = 0; k < n && !taint; k++) {
 		const node *nd = &g->nodes[members[k]];
 		taint = nd->flags & N_HOT;
@@ -1044,7 +1044,7 @@ static void mark_component(graph *g, const uint32_t *members, uint32_t n, void *
 	}
 	if (taint) {
 		for (uint32_t k = 0; k < n; k++) g->nodes[members[k]].flags |= N_TAINT;
-	} else if (n == 1 && !self_edge(g, members[0])) {
+	} else {
 		g->nodes[members[0]].flags |= N_MARK;
 	}
 }

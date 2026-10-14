@@ -238,7 +238,8 @@
   "Datascript": 67 % of the closed build's busy samples in `cc.c`, 30× the JVM). Header bits 11–13 (10 is a string's ASCII bit), unshared objects
   only, all cleared by `clj_share`: `CLJ_FLAG_ACYCLIC`, `CLJ_FLAG_GUARDED` and `CLJ_FLAG_DIRTY`. After `blacken` a
   local collection runs Tarjan's components over its black nodes (`black_components`, shared with the deep walk's
-  rings) and marks a node whose component is trivial when nothing below it is hot — a `MUTABLE` with `DIRTY`, a lazy
+  rings) and marks a node when no component at or below it is a cycle (else a ring only it holds would wait for
+  the next collection once its holder goes) and nothing below it is hot — a `MUTABLE` with `DIRTY`, a lazy
   seq still unrealized, an unshared transient map, or a node with such a transient as a child the walk does not enter
   (`unshared_transient`: an edit gives it the bit with no store a mark would see); every `MUTABLE` below a mark gets
   `GUARDED`, and every black `MUTABLE` loses `DIRTY`. A mark counts while the execution's checked table (open
