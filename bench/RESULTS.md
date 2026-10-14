@@ -3147,3 +3147,42 @@ and persistent-sorted-set 0.3.2 from their jars; ours run the port in `corpus/da
   that is about 44 min, the default `--base` step near 120 against 78.6; `REPS_CAP` keeps datascript at 2
   repetitions (16 runs, 8 min), about 19 min in all, near 98. Two pairs show the gap to the base as a factor; a
   change of a few per cent needs `--only=datascript --reps=8` on its own.
+
+## Fusion over sequence, multi-coll map, XF consumers and stateful stages — 55215b8, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+docs/notes/analyzer-and-evaluator.md, "The fusion pass"; docs/notes/compiler.md, "Fused stages over literal fns run as
+one step". `corpus-bench` run 38473642428, head 55215b8 against main f135da2 (same code as bab1e20); gates 38473634969
+and model-long 38473638738 green on the same commit. Every workload returned the JVM's value in every runtime.
+
+**Same runner** (head/base of each run's fastest iteration, 8 pairs, the sign test's 93 % interval):
+
+| workload | interp | core+interp | dev | closed |
+|---|---:|---:|---:|---:|
+| pipelines | 0.790 [0.776–0.855]* | 0.759 [0.712–0.780]* | 0.438 [0.424–0.448]* | 0.413 [0.397–0.425]* |
+| combinatorics | 0.819 [0.809–0.835]* | 0.905 [0.901–0.911]* | 0.668 [0.661–0.701]* | 0.697 [0.680–0.708]* |
+| suite-data | 0.877 [0.810–0.917]* | 0.923 [0.877–0.945]* | 0.880 [0.811–0.897]* | 0.853 [0.807–0.898]* |
+| group-freq | 0.895 [0.763–0.947]* | 0.934 [0.830–1.034] | 0.912 [0.865–1.014] | 0.897 [0.749–0.977]* |
+| medley | 0.959 [0.956–0.995]* | 0.970 [0.918–0.977]* | 0.915 [0.878–0.926]* | 0.931 [0.920–0.948]* |
+| *geomean, 13 workloads* | 0.941 | 0.954 | 0.885 | 0.868 |
+
+pipelines closed 352.9 → 148.2 ms (fastest iteration), dev 396.7 → 174.1, interp 832.5 → 676.7. The other workloads'
+cells are within the A/A spread but render's closed 1.026 and async-broadcast's dev 1.049, neither of which has a fused
+site on its hot path. Closed counters: pipelines allocations −52.8 %, plain RC ops −84.1 %, lazy cells forced −83 %,
+`clj_invoke` −99.9 %; combinatorics allocations −38.8 % (lazy forced −53 %), suite-data −27.7 %, group-freq −15.0 %,
+medley −15.1 %, strings −5.4 %; dependency and nested-update unchanged.
+
+**Per form, pipelines closed** (the closed sample's share of `run*` times the run's time; before = the main-branch
+profile of run 38430246242, after = this run): `(count (sequence (comp (mapcat …) (dedupe)) v))` 146 → 12 ms;
+`(count (filter pos? (map - (rest v) v)))` 35 → 6; `(reduce + (map * v (rseq v)))` 30 → 7 (the `rseq` list of the
+old core included); `(into [] (comp (partition-all 16) …) v)` 26 → 9; `(reduce max (reductions + …))` 9 → 2;
+`(group-by … (take …))` 6 → 4; `(reduce + (mapcat (fn [x] (repeat …)) …))` 17 → 18 and the `{:k :v}` map stage 14 →
+13, both bound by what their fns build (the inner lazy `repeat`, a map per item); `(count (distinct …))` 8 → 8, the
+set's `contains?`/`conj`. The fused group-by first ran slower than core's (its get left each group's vector at rc 2);
+the take-out get fixed that, 324 → 156 samples.
+
+- **Compile cost** (the x86_64 dev host, min of three clang runs, before = main's compiler): `boot/core.c` and the
+  embedded libs unchanged (nothing in core or the libs takes the new forms); the five corpus libraries' 12 dev units
+  7 610 267 → 7 614 839 bytes (+0.06 %; only math-combinatorics' `combinatorics.cljc` changed, +0.47 %), clang `-O0
+  -DCLJ_DEBUG=1` 10.55 → 10.46 s in all, −5.0 to +9.4 % per unit, the host's spread. A fusion-dense unit pays more:
+  pipelines' own dev unit 134.1k → 152.7k bytes (+14 %, 15 step functions with their stage bodies inlined), clang
+  `-O0` 0.53 → 0.55 s, `-O2` 1.02 → 1.30 s.
