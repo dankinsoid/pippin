@@ -12,9 +12,13 @@
 #include "alloc.h"
 #include "cc_internal.h"
 #include "clj/coro.h"
+#include "clj/ice.h"
+#include "clj/map.h"
+#include "clj/seq.h"
 #include "profile_internal.h"
 #include "clj/proto.h"
 #include "coro_internal.h"
+#include "ice_internal.h"
 
 enum {
 	SHARED_THRESHOLD = 1024,
@@ -27,6 +31,10 @@ enum {
 	DEEP_DUTY = 7,
 	DEEP_MAX_NODES = 1 << 20,
 	DEEP_RETRY_MAX_SHIFT = 6,
+	// Past it the checked table starts over: entries of dead objects pile up there, and a reset costs one walk.
+	CHECKED_MAX = 1 << 17,
+	AUDIT_EVERY = 16,
+	AUDIT_NODES = 1024,
 };
 static const uint64_t MAIN_IDLE_BUDGET_NS = 1000000;
 static const uint64_t DEEP_RETRY_BASE_NS = 1000000000;
@@ -338,19 +346,106 @@ static void deactivate(void) {
 	free(dead.items);
 }
 
+// ---- the acyclic marks (design §7, «Метка «ацикличен»»)
+
+// Moved by a guarded store with no running execution to name: it voids the marks of every execution.
+static _Atomic uint64_t acyclic_epoch;
+
+// The addresses an execution marked in one epoch. An entry of a dead object stays: its cell is born without the bit.
+typedef struct {
+	clj_header **slots; // open addressing, NULL empty
+	uint32_t     cap, n;
+	uint64_t     epoch;
+} checked_set;
+
+static uint32_t ck_slot(uint32_t cap, const clj_header *h) {
+	uint64_t x = (uint64_t)(uintptr_t)h >> 4;
+	x *= 0x9e3779b97f4a7c15ull;
+	return (uint32_t)(x >> 32) & (cap - 1);
+}
+
+static bool ck_has(const checked_set *s, const clj_header *h) {
+	if (!s->n) return false;
+	for (uint32_t i = ck_slot(s->cap, h);; i = (i + 1) & (s->cap - 1)) {
+		if (s->slots[i] == h) return true;
+		if (!s->slots[i]) return false;
+	}
+}
+
+static void ck_reset(checked_set *s, uint64_t epoch) {
+	if (s->n) memset(s->slots, 0, s->cap * sizeof *s->slots);
+	s->n = 0;
+	s->epoch = epoch;
+}
+
+static void ck_put(checked_set *s, clj_header *h) {
+	if (s->n >= CHECKED_MAX) ck_reset(s, s->epoch);
+	if ((s->n + 1) * 2 > s->cap) {
+		uint32_t     cap = s->cap ? s->cap * 2 : 1024;
+		clj_header **grown = calloc(cap, sizeof *grown);
+		if (!grown) clj_fatal("out of memory");
+		for (uint32_t i = 0; i < s->cap; i++) {
+			if (!s->slots[i]) continue;
+			uint32_t j = ck_slot(cap, s->slots[i]);
+			while (grown[j]) j = (j + 1) & (cap - 1);
+			grown[j] = s->slots[i];
+		}
+		free(s->slots);
+		s->slots = grown;
+		s->cap = cap;
+	}
+	uint32_t i = ck_slot(s->cap, h);
+	while (s->slots[i]) {
+		if (s->slots[i] == h) return;
+		i = (i + 1) & (s->cap - 1);
+	}
+	s->slots[i] = h;
+	s->n++;
+}
+
+// What an execution keeps for its local collections; the transfers of clj_cc_local_borrow carry it whole, so the
+// state of the owner of every unshared object a store reaches is the running one.
+typedef struct {
+	cand_vec    buf;
+	checked_set ck;
+	uint64_t    guard_hits; // guarded stores while this state ran
+} local_state;
+
+void clj_cc_guard_hit(void) {
+	clj_coro *c = clj_coro_here();
+	if (c && c->cc_local) ((local_state *)c->cc_local)->guard_hits++;
+	else atomic_fetch_add_explicit(&acyclic_epoch, 1, memory_order_relaxed);
+	stat_add(CLJ_CC_STAT_EPOCHS, 1);
+}
+
+// NULL when the kill switch is on; a table of an older epoch is emptied first. Both counts only grow, so the sum
+// stands still only while neither moves.
+static checked_set *ck_current(local_state *ls) {
+	if (clj_opt_off(CLJ_NO_OPT_ACYCLIC)) return NULL;
+	uint64_t e = ls->guard_hits + atomic_load_explicit(&acyclic_epoch, memory_order_relaxed);
+	if (ls->ck.epoch != e) ck_reset(&ls->ck, e);
+	return &ls->ck;
+}
+
+static bool ck_valid(const checked_set *s, const clj_header *h) {
+	return s && (h->flags & CLJ_FLAG_ACYCLIC) && ck_has(s, h);
+}
+
 // ---- the local buffer of an execution
 
 static _Thread_local bool as_main;
 
 static bool on_main(const clj_coro *c) { return as_main || (c->carrier && c->carrier->is_main); }
 
-static cand_vec *local_of(clj_coro *c) {
+static local_state *local_of(clj_coro *c) {
 	if (!c->cc_local) {
-		c->cc_local = calloc(1, sizeof(cand_vec));
+		c->cc_local = calloc(1, sizeof(local_state));
 		if (!c->cc_local) clj_fatal("out of memory");
 	}
 	return c->cc_local;
 }
+
+static cand_vec *buf_of(const clj_coro *c) { return c->cc_local ? &((local_state *)c->cc_local)->buf : NULL; }
 
 // The main carrier never walks mid-work: past the bound a candidate is published to the background (design §7).
 // One at zero but not yet a zombie is torn down further up this thread's stack: the shared buffer waits for it.
@@ -365,11 +460,11 @@ static void hand_off(clj_header *h, void (*share)(clj_value v)) {
 	shared_push(h, true);
 }
 
-static int64_t collect_local(clj_coro *c, size_t max);
+static int64_t collect_local(clj_coro *c, size_t max, bool mark);
 
 void clj_cc_local_candidate(clj_header *h) {
 	clj_coro *c = clj_coro_current();
-	cand_vec *b = local_of(c);
+	cand_vec *b = &local_of(c)->buf;
 	vec_push(b, h);
 	stat_add(CLJ_CC_STAT_CANDIDATES, 1);
 	if (on_main(c)) {
@@ -385,7 +480,7 @@ void clj_cc_local_candidate(clj_header *h) {
 		}
 	} else if (b->n >= LOCAL_THRESHOLD && !c->cc_collecting && !c->locks_held && !c->cmutex_held) {
 		// No lock held: a cycle's teardown frees whatever it held, and a finalizer may want a lock the caller has.
-		collect_local(c, SIZE_MAX);
+		collect_local(c, SIZE_MAX, true);
 	}
 }
 
@@ -393,8 +488,12 @@ void clj_cc_local_candidate(clj_header *h) {
 
 // N_BUFFERED: an entry elsewhere names it, so a white one stays as a zombie for that entry. N_ROOT: an entry that
 // owns the BUFFERED bit names it; N_HELD: a retry, which holds a reference instead. N_CUT: a child was left out at the
-// deep cap; N_CYCLIC: on a ring of the deep graph.
-enum { N_ROOT = 1, N_LOST = 2, N_BLACK = 4, N_WHITE = 8, N_BUFFERED = 16, N_HELD = 32, N_CUT = 64, N_CYCLIC = 128 };
+// deep cap; N_CYCLIC: on a ring of the deep graph. N_HOT: no mark may stand above it; N_TAINT: a hot node below;
+// N_MARK: marked acyclic by this collection; N_REACHED: below such a mark (mark_acyclic).
+enum {
+	N_ROOT = 1, N_LOST = 2, N_BLACK = 4, N_WHITE = 8, N_BUFFERED = 16, N_HELD = 32, N_CUT = 64, N_CYCLIC = 128,
+	N_HOT = 256, N_TAINT = 512, N_MARK = 1024, N_REACHED = 2048,
+};
 #define NONE UINT32_MAX
 
 typedef struct {
@@ -404,7 +503,7 @@ typedef struct {
 	uint32_t    ours;     // references the collector holds
 	uint32_t    edge_lo, edge_n;
 	uint32_t    queued, woken; // a parked coroutine: the channel queues holding its waiter, and those found
-	uint8_t     flags;
+	uint16_t    flags;
 	uint8_t     attempt; // a retry's attempt + 1, 0 when no retry names it
 	uint8_t     coro;    // CLJ_CORO_CC_* of a coroutine node
 } node;
@@ -428,6 +527,9 @@ typedef struct {
 	uint32_t *wakes;
 	size_t    nwakes, wakes_cap;
 	bool      kept; // the white set holds a parked coroutine: cancelled, nothing freed (design §7, «Фаза 3»)
+	checked_set *ck; // a local collection's marks; NULL: none read, none set
+	bool         mark;
+	int64_t      skipped;
 } graph;
 
 static uint32_t slot_of(const graph *g, const clj_header *h) {
@@ -463,7 +565,7 @@ static void work_push(graph *g, uint32_t i) {
 	g->work[g->nw++] = i;
 }
 
-static uint32_t add_node(graph *g, clj_header *h, uint32_t ours, uint8_t flags) {
+static uint32_t add_node(graph *g, clj_header *h, uint32_t ours, uint16_t flags) {
 	if (g->n == g->cap) g->nodes = grow(g->nodes, &g->cap, sizeof *g->nodes);
 	if ((g->n + 1) * 2 > g->tcap) {
 		g->tcap = g->tcap ? g->tcap * 2 : 128;
@@ -520,6 +622,74 @@ static bool enterable(const graph *g, const clj_header *c) {
 	return !opaque(c->type);
 }
 
+// Edited in place at any count (map.c, flat_editable): no uniqueness check clears a mark above it.
+static bool unshared_transient(const clj_header *h) {
+	return h->type == &clj_map_type && !(h->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL)) &&
+	       clj_map_is_transient(clj_from_ptr((void *)h));
+}
+
+// No mark may stand above it.
+static bool hot(const clj_header *h) {
+	uint32_t f = h->flags;
+	if (f & CLJ_FLAG_MUTABLE)
+		return (f & CLJ_FLAG_DIRTY) || (h->type == &clj_lazy_seq_type && !clj_lazy_seq_realized(clj_from_ptr((void *)h)));
+	return unshared_transient(h);
+}
+
+#if CLJ_DEBUG
+static _Thread_local uint32_t audit_every = AUDIT_EVERY, audit_tick;
+
+void clj_debug_cc_audit_every(uint32_t n) { audit_every = n ? n : AUDIT_EVERY; }
+
+// What a valid mark promises below x (design §7, «Метка «ацикличен»»), over AUDIT_NODES nodes at most.
+typedef struct {
+	const clj_header *x;
+	clj_header       *seen[2 * AUDIT_NODES];
+	clj_header       *stack[AUDIT_NODES];
+	uint32_t          nseen, nstack;
+} audit_walk;
+
+static void audit_fail(const char *what, const clj_header *x, const clj_header *at) {
+	clj_ice("cc/acyclic-mark", NULL, "a marked %s %s %s", x->type->name, what, at->type->name);
+}
+
+static void audit_visit(clj_value v, void *ctx) {
+	audit_walk *a = ctx;
+	if (!clj_is_ptr(v) || a->nseen >= AUDIT_NODES) return;
+	clj_header *h = clj_header_of(v);
+	if (h == a->x) audit_fail("reaches itself through", a->x, a->x);
+	if (unshared_transient(h)) audit_fail("reaches a transient", a->x, h);
+	if (!enterable(&(graph){0}, h)) return;
+	uint32_t i = ck_slot(2 * AUDIT_NODES, h);
+	while (a->seen[i]) {
+		if (a->seen[i] == h) return;
+		i = (i + 1) & (2 * AUDIT_NODES - 1);
+	}
+	a->seen[i] = h;
+	a->nseen++;
+	if (hot(h)) audit_fail("reaches a hot", a->x, h);
+	if ((h->flags & CLJ_FLAG_MUTABLE) && !(h->flags & CLJ_FLAG_GUARDED)) audit_fail("reaches an unguarded", a->x, h);
+	a->stack[a->nstack++] = h;
+}
+
+static void audit_skip(const clj_header *x) {
+	if (++audit_tick % audit_every) return;
+	if ((x->flags & CLJ_FLAG_MUTABLE) && !(x->flags & CLJ_FLAG_GUARDED)) audit_fail("is an unguarded", x, x);
+	audit_walk *a = calloc(1, sizeof *a);
+	if (!a) clj_fatal("out of memory");
+	a->x = x;
+	a->stack[a->nstack++] = (clj_header *)x;
+	while (a->nstack) {
+		clj_header *h = a->stack[--a->nstack];
+		if (h->type->each_child) h->type->each_child(h, audit_visit, a);
+	}
+	free(a);
+}
+#else
+void clj_debug_cc_audit_every(uint32_t n) { (void)n; }
+#define audit_skip(x) ((void)0)
+#endif
+
 // A child read without its owner's lock: alive (frees are deferred) but maybe at zero, so a CAS from a nonzero count.
 static bool try_retain(clj_header *c) {
 	uint32_t cur = atomic_load_explicit(&c->rc, memory_order_relaxed);
@@ -533,7 +703,17 @@ static void visit_child(clj_value v, void *ctx) {
 	graph *g = ctx;
 	if (!clj_is_ptr(v) || g->cur_failed) return;
 	clj_header *c = clj_header_of(v);
-	if (!enterable(g, c)) return;
+	if (!enterable(g, c)) {
+		// Its edit takes the bit with no store a mark above would see (design §7, «Метка «ацикличен»»).
+		if (g->mark && unshared_transient(c)) g->nodes[g->cur].flags |= N_HOT;
+		return;
+	}
+	// On no cycle: a holder outside the graph, as a node without the bit is.
+	if (ck_valid(g->ck, c)) {
+		g->skipped++;
+		audit_skip(c);
+		return;
+	}
 	uint32_t i = find(g, c);
 	if (i == NONE) {
 		if (g->deep && g->n >= DEEP_MAX_NODES) {
@@ -636,6 +816,7 @@ static void visit(graph *g, uint32_t i) {
 		if (g->nodes[i].flags & N_ROOT) CLJ_RC_UNSHARED_STORE(h, rc & ~CLJ_RC_BUFFERED);
 		else if (rc & CLJ_RC_BUFFERED) g->nodes[i].flags |= N_BUFFERED;
 		g->nodes[i].count = rc & CLJ_RC_COUNT_MASK;
+		if (g->mark && hot(h)) g->nodes[i].flags |= N_HOT;
 		if (t->each_child) t->each_child(h, visit_child, g);
 	} else if (t == &clj_coro_type) {
 		if (!clj_coro_cc_locked((clj_coro *)h, visit_coro_locked, g)) {
@@ -790,6 +971,117 @@ static void release_survivors(graph *g) {
 	}
 }
 
+// Tarjan's components over the black nodes, iteratively: a long realized chain is deeper than the C stack.
+// Each component once, after every component it reaches.
+static void black_components(graph *g, void (*component)(graph *g, const uint32_t *members, uint32_t n, void *ctx),
+                             void *ctx) {
+	typedef struct {
+		uint32_t v, e;
+	} call;
+	uint32_t  n = g->n;
+	uint32_t *index = malloc(n * sizeof *index), *low = malloc(n * sizeof *low), *stack = malloc(n * sizeof *stack);
+	call     *calls = malloc(n * sizeof *calls);
+	uint8_t  *on = calloc(n, 1);
+	if (!index || !low || !stack || !calls || !on) clj_fatal("out of memory");
+	for (uint32_t i = 0; i < n; i++) index[i] = NONE;
+	uint32_t next = 0, sp = 0, cp = 0;
+	for (uint32_t s = 0; s < n; s++) {
+		if (!(g->nodes[s].flags & N_BLACK) || index[s] != NONE) continue;
+		index[s] = low[s] = next++;
+		stack[sp++] = s;
+		on[s] = 1;
+		calls[cp++] = (call){s, 0};
+		while (cp) {
+			call    *c = &calls[cp - 1];
+			uint32_t v = c->v;
+			if (c->e < g->nodes[v].edge_n) {
+				// blacken spreads along recorded edges: a black node's edges lead to black nodes.
+				uint32_t w = g->edges[g->nodes[v].edge_lo + c->e++];
+				if (index[w] == NONE) {
+					index[w] = low[w] = next++;
+					stack[sp++] = w;
+					on[w] = 1;
+					calls[cp++] = (call){w, 0};
+				} else if (on[w] && index[w] < low[v]) {
+					low[v] = index[w];
+				}
+				continue;
+			}
+			cp--;
+			if (cp && low[v] < low[calls[cp - 1].v]) low[calls[cp - 1].v] = low[v];
+			if (low[v] != index[v]) continue;
+			uint32_t from = sp;
+			do from--;
+			while (stack[from] != v);
+			component(g, stack + from, sp - from, ctx);
+			for (uint32_t k = from; k < sp; k++) on[stack[k]] = 0;
+			sp = from;
+		}
+	}
+	free(index);
+	free(low);
+	free(stack);
+	free(calls);
+	free(on);
+}
+
+static bool self_edge(const graph *g, uint32_t v) {
+	const node *nd = &g->nodes[v];
+	for (uint32_t e = 0; e < nd->edge_n; e++) {
+		if (g->edges[nd->edge_lo + e] == v) return true;
+	}
+	return false;
+}
+
+// Components come sinks first, so whatever a component reaches outside itself is judged already.
+static void mark_component(graph *g, const uint32_t *members, uint32_t n, void *ctx) {
+	(void)ctx;
+	bool taint = false;
+	for (uint32_t k = 0; k < n && !taint; k++) {
+		const node *nd = &g->nodes[members[k]];
+		taint = nd->flags & N_HOT;
+		for (uint32_t e = 0; e < nd->edge_n && !taint; e++) taint = g->nodes[g->edges[nd->edge_lo + e]].flags & N_TAINT;
+	}
+	if (taint) {
+		for (uint32_t k = 0; k < n; k++) g->nodes[members[k]].flags |= N_TAINT;
+	} else if (n == 1 && !self_edge(g, members[0])) {
+		g->nodes[members[0]].flags |= N_MARK;
+	}
+}
+
+// After blacken, over the black nodes of a local graph (design §7, «Метка «ацикличен»»).
+static void mark_acyclic(graph *g) {
+	black_components(g, mark_component, NULL);
+	g->nw = 0;
+	for (uint32_t i = 0; i < g->n; i++) {
+		if (!(g->nodes[i].flags & N_MARK)) continue;
+		g->nodes[i].flags |= N_REACHED;
+		work_push(g, i);
+	}
+	while (g->nw) {
+		const node *nd = &g->nodes[g->work[--g->nw]];
+		if (nd->h->flags & CLJ_FLAG_MUTABLE) nd->h->flags |= CLJ_FLAG_GUARDED;
+		for (uint32_t e = 0; e < nd->edge_n; e++) {
+			uint32_t w = g->edges[nd->edge_lo + e];
+			if (g->nodes[w].flags & N_REACHED) continue;
+			g->nodes[w].flags |= N_REACHED;
+			work_push(g, w);
+		}
+	}
+	int64_t marked = 0;
+	for (uint32_t i = 0; i < g->n; i++) {
+		const node *nd = &g->nodes[i];
+		if (nd->flags & N_MARK) {
+			nd->h->flags |= CLJ_FLAG_ACYCLIC;
+			ck_put(g->ck, nd->h);
+			marked++;
+		}
+		// A quiet period starts: a store before the next walk makes this node hot again.
+		if (nd->flags & N_BLACK) nd->h->flags &= ~CLJ_FLAG_DIRTY;
+	}
+	stat_add(CLJ_CC_STAT_MARKED, marked);
+}
+
 static int64_t run(graph *g, clj_header **roots, size_t n) {
 	for (size_t r = 0; r < n; r++) {
 		uint32_t i = find(g, roots[r]);
@@ -800,9 +1092,11 @@ static int64_t run(graph *g, clj_header **roots, size_t n) {
 	judge_wakes(g);
 	if (g->shared) validate(g);
 	blacken(g);
+	if (g->mark) mark_acyclic(g);
 	int64_t freed = free_whites(g);
 	release_survivors(g);
 	stat_add(CLJ_CC_STAT_COLLECTIONS, 1);
+	if (g->skipped) stat_add(CLJ_CC_STAT_SKIPPED, g->skipped);
 	return freed;
 }
 
@@ -911,56 +1205,20 @@ static void ring_found(graph *g, const uint32_t *members, uint32_t n, clj_header
 	if (unseen && !skip) retry_node(g, best, out);
 }
 
-// Tarjan's components over the black nodes, iteratively: a long realized chain is deeper than the C stack.
+typedef struct {
+	clj_header **waiting;
+	size_t       nwaiting;
+	retry_vec   *out;
+} rings_ctx;
+
+static void ring_component(graph *g, const uint32_t *members, uint32_t n, void *ctx) {
+	rings_ctx *r = ctx;
+	ring_found(g, members, n, r->waiting, r->nwaiting, r->out);
+}
+
 static void retry_rings(graph *g, clj_header **waiting, size_t nwaiting, retry_vec *out) {
-	typedef struct {
-		uint32_t v, e;
-	} call;
-	uint32_t  n = g->n;
-	uint32_t *index = malloc(n * sizeof *index), *low = malloc(n * sizeof *low), *stack = malloc(n * sizeof *stack);
-	call     *calls = malloc(n * sizeof *calls);
-	uint8_t  *on = calloc(n, 1);
-	if (!index || !low || !stack || !calls || !on) clj_fatal("out of memory");
-	for (uint32_t i = 0; i < n; i++) index[i] = NONE;
-	uint32_t next = 0, sp = 0, cp = 0;
-	for (uint32_t s = 0; s < n; s++) {
-		if (!(g->nodes[s].flags & N_BLACK) || index[s] != NONE) continue;
-		index[s] = low[s] = next++;
-		stack[sp++] = s;
-		on[s] = 1;
-		calls[cp++] = (call){s, 0};
-		while (cp) {
-			call    *c = &calls[cp - 1];
-			uint32_t v = c->v;
-			if (c->e < g->nodes[v].edge_n) {
-				// blacken spreads along recorded edges: a black node's edges lead to black nodes.
-				uint32_t w = g->edges[g->nodes[v].edge_lo + c->e++];
-				if (index[w] == NONE) {
-					index[w] = low[w] = next++;
-					stack[sp++] = w;
-					on[w] = 1;
-					calls[cp++] = (call){w, 0};
-				} else if (on[w] && index[w] < low[v]) {
-					low[v] = index[w];
-				}
-				continue;
-			}
-			cp--;
-			if (cp && low[v] < low[calls[cp - 1].v]) low[calls[cp - 1].v] = low[v];
-			if (low[v] != index[v]) continue;
-			uint32_t from = sp;
-			do from--;
-			while (stack[from] != v);
-			ring_found(g, stack + from, sp - from, waiting, nwaiting, out);
-			for (uint32_t k = from; k < sp; k++) on[stack[k]] = 0;
-			sp = from;
-		}
-	}
-	free(index);
-	free(low);
-	free(stack);
-	free(calls);
-	free(on);
+	rings_ctx r = {waiting, nwaiting, out};
+	black_components(g, ring_component, &r);
 }
 
 // While the collector's references hold every black node. A root a mutator touched mid-walk is filed again, with the
@@ -1054,25 +1312,39 @@ static int64_t collect_deep(bool force) {
 
 // Up to max of the running execution's candidates, the most recent first. One published since it was buffered
 // goes to the shared buffer, which takes over its reference.
-static int64_t collect_local(clj_coro *c, size_t max) {
-	cand_vec *b = c->cc_local;
+// mark: the execution goes on, so marks this collection sets may serve a later one.
+static int64_t collect_local(clj_coro *c, size_t max, bool mark) {
+	cand_vec *b = buf_of(c);
 	if (!b || !b->n || c->cc_collecting) return 0;
+	checked_set *ck = ck_current(c->cc_local);
 	size_t       k = b->n < max ? b->n : max;
 	clj_header **roots = malloc(k * sizeof *roots);
 	if (!roots) clj_fatal("out of memory");
-	size_t n = 0;
+	size_t  n = 0;
+	int64_t skipped = 0;
 	for (size_t i = 0; i < k; i++) {
 		clj_header *h = b->items[--b->n];
 		uint32_t    rc = atomic_load_explicit(&h->rc, memory_order_acquire);
-		if (rc == CLJ_RC_ZOMBIE) clj_dealloc_cell(h);
-		else if ((h->flags & CLJ_FLAG_SHARED) || !(rc & CLJ_RC_COUNT_MASK)) shared_push(h, true);
-		else if ((h->flags & CLJ_FLAG_IMMORTAL) || opaque(h->type)) CLJ_RC_UNSHARED_STORE(h, rc & ~CLJ_RC_BUFFERED);
-		else roots[n++] = h;
+		if (rc == CLJ_RC_ZOMBIE) {
+			clj_dealloc_cell(h);
+		} else if ((h->flags & CLJ_FLAG_SHARED) || !(rc & CLJ_RC_COUNT_MASK)) {
+			shared_push(h, true);
+		} else if ((h->flags & CLJ_FLAG_IMMORTAL) || opaque(h->type)) {
+			CLJ_RC_UNSHARED_STORE(h, rc & ~CLJ_RC_BUFFERED);
+		} else if (ck_valid(ck, h)) {
+			// On no cycle, so no member of a garbage one.
+			CLJ_RC_UNSHARED_STORE(h, rc & ~CLJ_RC_BUFFERED);
+			audit_skip(h);
+			skipped++;
+		} else {
+			roots[n++] = h;
+		}
 	}
+	if (skipped) stat_add(CLJ_CC_STAT_SKIPPED, skipped);
 	int64_t freed = 0;
 	if (n) {
 		c->cc_collecting = true;
-		graph g = {.shared = false};
+		graph g = {.shared = false, .ck = ck, .mark = mark && ck};
 		freed = run(&g, roots, n);
 		graph_free(&g);
 		c->cc_collecting = false;
@@ -1082,7 +1354,7 @@ static int64_t collect_local(clj_coro *c, size_t max) {
 }
 
 static void hand_off_all(clj_coro *c) {
-	cand_vec *b = c->cc_local;
+	cand_vec *b = buf_of(c);
 	while (b && b->n) hand_off(b->items[--b->n], clj_share);
 }
 
@@ -1092,7 +1364,7 @@ int64_t clj_cc_collect(void) {
 	clj_coro_cc_file_parked();
 	for (int round = 0; round < COLLECT_ROUNDS; round++) {
 		int64_t got = 0;
-		while (c->cc_local && ((cand_vec *)c->cc_local)->n && !c->cc_collecting) got += collect_local(c, SIZE_MAX);
+		while (buf_of(c) && buf_of(c)->n && !c->cc_collecting) got += collect_local(c, SIZE_MAX, true);
 		got += collect_shared();
 		got += collect_deep(true);
 		freed += got;
@@ -1113,7 +1385,7 @@ void clj_cc_main_idle(void) {
 	clj_coro *c = clj_coro_here();
 	if (!c || !c->cc_local || c->cc_collecting) return;
 	uint64_t start = clj_profile_now();
-	while (((cand_vec *)c->cc_local)->n && clj_profile_now() - start < MAIN_IDLE_BUDGET_NS) collect_local(c, MAIN_IDLE_SLICE);
+	while (buf_of(c)->n && clj_profile_now() - start < MAIN_IDLE_BUDGET_NS) collect_local(c, MAIN_IDLE_SLICE, true);
 }
 
 // ---- executions: transfers, ends
@@ -1140,17 +1412,18 @@ void clj_cc_execution_done(clj_coro *c) {
 		hand_off_all(host);
 		return;
 	}
-	for (int round = 0; round < COLLECT_ROUNDS && host->cc_local && ((cand_vec *)host->cc_local)->n; round++)
-		collect_local(host, SIZE_MAX);
+	for (int round = 0; round < COLLECT_ROUNDS && buf_of(host) && buf_of(host)->n; round++)
+		collect_local(host, SIZE_MAX, false);
 	hand_off_all(host);
 }
 
 void clj_cc_execution_free(clj_coro *c) {
-	cand_vec *b = c->cc_local;
-	if (!b) return;
-	while (b->n) hand_off(b->items[--b->n], clj_share_unowned);
-	free(b->items);
-	free(b);
+	local_state *ls = c->cc_local;
+	if (!ls) return;
+	while (ls->buf.n) hand_off(ls->buf.items[--ls->buf.n], clj_share_unowned);
+	free(ls->buf.items);
+	free(ls->ck.slots);
+	free(ls);
 	c->cc_local = NULL;
 }
 
@@ -1162,7 +1435,7 @@ void clj_debug_cc_stats(int64_t out[CLJ_CC_STAT_COUNT]) {
 
 int64_t clj_debug_cc_pending_local(void) {
 	clj_coro *c = clj_coro_current();
-	return c->cc_local ? (int64_t)((cand_vec *)c->cc_local)->n : 0;
+	return buf_of(c) ? (int64_t)buf_of(c)->n : 0;
 }
 
 int64_t clj_debug_cc_pending_shared(void) {
@@ -1187,4 +1460,22 @@ int64_t clj_debug_cc_main_idle(void) {
 	int64_t before = clj_debug_cc_pending_local();
 	clj_cc_main_idle();
 	return before - clj_debug_cc_pending_local();
+}
+
+int64_t clj_debug_cc_collect_local(void) { return collect_local(clj_coro_current(), SIZE_MAX, true); }
+
+void clj_debug_cc_file_local(clj_value v) {
+	if (!clj_is_ptr(v)) return;
+	clj_header *h = clj_header_of(v);
+	if ((h->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL | CLJ_FLAG_REACH_LOCAL)) != CLJ_FLAG_REACH_LOCAL) return;
+	uint32_t rc = CLJ_RC_UNSHARED_LOAD(h);
+	if (rc & CLJ_RC_BUFFERED) return;
+	CLJ_RC_UNSHARED_STORE(h, rc | CLJ_RC_BUFFERED);
+	clj_cc_local_candidate(h);
+}
+
+int clj_debug_cc_acyclic(clj_value v) {
+	clj_coro *c = clj_coro_current();
+	if (!clj_is_ptr(v) || !c->cc_local) return 0;
+	return ck_valid(ck_current(c->cc_local), clj_header_of(v));
 }

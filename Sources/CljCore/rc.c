@@ -239,7 +239,10 @@ static bool is_unique(clj_value v) {
 	// Relaxed is enough: we hold a reference, so an observed 1 means no one else does.
 	if (h->flags & CLJ_FLAG_SHARED) return atomic_load_explicit(&h->rc, memory_order_relaxed) == 1;
 	CLJ_OWNER_CHECK(h);
-	return CLJ_RC_UNSHARED_LOAD(h) == 1;
+	if (CLJ_RC_UNSHARED_LOAD(h) != 1) return false;
+	// The caller may rewrite it in place (design §7, «Метка «ацикличен»»).
+	if (h->flags & CLJ_FLAG_ACYCLIC) h->flags &= ~CLJ_FLAG_ACYCLIC;
+	return true;
 }
 
 bool clj_is_unique(clj_value v) {
@@ -391,7 +394,7 @@ void clj_share(clj_value v) {
 		}
 		// The flag is a plain write: only the owner may publish.
 		CLJ_OWNER_CHECK(h);
-		h->flags |= CLJ_FLAG_SHARED;
+		h->flags = (h->flags | CLJ_FLAG_SHARED) & ~CLJ_FLAG_CC_LOCAL;
 		if (h->type->each_child) h->type->each_child(h, share_visit, &st);
 	}
 	stack_free(&st);
@@ -404,7 +407,7 @@ void clj_share_unowned(clj_value v) {
 	while (st.count) {
 		clj_header *h = clj_header_of(st.items[--st.count]);
 		if (h->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL)) continue;
-		h->flags |= CLJ_FLAG_SHARED;
+		h->flags = (h->flags | CLJ_FLAG_SHARED) & ~CLJ_FLAG_CC_LOCAL;
 		if (h->type->each_child) h->type->each_child(h, share_visit, &st);
 	}
 	stack_free(&st);

@@ -349,7 +349,9 @@ void clj_cell_reborn(clj_header *h, const clj_type *type, size_t size, bool pois
 static void *realloc_cell(void *obj, size_t size);
 
 void *clj_realloc(void *obj, size_t size) {
-	void *n = realloc_cell(obj, size);
+	clj_header *n = realloc_cell(obj, size);
+	// A grown object takes new edges, and a moved one is no longer what the checked table names (cc.c).
+	if (n->flags & CLJ_FLAG_ACYCLIC) n->flags &= ~CLJ_FLAG_ACYCLIC;
 #if CLJ_STATS
 	bool large = ((clj_header *)n)->flags & CLJ_FLAG_LARGE;
 	clj_census_move(obj, n, large ? CLJ_CENSUS_LARGE : size_class(size));

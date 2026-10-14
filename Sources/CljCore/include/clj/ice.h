@@ -56,7 +56,8 @@ enum {
 	CLJ_NO_OPT_DROP       = 1u << 12, // a compiled frame's dead slot released where it dies, not at its rebind or the exit
 	CLJ_NO_OPT_SCALAR     = 1u << 13, // a frame-local tuple or keyword-map literal kept in slots, not allocated
 	CLJ_NO_OPT_FUSE       = 1u << 14, // fusion over sequence, multi-coll map and mapv; the stateful stages a fused step runs
-	CLJ_NO_OPT_ALL        = (1u << 15) - 1,
+	CLJ_NO_OPT_ACYCLIC    = 1u << 15, // the local collection's acyclic marks: every walk enters all it reaches
+	CLJ_NO_OPT_ALL        = (1u << 16) - 1,
 };
 // "1"/"all", ""/"0", or a comma list of the names above; UINT32_MAX for an unknown word.
 uint32_t clj_no_opt_parse(const char *spec);

@@ -86,6 +86,14 @@ _Static_assert(sizeof(clj_slot) == sizeof(clj_value), "a slot is the bare word")
 // Reaches a lazy seq, OR'd like REACH: a realization adds an edge no bit records, so the walk of a replaced var root
 // (clj_rc_release_root) descends through it as well as through REACH.
 #define CLJ_FLAG_LAZY        ((uint32_t)1 << 9)
+// The local collection's acyclic marks, unshared objects only (design §7, «Метка «ацикличен»»; cc.c).
+// On no cycle, while the execution's checked table names it.
+#define CLJ_FLAG_ACYCLIC     ((uint32_t)1 << 10)
+// A reference type below a mark: an edge stored into it voids every mark.
+#define CLJ_FLAG_GUARDED     ((uint32_t)1 << 11)
+// A reference type that took an edge since a local walk last saw it.
+#define CLJ_FLAG_DIRTY       ((uint32_t)1 << 12)
+#define CLJ_FLAG_CC_LOCAL    (CLJ_FLAG_ACYCLIC | CLJ_FLAG_GUARDED | CLJ_FLAG_DIRTY)
 // -DCLJ_STATS only: retained at least once, so its count passed 1 (the allocation census, stats.c).
 #define CLJ_FLAG_RETAINED    ((uint32_t)1 << 15)
 // Bits above it: the owning execution's tag in debug builds (clj_debug_owner_check), 0 for none; release leaves them 0.
@@ -242,6 +250,8 @@ bool      clj_is_unique_unshared(clj_value v);
 bool      clj_is_shared(clj_value v);
 // A store into a shared MUTABLE owner, after the slot was written and before the old value is released (cc.c).
 void      clj_cc_note_store(clj_header *owner, uint32_t flags);
+// An edge stored into a GUARDED owner: every acyclic mark is void (cc.c).
+void      clj_cc_guard_hit(void);
 // Marks v and everything reachable from it shared. Call before handing v to another thread.
 void      clj_share(clj_value v);
 // An environment failure (out of memory, a thread that would not start); an invariant is clj_ice (ice.h).
@@ -318,8 +328,20 @@ extern _Atomic uint64_t clj_debug_rc_counters[3];
 // them from birth, and a lazy seq's realization must not give them (design §7). An IMMORTAL owner (var, namespace)
 // gets none: the collector never enters it. Only a new bit is written, into an unshared or a shared unique owner, so
 // the plain write races with no reader; an ex-info's trace, stored after publication, brings none.
+// The new edge voids the owner's acyclic mark or dirties a reference type (design §7, «Метка «ацикличен»»).
 static inline void clj_reach_from(clj_header *owner, uint32_t flags, clj_value v) {
-	if (!clj_is_ptr(v) || (flags & (CLJ_FLAG_MUTABLE | CLJ_FLAG_IMMORTAL))) return;
+	if (!clj_is_ptr(v)) return;
+	if (__builtin_expect(flags & (CLJ_FLAG_MUTABLE | CLJ_FLAG_IMMORTAL | CLJ_FLAG_ACYCLIC), 0)) {
+		if (flags & (CLJ_FLAG_MUTABLE | CLJ_FLAG_IMMORTAL)) {
+			if (!(flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL | CLJ_FLAG_DIRTY))) {
+				if (flags & CLJ_FLAG_GUARDED) clj_cc_guard_hit();
+				owner->flags = (flags | CLJ_FLAG_DIRTY) & ~CLJ_FLAG_GUARDED;
+			}
+			return;
+		}
+		flags &= ~CLJ_FLAG_ACYCLIC;
+		owner->flags = flags;
+	}
 	uint32_t f = clj_header_of(v)->flags;
 	uint32_t add = (f & (CLJ_FLAG_REACH | CLJ_FLAG_LAZY)) |
 	               ((f & (CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_SHARED)) == CLJ_FLAG_REACH_LOCAL ? CLJ_FLAG_REACH_LOCAL : 0);

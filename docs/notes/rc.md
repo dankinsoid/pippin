@@ -230,17 +230,32 @@
   The suspect is `release_reaches_zero`'s read of `rc` before the decrement of a shared `REACH` object (the
   `BUFFERED` test), a second access to a contended line; the decrement and the filing must stay one operation (the
   note at `clj_cc_shared_candidate`). Trigger: a profile of a contended atom on real hardware.
-- [ ] **A large acyclic graph of arrays is walked again on every local collection** (bench/RESULTS.md, "Datascript").
-  corpus/datascript's index is persistent-sorted-set's B+ tree, whose nodes are deftypes over object arrays: an
-  array is born `REACH` and gives it to every owner, so a tree, the set that holds its root and every iterator over
-  it are `REACH`. An iterator step and a path copy retain and release leaf arrays and the set, nonzero releases that
-  file candidates, and every 256 candidates the local collection's trial deletion walks from such a candidate through
-  every node and array below it (`visit_child` over each datom slot of every leaf) to find it all alive — the
-  mechanism the profile points at; the counters of the run do not split the candidates by type.In the closed build
-  67 % of the busy samples are `cc.c` (`visit_child` 40 %, `add_node` 10 %, `blacken` 9 %, `visit` 5 %) and 11 % more
-  `array_each_child`: datascript runs at 29× the JVM where the other data workloads run at 1.1–3.2×, and level with
-  Hermes, an interpreter. Nothing in such a walk can be garbage — persistent-sorted-set writes an array only before
-  the node holding it is published — but the bit cannot know that. Directions, none taken: an array that stops
-  being written (frozen once stored into a deftype field, or `aset` refused after publication) leaving `REACH`
-  behind; a candidate whose walk found it alive not filed again until a store under it; a cap on the nodes a local
-  walk enters, as the deep walk has. Trigger: this workload, today; any persistent structure built of arrays.
+- [~] **The acyclic marks: a local walk does not enter live structure it already proved off every cycle** (`cc.c`,
+  `clj_reach_from` in `object.h`, `is_unique` and `clj_share` in `rc.c`; design §7, «Метка «ацикличен»», which holds
+  the invariant and why it holds). The case it was built for: corpus/datascript's index, persistent-sorted-set's B+
+  tree of deftypes over object arrays, all `REACH_LOCAL` since an object array is born with the bit, which every local
+  collection walked from the path-copied nodes down to each datom slot to find it alive (bench/RESULTS.md,
+  "Datascript": 67 % of the closed build's busy samples in `cc.c`, 30× the JVM). Header bits 10–12, unshared objects
+  only, all cleared by `clj_share`: `CLJ_FLAG_ACYCLIC`, `CLJ_FLAG_GUARDED` and `CLJ_FLAG_DIRTY`. After `blacken` a
+  local collection runs Tarjan's components over its black nodes (`black_components`, shared with the deep walk's
+  rings) and marks a node whose component is trivial when nothing below it is hot — a `MUTABLE` with `DIRTY`, a lazy
+  seq still unrealized, an unshared transient map, or a node with such a transient as a child the walk does not enter
+  (`unshared_transient`: an edit gives it the bit with no store a mark would see); every `MUTABLE` below a mark gets
+  `GUARDED`, and every black `MUTABLE` loses `DIRTY`. A mark counts while the execution's checked table (open
+  addressing over addresses in `local_state`, beside the candidate buffer, so `clj_cc_local_borrow` carries both) holds
+  the address in the current epoch: the execution's guarded-store count plus a global one for a store with no running
+  execution. A walk does not enter a validly marked child, and a marked candidate leaves the buffer unwalked; a
+  finished execution's last collections set no mark, since its table dies with it. A store
+  of an edge into an unshared `MUTABLE` sets `DIRTY`, and into a `GUARDED` one bumps the epoch first; a store into an
+  immutable owner with the mark clears it, and so does a `yes` from `clj_is_unique`/`clj_is_unique_unshared` (an
+  in-place edit asks it of every node from its owned root down); `clj_realloc` and `clj_cell_reborn` drop it. A table
+  of 2^17 entries starts over. Debug builds audit one skip in 16 per thread (`clj_debug_cc_audit_every`; every skip in
+  `AcyclicMarkTests`): a bounded walk below the node finds no way back to it, no hot node, no unguarded `MUTABLE` and
+  no unshared transient child, or dies with `cc/acyclic-mark`. `CLJ_NO_OPT=acyclic` turns it off. Stats
+  `CLJ_CC_STAT_MARKED`, `_SKIPPED`, `_EPOCHS`; `clj_debug_cc_collect_local`, `clj_debug_cc_file_local` and
+  `clj_debug_cc_acyclic` drive it from the tests. `AcyclicMarkTests`: a marked tree skipped by the next walk, and a
+  cycle closed through a marked structure by an `aset` into a marked array, a volatile in a deftype field, an atom (the
+  shared collection takes it), a transient map below the mark or stored after it, a lazy seq realized, and an in-place
+  `assoc` down a marked vector trie. Not done: the shared and the deep collections take no mark, so a large published
+  structure is still walked again by the background thread. Trigger: a profile of a workload whose shared collections
+  walk the same live graph.
