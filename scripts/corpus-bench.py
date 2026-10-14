@@ -639,7 +639,7 @@ def kfmt(v):
 AB_COUNTERS = [("allocs", "alloc"), ("MB", "alloc_bytes"), ("frees", "free"), ("rc plain", "rc_plain"),
                ("rc shared", "rc_shared"), ("lazy forced", "lazy_force"), ("invoke", "invoke"), ("c_invoke", "c_invoke"),
                ("apply", "apply"), ("reuse in place", "reuse_taken"), ("reuse copied", "reuse_copied"),
-               ("token used", "token_used")]
+               ("token used", "token_used"), ("cc candidates", "cc_candidates"), ("cc visited", "cc_visited")]
 
 
 def median_interval(sorted_values):

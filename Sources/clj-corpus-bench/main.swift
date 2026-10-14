@@ -224,11 +224,14 @@ if opts.stats {
 	var tnames0 = [UnsafePointer<CChar>?](repeating: nil, count: cap), used0 = [UInt64](repeating: 0, count: cap)
 	let t0 = clj_debug_tokens_by_type(&tnames0, &used0, cap)
 	let sw0 = clj_debug_coro_switches()
+	var cc0 = [Int64](repeating: 0, count: Int(CLJ_CC_STAT_COUNT)), cc1 = cc0
+	clj_debug_cc_stats(&cc0)
 	if opts.census { _ = clj_debug_census_begin() }
 	var ms = 0.0
 	for _ in 0..<opts.statIterations { ms += timed() }
 	if opts.census { clj_debug_census_end() }
 	let sw1 = clj_debug_coro_switches()
+	clj_debug_cc_stats(&cc1)
 	_ = clj_debug_stats(&s1)
 	_ = clj_debug_stats_rc(&rc1)
 	var names1 = [UnsafePointer<CChar>?](repeating: nil, count: cap), counts1 = [UInt64](repeating: 0, count: cap)
@@ -242,6 +245,10 @@ if opts.stats {
 	for i in 0..<Int(CLJ_STAT_COUNT.rawValue) { out("stat \(String(cString: clj_debug_stat_name(Int32(i)))) \(Double(s1[i] - s0[i]) / k)") }
 	for (i, name) in ["rc_plain", "rc_shared", "rc_immortal"].enumerated() { out("stat \(name) \(Double(rc1[i] - rc0[i]) / k)") }
 	out("stat coro_switches \(Double(sw1 - sw0) / k)")
+	for (i, name) in [(CLJ_CC_STAT_CANDIDATES, "cc_candidates"), (CLJ_CC_STAT_COLLECTIONS, "cc_collections"),
+	                  (CLJ_CC_STAT_VISITED, "cc_visited"), (CLJ_CC_STAT_FREED, "cc_freed")] {
+		out("stat \(name) \(Double(cc1[Int(i)] - cc0[Int(i)]) / k)")
+	}
 	out("rc_op_ns_stats \(clj_debug_rc_op_ns(20_000_000))")
 	if opts.census { clj_debug_census_print(UInt32(opts.statIterations)) }
 	// Two types may share a name (a deftype's and a core one), so the rows are summed by name.
