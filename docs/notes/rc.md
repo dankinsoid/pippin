@@ -251,10 +251,10 @@
   immutable owner with the mark clears it, and so does a `yes` from `clj_is_unique`/`clj_is_unique_unshared` (an
   in-place edit asks it of every node from its owned root down); `clj_realloc` and `clj_cell_reborn` drop it. A table
   of 2^17 entries starts over. Debug builds audit one skip in 16 per thread (`clj_debug_cc_audit_every`; every skip in
-  `AcyclicMarkTests`): a bounded walk below the node finds no way back to it, no hot node, no unguarded `MUTABLE` and
+  the mark tests): a bounded walk below the node finds no way back to it, no hot node, no unguarded `MUTABLE` and
   no unshared transient child, or dies with `cc/acyclic-mark`. `CLJ_NO_OPT=acyclic` turns it off. Stats
   `CLJ_CC_STAT_MARKED`, `_SKIPPED`, `_EPOCHS`; `clj_debug_cc_collect_local`, `clj_debug_cc_file_local` and
-  `clj_debug_cc_acyclic` drive it from the tests. `AcyclicMarkTests`: a marked tree skipped by the next walk, and a
+  `clj_debug_cc_acyclic` drive it from the tests. CycleTests (`AcyclicMarkTests.swift`, kept in that suite so the committed shard deal stands): a marked tree skipped by the next walk, and a
   cycle closed through a marked structure by an `aset` into a marked array, a volatile in a deftype field, an atom (the
   shared collection takes it), a transient map below the mark or stored after it, a lazy seq realized, and an in-place
   `assoc` down a marked vector trie. Not done: the shared and the deep collections take no mark, so a large published
