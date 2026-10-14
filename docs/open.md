@@ -334,7 +334,7 @@ file. 131 open, 118 partly done.
 - [~] Share of retain/release on shared objects: 79–83 % with the state in an atom — Trigger: a profile of a real app where main contends with the pool on one state.
 - [ ] What the collector does not see. — Trigger: a leak report naming one of these.
 - [~] What the collector costs — Trigger: a profile of a contended atom on real hardware.
-- [~] The acyclic marks: a local walk does not enter live structure it already proved off every cycle — Not done: the shared and the deep collections take no mark, so a large published structure is still walked again by the background thread.
+- [~] The acyclic marks: a local walk does not enter live structure it already proved acyclic — Not done: the shared and the deep collections take no mark, so a large published structure is still walked again by the background thread (trigger: a profile of a workload whose shared collections walk the same live …
 
 ### [Reader (Sources/CljCore/reader.c)](notes/reader.md)
 

@@ -3186,3 +3186,32 @@ the take-out get fixed that, 324 → 156 samples.
   -DCLJ_DEBUG=1` 10.55 → 10.46 s in all, −5.0 to +9.4 % per unit, the host's spread. A fusion-dense unit pays more:
   pipelines' own dev unit 134.1k → 152.7k bytes (+14 %, 15 step functions with their stage bodies inlined), clang
   `-O0` 0.53 → 0.55 s, `-O2` 1.02 → 1.30 s.
+
+## The acyclic marks — 435accd, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+The local collection's acyclic marks (design §7, «Метка «ацикличен»»; NOTES "RC"): a node a local walk proved off
+every cycle, with nothing cyclic or hot below it, is not entered again. Run 38549012720 is `make corpus-bench` against
+`cc-rewalk-base` (98d4a6f: main 0ab4ab2 plus the collector's counters in a stats run), the default 8 repetitions, 2
+for datascript (`REPS_CAP`). Same runner, head / base, each run's fastest iteration:
+
+| workload | interp | core+interp | dev | closed |
+|---|---:|---:|---:|---:|
+| datascript | 0.420 [0.419–0.421]* (2) | 0.385 [0.365–0.405]* (2) | 0.275 [0.266–0.284]* (2) | 0.275 [0.268–0.282]* (2) |
+| *geomean, the other 12* | 1.000 | 1.004 | 0.998 | 1.011 |
+
+datascript closed 4122.5 → 1133.7 ms (fastest iteration), 4197.7 → 1161.5 (median): 8.0× the JVM's 146.1 ms, where
+it was 28–30×; dev 4288.1 → 1178.4, interp 5822.8 → 2447.5. Closed against Node 3.74× (was 13–14×) and against Hermes
+0.23× (was level). The other workloads' cells are within the A/A spread but four closed ones above 1 (nested-update
+1.039, group-freq 1.029, medley 1.017, suite-data 1.017) and two below (pipelines 0.990, async-libs 0.992); none of the
+four but medley files a candidate in a stats run (medley 48k, whose walks visit as many nodes as before), so the
+suspect is the inline paths every program takes: the mask of `clj_reach_from` in each slot write and the bit test of `clj_is_unique`.
+
+- **Collector work, datascript closed stats run, per iteration**: candidates 5.79M → 5.79M, collections 22.5k → 15.6k
+  (a batch of marked candidates walks nothing), nodes visited 54.99M → 0.99M (−98.2 %), objects freed in cycles 1.5 →
+  11.
+- **Profile, datascript closed** (top of stack over busy samples): the collector's frames were 78.5 % of them in the
+  main-branch run 38473642428 (`visit_child` 1887 of 4466, `add_node` 446, `array_each_child` 369, `blacken` 328) and
+  are 17.5 % here (891 of 5098: `visit_child` 320, `collect_local` 216 — the root loop's table lookups over 5.8M
+  candidates —, `run` 80, `blacken` 65, `black_components` 59). The workload's own frames lead now:
+  `release_reaches_zero` 198, `clj_release` 170, `clj_instance_send` 149, the sorted set's `cut_n_splice` and
+  `binary_search_l`.

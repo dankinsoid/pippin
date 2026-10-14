@@ -230,33 +230,39 @@
   The suspect is `release_reaches_zero`'s read of `rc` before the decrement of a shared `REACH` object (the
   `BUFFERED` test), a second access to a contended line; the decrement and the filing must stay one operation (the
   note at `clj_cc_shared_candidate`). Trigger: a profile of a contended atom on real hardware.
-- [~] **The acyclic marks: a local walk does not enter live structure it already proved off every cycle** (`cc.c`,
+- [~] **The acyclic marks: a local walk does not enter live structure it already proved acyclic** (`cc.c`,
   `clj_reach_from` in `object.h`, `is_unique` and `clj_share` in `rc.c`; design §7, «Метка «ацикличен»», which holds
-  the invariant and why it holds). The case it was built for: corpus/datascript's index, persistent-sorted-set's B+
-  tree of deftypes over object arrays, all `REACH_LOCAL` since an object array is born with the bit, which every local
-  collection walked from the path-copied nodes down to each datom slot to find it alive (bench/RESULTS.md,
-  "Datascript": 67 % of the closed build's busy samples in `cc.c`, 30× the JVM). Header bits 11–13 (10 is a string's ASCII bit), unshared objects
-  only, all cleared by `clj_share`: `CLJ_FLAG_ACYCLIC`, `CLJ_FLAG_GUARDED` and `CLJ_FLAG_DIRTY`. After `blacken` a
-  local collection runs Tarjan's components over its black nodes (`black_components`, shared with the deep walk's
-  rings) and marks a node when no component at or below it is a cycle (else a ring only it holds would wait for
-  the next collection once its holder goes) and nothing below it is hot — a `MUTABLE` with `DIRTY`, a lazy
-  seq still unrealized, an unshared transient map, or a node with such a transient as a child the walk does not enter
-  (`unshared_transient`: an edit gives it the bit with no store a mark would see); every `MUTABLE` below a mark gets
-  `GUARDED`, and every black `MUTABLE` loses `DIRTY`. A mark counts while the execution's checked table (open
-  addressing over addresses in `local_state`, beside the candidate buffer, so `clj_cc_local_borrow` carries both) holds
-  the address in the current epoch: the execution's guarded-store count plus a global one for a store with no running
-  execution. A walk does not enter a validly marked child, and a marked candidate leaves the buffer unwalked; a
-  finished execution's last collections set no mark, since its table dies with it. A store
-  of an edge into an unshared `MUTABLE` sets `DIRTY`, and into a `GUARDED` one bumps the epoch first; a store into an
-  immutable owner with the mark clears it, and so does a `yes` from `clj_is_unique`/`clj_is_unique_unshared` (an
-  in-place edit asks it of every node from its owned root down); `clj_realloc` and `clj_cell_reborn` drop it. A table
-  of 2^17 entries starts over. Debug builds audit one skip in 16 per thread (`clj_debug_cc_audit_every`; every skip in
-  the mark tests): a bounded walk below the node finds no way back to it, no hot node, no unguarded `MUTABLE` and
-  no unshared transient child, or dies with `cc/acyclic-mark`. `CLJ_NO_OPT=acyclic` turns it off. Stats
-  `CLJ_CC_STAT_MARKED`, `_SKIPPED`, `_EPOCHS`; `clj_debug_cc_collect_local`, `clj_debug_cc_file_local` and
-  `clj_debug_cc_acyclic` drive it from the tests. CycleTests (`AcyclicMarkTests.swift`, kept in that suite so the committed shard deal stands): a marked tree skipped by the next walk, and a
-  cycle closed through a marked structure by an `aset` into a marked array, a volatile in a deftype field, an atom (the
-  shared collection takes it), a transient map below the mark or stored after it, a lazy seq realized, and an in-place
-  `assoc` down a marked vector trie. Not done: the shared and the deep collections take no mark, so a large published
-  structure is still walked again by the background thread. Trigger: a profile of a workload whose shared collections
-  walk the same live graph.
+  the invariant and why it holds). Built for corpus/datascript's index, persistent-sorted-set's B+ tree of deftypes
+  over object arrays, all `REACH_LOCAL` since an object array is born with the bit, which every local collection
+  walked from the path-copied nodes down to each datom slot to find it alive. Header bits 11–13 (10 is a string's
+  ASCII bit), unshared objects only, all cleared by `clj_share`: `CLJ_FLAG_ACYCLIC`, `CLJ_FLAG_GUARDED`,
+  `CLJ_FLAG_DIRTY`. After `blacken` a local collection runs Tarjan's components over its black nodes
+  (`black_components`, shared with the deep walk's rings) and marks a node when no component at or below it is a cycle
+  (else a ring only it holds would wait for the next collection once its holder goes) and nothing below it is hot — a
+  `MUTABLE` with `DIRTY`, a lazy seq still unrealized, an unshared transient map, or a node with such a transient as a
+  child the walk does not enter (`unshared_transient`: an edit gives it the bit with no store a mark would see); every
+  `MUTABLE` below a mark gets `GUARDED`, every black `MUTABLE` loses `DIRTY`. A mark counts while the execution's
+  checked table (open addressing over addresses in `local_state`, beside the candidate buffer, so `clj_cc_local_borrow`
+  carries both) holds the address in the current epoch: the execution's guarded-store count plus a global one for a
+  store with no running execution. A walk does not enter a validly marked child, a marked candidate leaves the buffer
+  unwalked, and a finished execution's last collections set no mark, since its table dies with it. A store of an edge
+  into an unshared `MUTABLE` sets `DIRTY`, into a `GUARDED` one bumps the epoch first; a store into an immutable owner
+  with the mark clears it, and so does a yes from `clj_is_unique`/`clj_is_unique_unshared` (an in-place edit asks it of
+  every node from its owned root down); `clj_realloc` and `clj_cell_reborn` drop it. A table of 2^17 entries starts
+  over. Debug builds audit one skip in 16 per thread (`clj_debug_cc_audit_every`; every skip in the mark tests): a
+  bounded walk below the node finds no way back to it, no hot node, no unguarded `MUTABLE` and no unshared transient
+  child, or dies with `cc/acyclic-mark`. `CLJ_NO_OPT=acyclic` turns it off. Stats `CLJ_CC_STAT_MARKED`, `_SKIPPED`,
+  `_EPOCHS`; `clj_debug_cc_collect_local`, `clj_debug_cc_file_local` and `clj_debug_cc_acyclic` drive it from the
+  tests, in CycleTests (`AcyclicMarkTests.swift`; a suite of their own moved the committed shard deal): a marked tree
+  skipped by the next walk, a live ring below that leaves the node above unmarked, and a cycle closed through a marked
+  structure by an `aset` into a marked array, a volatile in a deftype field, an atom (the shared collection takes it), a
+  transient map below the mark or stored after it, a lazy seq realized, and an in-place `assoc` down a marked vector
+  trie. Measured (bench/RESULTS.md, "The acyclic marks", run 38549012720): datascript closed 4122 → 1134 ms, 8.0× the
+  JVM where it was 28–30×, nodes visited per iteration 55.0M → 0.99M, the collector's share of busy samples 78.5 % →
+  17.5 %; the other twelve workloads' geomean 1.000 / 1.004 / 0.998 / 1.011 (interp / core+interp / dev / closed).
+  Not done: the shared and the deep collections take no mark, so a large published structure is still walked again by
+  the background thread (trigger: a profile of a workload whose shared collections walk the same live graph); a marked
+  object released to a nonzero count is still filed, 5.8M candidates per datascript iteration, each dropped at the
+  collection by a table lookup (`collect_local` 216 of 5098 samples; trigger: that frame leading a profile); the closed
+  geomean's +1.1 % (nested-update +3.9 %, group-freq +2.9 %, neither filing a candidate) points at the inline mask in
+  `clj_reach_from` and the bit test in `clj_is_unique` (trigger: a `bench-ab` that confirms it).
