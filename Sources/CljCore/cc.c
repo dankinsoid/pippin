@@ -33,6 +33,8 @@ enum {
 	DEEP_RETRY_MAX_SHIFT = 6,
 	// Past it the checked table starts over: entries of dead objects pile up there, and a reset costs one walk.
 	CHECKED_MAX = 1 << 17,
+	// Direct-mapped by address beside the table: a release of a marked node is answered without a probe of it.
+	CHECKED_RECENT = 1024,
 	AUDIT_EVERY = 16,
 	AUDIT_NODES = 1024,
 };
@@ -354,6 +356,7 @@ static _Atomic uint64_t acyclic_epoch;
 // The addresses an execution marked in one epoch. An entry of a dead object stays: its cell is born without the bit.
 typedef struct {
 	clj_header **slots; // open addressing, NULL empty
+	clj_header **recent; // a subset of slots, emptied with them
 	uint32_t     cap, n;
 	uint64_t     epoch;
 } checked_set;
@@ -372,7 +375,19 @@ static bool ck_has(const checked_set *s, const clj_header *h) {
 	}
 }
 
+static uint32_t ck_recent_slot(const clj_header *h) { return (uint32_t)((uintptr_t)h >> 5) & (CHECKED_RECENT - 1); }
+
+static bool ck_has_recent(checked_set *s, const clj_header *h) {
+	if (!s->n) return false;
+	uint32_t i = ck_recent_slot(h);
+	if (s->recent[i] == h) return true;
+	if (!ck_has(s, h)) return false;
+	s->recent[i] = (clj_header *)h;
+	return true;
+}
+
 static void ck_reset(checked_set *s, uint64_t epoch) {
+	if (s->n) memset(s->recent, 0, CHECKED_RECENT * sizeof *s->recent);
 	if (s->n) memset(s->slots, 0, s->cap * sizeof *s->slots);
 	s->n = 0;
 	s->epoch = epoch;
@@ -393,6 +408,7 @@ static void ck_put(checked_set *s, clj_header *h) {
 		free(s->slots);
 		s->slots = grown;
 		s->cap = cap;
+		if (!s->recent && !(s->recent = calloc(CHECKED_RECENT, sizeof *s->recent))) clj_fatal("out of memory");
 	}
 	uint32_t i = ck_slot(s->cap, h);
 	while (s->slots[i]) {
@@ -409,6 +425,7 @@ typedef struct {
 	cand_vec    buf;
 	checked_set ck;
 	uint64_t    guard_hits; // guarded stores while this state ran
+	int64_t     unfiled;    // not yet in stats: every release of a marked node counts here
 } local_state;
 
 void clj_cc_guard_hit(void) {
@@ -427,8 +444,8 @@ static checked_set *ck_current(local_state *ls) {
 	return &ls->ck;
 }
 
-static bool ck_valid(const checked_set *s, const clj_header *h) {
-	return s && (h->flags & CLJ_FLAG_ACYCLIC) && ck_has(s, h);
+static bool ck_valid(checked_set *s, const clj_header *h) {
+	return s && (h->flags & CLJ_FLAG_ACYCLIC) && ck_has_recent(s, h);
 }
 
 // ---- the local buffer of an execution
@@ -690,20 +707,18 @@ void clj_debug_cc_audit_every(uint32_t n) { (void)n; }
 #define audit_skip(x) ((void)0)
 #endif
 
-// Counted per thread and added in batches: every release of a marked node passes here.
-static _Thread_local int64_t unfiled_here;
-
 // On no cycle now, so no member of a garbage one; a cycle closed through it later voids the mark first, and the
 // release that leaves that cycle garbage finds the mark void (design §7, «Метка «ацикличен»»).
 bool clj_cc_local_unfiled(clj_header *h) {
 	if (clj_opt_off(CLJ_NO_OPT_UNFILED)) return false;
 	clj_coro *c = clj_coro_current();
 	// A collection's table must not start over under it: a release inside its teardown files as before.
-	if (!c->cc_local || c->cc_collecting || !ck_valid(ck_current(c->cc_local), h)) return false;
+	local_state *ls = c->cc_local;
+	if (!ls || c->cc_collecting || !ck_valid(ck_current(ls), h)) return false;
 	audit_skip(h);
-	if (++unfiled_here == 1024) {
-		stat_add(CLJ_CC_STAT_UNFILED, unfiled_here);
-		unfiled_here = 0;
+	if (++ls->unfiled == 1024) {
+		stat_add(CLJ_CC_STAT_UNFILED, ls->unfiled);
+		ls->unfiled = 0;
 	}
 	return true;
 }
@@ -1440,7 +1455,9 @@ void clj_cc_execution_free(clj_coro *c) {
 	if (!ls) return;
 	while (ls->buf.n) hand_off(ls->buf.items[--ls->buf.n], clj_share_unowned);
 	free(ls->buf.items);
+	stat_add(CLJ_CC_STAT_UNFILED, ls->unfiled);
 	free(ls->ck.slots);
+	free(ls->ck.recent);
 	free(ls);
 	c->cc_local = NULL;
 }
@@ -1449,7 +1466,8 @@ void clj_cc_execution_free(clj_coro *c) {
 
 void clj_debug_cc_stats(int64_t out[CLJ_CC_STAT_COUNT]) {
 	for (int i = 0; i < CLJ_CC_STAT_COUNT; i++) out[i] = atomic_load_explicit(&stats[i], memory_order_relaxed);
-	out[CLJ_CC_STAT_UNFILED] += unfiled_here;
+	clj_coro *c = clj_coro_here();
+	if (c && c->cc_local) out[CLJ_CC_STAT_UNFILED] += ((local_state *)c->cc_local)->unfiled;
 }
 
 int64_t clj_debug_cc_pending_local(void) {

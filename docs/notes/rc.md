@@ -256,10 +256,11 @@
   a valid mark files nothing, so the object takes no `BUFFERED`, no buffer slot and no lookup at the collection, and
   stays unique for an in-place edit; the release that leaves a cycle garbage is of a member, whose mark the closing store
   voided (design §7, «Отпускание помеченного кандидата не подаёт»). A release inside a running local collection files
-  as before, so the table never starts over under it; the same audit samples these skips. `CLJ_NO_OPT=unfiled` files
-  every one. Stats `CLJ_CC_STAT_MARKED`, `_SKIPPED`, `_EPOCHS`, `_UNFILED` (counted per thread in batches of 1024; the
-  calling thread's rest is added on read); `clj_debug_cc_collect_local`, `clj_debug_cc_file_local` and `clj_debug_cc_acyclic` drive it from the
-  tests, in CycleTests (`AcyclicMarkTests.swift`; a suite of their own moved the committed shard deal): a marked tree
+  as before, so the table never starts over under it; the same audit samples these skips. A direct-mapped array of
+  1024 addresses beside the table (`recent`, a subset of it, emptied with it) answers a repeated question without a
+  probe. `CLJ_NO_OPT=unfiled` files every one. Stats `CLJ_CC_STAT_MARKED`, `_SKIPPED`, `_EPOCHS`, `_UNFILED` (counted
+  in the execution's state and added in batches of 1024; the calling execution's rest is added on read);
+  `clj_debug_cc_collect_local`, `clj_debug_cc_file_local` and `clj_debug_cc_acyclic` drive it from the tests, in CycleTests (`AcyclicMarkTests.swift`; a suite of their own moved the committed shard deal): a marked tree
   skipped by the next walk, a live ring below that leaves the node above unmarked, and a cycle closed through a marked
   structure by an `aset` into a marked array, a volatile in a deftype field, an atom (the shared collection takes it), a
   transient map below the mark or stored after it, a lazy seq realized, and an in-place `assoc` down a marked vector
