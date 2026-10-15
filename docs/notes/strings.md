@@ -86,7 +86,9 @@
   one store or another, never one's index with another's offset, and every value ever stored is true of the
   immutable bytes, so a stale hint is a valid start like a crumb. Two threads walking one string overwrite each
   other's hint and fall back to the crumbs. The tail grew by the word and is 8-aligned; ASCII strings and non-ASCII
-  ones of at most 64 bytes carry none and take no branch for it. `CLJ_NO_OPT=hint` scans from the crumb.
+  ones of at most 64 bytes carry none and take no branch for it. `CLJ_NO_OPT=hint` scans from the crumb. Measured
+  (bench/RESULTS.md "JSON's string gap"): json closed 0.80× its base, dev 0.83×, `clj_string_offset_slow` from
+  21.3 % of the closed profile to 4.1 %; `clj_string_char_at` over every index in order 67 → 7.5 ns.
 - **The string builder is the string, appended in place** (builtins.c `clj_str_owned`, string.c
   `clj_string_append`). `(str s x)` of two arguments is an intrinsic whose consuming form takes `s` at +1, as `conj`
   takes its vector; a unique unshared `s` gets `x`'s text onto its end in its own cell, which grows by half again
@@ -100,3 +102,14 @@
   `StringBuilder`: Java's API is not the target (design §8), and the Clojure idiom is the builder (design §4
   «Строки»). The first append to a literal or a shared string copies it, as `str` always did. clojure.data.json's
   port builds its output and its slow strings this way (`(vswap! sb str x)`). `CLJ_NO_OPT=grow` copies every time.
+  Measured (bench/RESULTS.md "JSON's string gap"), against the vector of parts joined at the end: json closed 0.87×,
+  its allocations 882k → 376k an iteration; strings 0.95× (its `(reduce (fn [s i] (str s i)) ...)`);
+  `(reduce str "" (range 5000))` 666 → 43 ns an append.
+- [ ] **No bulk copy between a string and a char array.** Upstream clojure.data.json reads each string through a
+  64-char `char[]` window that `String.getChars` fills with one memcpy and `String(char[], off, len)` turns back into
+  a string. Here the window can only be filled a char at a time (`nth` and `aset`, 64 of each whatever the string's
+  length, which in json is mostly a short key), so the port's restored window cost json closed 1.93×, dev 1.80×,
+  interp 1.61× against reading the string in place (run 38737821230; compiled generic calls 2.42M → 9.78M an
+  iteration), and the port reads in place. What would close it is a native copy of a code point range into a char
+  array and a string of a char array's range, which clojure.core has no name for and Java's names are not the
+  target (design §8). Trigger: a port whose algorithm needs the window, or the Foundation port's buffers.
