@@ -276,3 +276,36 @@
   the background thread (trigger: a profile of a workload whose shared collections walk the same live graph); the closed
   geomean's +1.1 % (nested-update +3.9 %, group-freq +2.9 %, neither filing a candidate) points at the inline mask in
   `clj_reach_from` and the bit test in `clj_is_unique` (trigger: a `bench-ab` that confirms it).
+- [~] **The cycle check at a store: only a node on a cycle is a local candidate** (`clj_reach_from` and
+  `clj_cc_edge_check` in `object.h`, `clj_cc_store_check`, `file_local`, `local_component` and
+  `clj_cc_audit_unfiled` in `cc.c`, `release_reaches_zero` in `rc.c`; design §7, «Проверка цикла в момент записи», which
+  holds the invariant and its proof). Header bits 14 `CLJ_FLAG_HEAPREF` (a heap edge reached the object: every
+  `clj_reach_from` sets it on the child, never cleared, never written on a published one) and 7 `CLJ_FLAG_ONCYCLE`
+  (inherited as `REACH_LOCAL` is: OR of children, `clj_reach_copy`, the `with-meta` copies, a token's cell);
+  `REACH_LOCAL` moved to bit 16, so the inline release's mask is main's constant (with bit 16 in it nested-update's
+  closed build lost 5 %), and the debug owner tag to bit 17 and 15 bits. A store of a `REACH_LOCAL` value into an unshared reference type with
+  `HEAPREF` (or into itself), and an edit of a transient flat map (`flat_assoc`, `flat_append`), call
+  `clj_cc_store_check`: a walk from the value through what a local collection enters, validly marked nodes skipped,
+  at most 256 nodes and 4096 children read; meeting the owner, a backward pass from it over the recorded edges flags
+  every node with a path to it. Past the budget, and for every lazy-seq realization without a walk, the owner is
+  filed as a local candidate without a collection or a hand-off (the slot is not written yet); a local collection
+  flags every black cyclic Tarjan component it builds. A nonzero release files an unshared object only with
+  `ONCYCLE`; the inline `clj_release`/`clj_drop_value` test it instead of `REACH_LOCAL` (debug builds test both, for
+  the audit). An immutable owner is never checked: it is edited only while unique from an owned root down. The shared
+  rule is unchanged (atoms, channels, promises, coroutines are born shared). `CLJ_NO_OPT=store-check` (bit 18) gives
+  `ONCYCLE` at the birth of an array or volatile, so it equals `REACH_LOCAL`: the old rule. Debug builds audit one
+  nonzero release in 16 of a `REACH_LOCAL` object without `ONCYCLE` (every one in the store-check tests): the old
+  rule's graph from it, up to 1024 nodes, without freeing; a cyclic component with neither every member flagged nor
+  one buffered dies with `cc/store-check-missed`. Stats `CLJ_CC_STAT_STORE_CHECKS`, `_STORE_NODES`, `_STORE_CYCLES`,
+  `_STORE_FLAGGED`, `_STORE_DEFERRED`, `_SHARED_FILED`; a `-DCLJ_STATS` build also counts the edges, first edges and the
+  walk the check would run unbounded (`CLJ_STAT_SC_*`, corpus-bench's "Store check census"). Tests in CycleTests
+  (`StoreCheckTests.swift`): self-edges, two reference types in each order with each member released last, the two age
+  rule counterexamples of design §7, in-place edits through a volatile, transients, lazy seqs (a self-cycle through a
+  volatile, a cell realized before the ring's own, a promise), an atom holding a closure over itself, two threads
+  closing one ring of atoms, a check past its budget, and no flag where no cycle is.
+  Measured (bench/RESULTS.md, "The cycle check at a store", run 38730569880 against main): datascript closed 0.727,
+  dev 0.771, interp 0.773; its candidates 1.06M → 90.7k per iteration, collections 4.1k → 16.5, table lookups 8.38M →
+  0, 960 checks over 245.8k nodes, 73.8k realizations filed unwalked; the other twelve geomean 1.024 / 1.019 / 1.023 /
+  1.020, medley closed 1.083. Not done (design §7, «Состояние»): the inline cost left on workloads with no candidate
+  (trigger: `make bench-ab` before the merge), the shared collection on the flag (trigger: a profile where the shared
+  collection shows), and whether the acyclic marks still pay (trigger: a run with `CLJ_NO_OPT=acyclic`).

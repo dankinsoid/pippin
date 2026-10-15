@@ -3388,3 +3388,37 @@ sign test's interval.
 - **Compile cost** (x86_64 dev host, i9-9980HK; `clj-compile --core --closed` of each of the fourteen workloads,
   then clang `-O2 -DCLJ_CLOSED` of every unit it writes, CPU seconds, one pass, main 1644c09 → 9f654a0): clang
   169.7 → 169.1 s, C 39.69 → 39.21 MB (−1.2 %), clj-compile 6.68 → 6.95 s (+4 %); json's own units 13.70 → 13.70 s.
+
+## The cycle check at a store — 57faa9d, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+A store that may close a cycle of unshared objects flags its members, and only a flagged unshared object is a local
+candidate (design §7, «Проверка цикла в момент записи»; NOTES "RC"). Run 38730569880 is `make corpus-bench` against
+main 5dc2e33, the default 8 repetitions, 2 for datascript. Same runner, head / base, each run's fastest iteration:
+
+| workload | interp | core+interp | dev | closed |
+|---|---:|---:|---:|---:|
+| datascript | 0.773 [0.721–0.824]* (2) | 0.863 [0.819–0.906]* (2) | 0.771 [0.669–0.874]* (2) | 0.727 [0.686–0.768]* (2) |
+| *geomean, the other 12* | 1.024 | 1.019 | 1.023 | 1.020 |
+
+datascript closed 672.7 ms (median), 4.5× the JVM's 150.3. Of the other cells medley closed 1.083 [1.022–1.198] (its 18.0k
+lazy-seq realizations a iteration file their cell), nested-update closed 1.039 [0.996–1.104], dependency dev 1.099; the
+async rows' intervals span 0.8–1.3.
+
+- **Census first** (run 38615918374, closed `-DCLJ_STATS` build of 278206d, per iteration; the rule still checked an
+  immutable owner with `HEAPREF`): datascript 11.46M edges between unshared objects, 1.53M first edges (the `HEAPREF`
+  write), 174.6k of its 4.16M stores into a reference type with `HEAPREF`; 2.43M walks over 77.8M nodes, almost all
+  into a pss node edited in place, 0 cycles; medley 23.9k walks over 78.0k nodes, 5.9k cycles; the other eleven none.
+  The `HEAPREF` write alone against main: geomean 1.005 / 1.010 / 1.010 / 1.012.
+- **Only reference types and transient maps checked** (run 38628605344, 773b084): datascript 73.8k walks, 72.8k of them
+  realizations, 17.74M nodes at a budget of 256 (63.5M unbounded), 67.0k past the budget; closed 1.644. A realization
+  then filed its cell without a walk (run 38640925395, d9c9f2c, `--only=datascript --reps=8`): closed 0.814, dev 0.750.
+- **Collector work, datascript closed stats run, per iteration**: candidates 1.06M → 90.7k (17.0k of them shared),
+  collections 4.1k → 16.5, nodes visited 0.65M → 77, table lookups (`cc unfiled`) 8.38M → 0; 960 checks over 245.8k
+  nodes, 0 cycles; 73.8k realizations filed unwalked. The cycle collector's frames are 1.0–1.1 % of busy samples (12.1 %
+  in run 38592099837).
+- **The inline cost** (16 repetitions against d9c9f2c, `--only=dependency,nested-update,group-freq`, closed): the
+  release's mask with ONCYCLE at bit 16 instead of main's bit 7 — nested-update 0.951 [0.948–0.953] without it (run
+  38720239274), so ONCYCLE took bit 7 and REACH_LOCAL moved to 16; the branch on SHARED in the inherited mask —
+  0.975 [0.972–0.978] without it (38725629176), rewritten branch-free; no ONCYCLE inheritance 0.972, constant birth bits
+  0.982, no transient checks 0.996 (38720234271, 38720249358, 38720244269). d9c9f2c itself against main had nested-update
+  closed 1.111, dependency 1.067 (38640990716).
