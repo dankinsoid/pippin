@@ -2880,10 +2880,6 @@ static const char *known_cname(const fnctx *f, const clj_node *n, char *extra, s
 		if (strcmp(c, "clj_nth3") == 0) return "clj_c_string_nth3";
 		if (strcmp(c, "clj_count") == 0) return "clj_c_string_count";
 	}
-	if (fact_of_kind(f, a0, CLJ_T_CHAR)) {
-		if (strcmp(c, "clj_int_cast") == 0) return "clj_c_char_int";
-		if (strcmp(c, "clj_long_cast") == 0) return "clj_c_char_long";
-	}
 	int k = fact_array_kind(f, a0);
 	if (k >= 0 && (strcmp(c, "clj_aget") == 0 || strcmp(c, "clj_aset") == 0)) {
 		snprintf(extra, cap, ", %d", k);

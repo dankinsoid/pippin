@@ -198,8 +198,10 @@ static inline clj_value clj_c_compare(clj_value a, clj_value b) {
 	return clj_compare2(a, b);
 }
 static inline clj_value clj_c_num_eq(clj_value a, clj_value b) { return CLJ_C_FIX2(a, b) ? clj_bool(a == b) : clj_num_eq2(a, b); }
-static inline clj_value clj_c_long(clj_value v) { return clj_is_fixnum(v) ? v : clj_long_cast(v); }
+// A char's code point is what the casts answer for it, and always in an int's range.
+static inline clj_value clj_c_long(clj_value v) { return clj_is_fixnum(v) ? v : clj_is_char(v) ? clj_fixnum((intptr_t)clj_char_val(v)) : clj_long_cast(v); }
 static inline clj_value clj_c_int(clj_value v) {
+	if (clj_is_char(v)) return clj_fixnum((intptr_t)clj_char_val(v));
 	return clj_is_fixnum(v) && clj_fixnum_val(v) >= INT32_MIN && clj_fixnum_val(v) <= INT32_MAX ? v : clj_int_cast(v);
 }
 // The JVM's unchecked ops wrap at 64 bits; two fixnums cannot reach the wrap, so the sum is the long it is.
@@ -247,14 +249,29 @@ static inline bool clj_c_vector_at(clj_value v, clj_value i, clj_value *out) {
 	return true;
 }
 
+// A string's code point at a fixnum index within bounds: a byte when ASCII, else from the walk's index hint (string.c).
+static inline bool clj_c_string_at(clj_value s, clj_value i, clj_value *out) {
+	if (!clj_is_string(s) || !clj_is_fixnum(i) || clj_fixnum_val(i) < 0) return false;
+	size_t k = (size_t)clj_fixnum_val(i);
+	if (clj_string_is_ascii(s)) {
+		if (k >= clj_string_len(s)) return false;
+		*out = clj_char((unsigned char)CLJ_STR(s).bytes[k]);
+		return true;
+	}
+	uint32_t cp;
+	if (!clj_string_char_at(s, k, &cp)) return false;
+	*out = clj_char(cp);
+	return true;
+}
+
 static inline clj_value clj_c_nth2(clj_value v, clj_value i) {
 	clj_value r;
-	return clj_c_vector_at(v, i, &r) ? r : clj_nth2(v, i);
+	return clj_c_vector_at(v, i, &r) || clj_c_string_at(v, i, &r) ? r : clj_nth2(v, i);
 }
 
 static inline clj_value clj_c_nth3(clj_value v, clj_value i, clj_value not_found) {
 	clj_value r;
-	return clj_c_vector_at(v, i, &r) ? r : clj_nth3(v, i, not_found);
+	return clj_c_vector_at(v, i, &r) || clj_c_string_at(v, i, &r) ? r : clj_nth3(v, i, not_found);
 }
 
 static inline clj_value clj_c_first(clj_value v) {
@@ -293,21 +310,6 @@ static inline clj_value clj_c_aset(clj_value a, clj_value i, clj_value v) {
 // ---- the arms the facts of the arguments pick (NOTES.md "Compiler", known types): each tests what the fact says, so a
 // wrong fact costs the generic call, never the answer.
 
-// A string's code point at a fixnum index within bounds: a byte when ASCII, else from the walk's index hint (string.c).
-static inline bool clj_c_string_at(clj_value s, clj_value i, clj_value *out) {
-	if (!clj_is_string(s) || !clj_is_fixnum(i) || clj_fixnum_val(i) < 0) return false;
-	size_t k = (size_t)clj_fixnum_val(i);
-	if (clj_string_is_ascii(s)) {
-		if (k >= clj_string_len(s)) return false;
-		*out = clj_char((unsigned char)CLJ_STR(s).bytes[k]);
-		return true;
-	}
-	uint32_t cp;
-	if (!clj_string_char_at(s, k, &cp)) return false;
-	*out = clj_char(cp);
-	return true;
-}
-
 static inline clj_value clj_c_string_nth2(clj_value s, clj_value i) {
 	clj_value r;
 	return clj_c_string_at(s, i, &r) ? r : clj_nth2(s, i);
@@ -319,8 +321,6 @@ static inline clj_value clj_c_string_nth3(clj_value s, clj_value i, clj_value no
 }
 
 static inline clj_value clj_c_string_count(clj_value s) { return clj_is_string(s) ? clj_fixnum((intptr_t)clj_string_count(s)) : clj_count(s); }
-static inline clj_value clj_c_char_int(clj_value v) { return clj_is_char(v) ? clj_fixnum((intptr_t)clj_char_val(v)) : clj_c_int(v); }
-static inline clj_value clj_c_char_long(clj_value v) { return clj_is_char(v) ? clj_fixnum((intptr_t)clj_char_val(v)) : clj_c_long(v); }
 
 // An element of an array of kind k at a fixnum index within bounds, boxed as clj_array_get boxes it.
 static inline clj_value clj_c_aget_k(clj_value a, clj_value i, clj_array_kind k) {

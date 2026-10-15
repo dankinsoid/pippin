@@ -683,16 +683,17 @@
   other answer it has. data.json's reader read its string and position array with a retain and a release a
   character, the string a shared object and its count atomic.
 - **Known types pick their arms; the unchecked ops are intrinsics** (compiler.c `known_cname`, `fact_of_kind`,
-  `fact_array_kind`; compiled_internal.h `clj_c_string_nth2`, `clj_c_string_count`, `clj_c_char_int`, `clj_c_aget_k`,
+  `fact_array_kind`; compiled_internal.h `clj_c_string_nth2`, `clj_c_string_count`, `clj_c_aget_k`,
   `clj_c_aset_k`, `clj_c_unchecked_*`; `CLJ_NO_OPT=known`). An intrinsic whose first argument's fact is a string (or
   nil) writes `nth` and `count` as the string's arm — a byte when the string is ASCII, else `clj_string_char_at`,
-  which walks from the index hint (docs/notes/strings.md) —, `int`/`long` of a char as its code point, and
-  `aget`/`aset` of an array of a known kind as a load or store of that kind (the i64 and f64 stores of a value they
+  which walks from the index hint (docs/notes/strings.md) —, and `aget`/`aset` of an array of a known kind as a load or store of that kind (the i64 and f64 stores of a value they
   hold as is); each arm tests what the fact says and calls the generic function otherwise, so a wrong fact costs a
   call, never an answer. `unchecked-add`, `-subtract`, `-inc`, `-dec` and their `-int` forms are intrinsics
   (intrinsics.c, the builtins forwarding to the same functions) rather than native calls through `clj_c_invoke`,
   with the unboxed and tag-checked forms of `+`, which wrap instead of throwing, and the `-int` forms int64-valued
   with the int range check of their operands. As native calls, data.json's `(unchecked-inc i)` kept its loops' index boxed.
+  Whatever the facts: `nth` takes a string's arm after a vector's, and `int`/`long` of a char answer its code point
+  inline (`clj_c_nth2`, `clj_c_int`), since a reader's `(int (nth s i))` sees a string its facts do not always know.
 - **Measured: field cells, `field*`/`new*` in place, implementor arms, the two-way cache** (the three entries above
   and "Type descriptor", field reads). Same-runner corpus-bench against main: datascript alone with 8 pairs (run
   38584003614) closed 0.903 [0.847–0.957], dev 0.939 [0.805–1.297], interp 0.989; the full bench (38583997797)
