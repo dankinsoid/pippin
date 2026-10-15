@@ -78,9 +78,9 @@ _Static_assert(sizeof(clj_slot) == sizeof(clj_value), "a slot is the bare word")
 // May lie on a reference cycle: a cycle-capable type, or a child with the bit at the slot's write. Trial deletion
 // descends only through it, and a release of a shared object with it to a nonzero count makes a candidate.
 #define CLJ_FLAG_REACH       ((uint32_t)1 << 6)
-// The same through unshared objects only: what a local collection enters. Bit 16, so the inline release's mask
-// keeps bit 7 (ONCYCLE): a mask with bit 16 cost nested-update's closed build 5 % (bench/RESULTS.md).
-#define CLJ_FLAG_REACH_LOCAL ((uint32_t)1 << 16)
+// The same through unshared objects only: what a local collection enters. The hot paths' masks stay below bit 16,
+// one movz each on arm64: a mask with bit 16 in it cost nested-update's closed build 5 % (bench/RESULTS.md).
+#define CLJ_FLAG_REACH_LOCAL ((uint32_t)1 << 15)
 // On a cycle of unshared objects: only it makes an unshared object's nonzero release a candidate. Under
 // CLJ_NO_OPT=store-check it goes wherever REACH_LOCAL does (clj_cc_kill_oncycle), the rule before the check (design §7).
 #define CLJ_FLAG_ONCYCLE     ((uint32_t)1 << 7)
@@ -102,7 +102,7 @@ _Static_assert(sizeof(clj_slot) == sizeof(clj_value), "a slot is the bare word")
 // A reference type a heap object took an edge to; never cleared, implied by SHARED (design §7, «Проверка цикла в момент записи»).
 #define CLJ_FLAG_HEAPREF     ((uint32_t)1 << 14)
 // -DCLJ_STATS only: retained at least once, so its count passed 1 (the allocation census, stats.c).
-#define CLJ_FLAG_RETAINED    ((uint32_t)1 << 15)
+#define CLJ_FLAG_RETAINED    ((uint32_t)1 << 16)
 // Bits above it: the owning execution's tag in debug builds (clj_debug_owner_check), 0 for none; release leaves them 0.
 #define CLJ_OWNER_SHIFT 17
 
