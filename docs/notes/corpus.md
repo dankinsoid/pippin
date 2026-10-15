@@ -210,7 +210,10 @@
   and stay unloaded. Two of the 14 do not pass: `test-abs` is `(abs Long/MIN_VALUE)`, a §8 refusal, and
   `test-longrange-corners` calls a helper that `clojure.lang.Range/create` keeps unloaded. `Float` is refused
   whole rather than half-bound: a constant of it as a double would resolve one side of
-  `(Float/isNaN Float/NaN)` and refuse the other.
+  `(Float/isNaN Float/NaN)` and refuse the other. The bench ports added theirs since (the row in
+  docs/jvm-differences.md lists the set): datascript `Integer/compare` and `Math/sqrt`, data.json
+  `Long/valueOf` of a string, `Double/valueOf`, `Integer/parseInt`, `Integer/toHexString` and `Math/min`
+  (Fixtures/compiler/statics.clj).
 - **`:tests-only true` in a manifest** tells `clj-facts` the library is test code where the name heuristic
   cannot: it counts a library apart when every load-path root is named `test`, and this one's `shim` root
   would have put 111k assertion nodes into the library-code share (docs/facts-coverage.md).

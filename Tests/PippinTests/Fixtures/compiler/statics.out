@@ -1,0 +1,5 @@
+[42 -9223372036854775808 17 7 :refused :refused :refused :refused :refused]
+[2147483647 -2147483648 233 65535 -1295 :refused :refused :refused]
+[0 1f 2028 ffffffff 80000000]
+[4.37 -0.0 1000.0 2.5 0.5 1.0 1.25 true ##-Inf :refused :refused]
+[-4 -0.0 -0.0 true -9223372036854775808]

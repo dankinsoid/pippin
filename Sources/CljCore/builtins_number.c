@@ -1,6 +1,7 @@
 // @ai-generated(solo)
 #include <float.h>
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -277,15 +278,19 @@ static bool all_digits(const char *s, size_t from, size_t to) {
 	return true;
 }
 
-static clj_value b_parse_double(const clj_value *args, size_t n) {
-	(void)n;
-	if (!clj_is_string(args[0])) return clj_throw_msg("%s cannot be cast to a string", clj_type_name(args[0]));
-	const char *s = CLJ_STR(args[0]).bytes;
-	size_t      len = clj_string_len(args[0]);
-	size_t      i = len > 0 && (s[0] == '+' || s[0] == '-') ? 1 : 0;
-	bool        neg = i == 1 && s[0] == '-';
-	if (len - i == 8 && memcmp(s + i, "Infinity", 8) == 0) return clj_double_new(neg ? -INFINITY : INFINITY);
-	if (len - i == 3 && memcmp(s + i, "NaN", 3) == 0) return clj_double_new(NAN);
+// Double.valueOf's text without its hex form and type suffix: a sign, digits with an optional fraction and exponent,
+// Infinity or NaN.
+static bool double_text(const char *s, size_t len, double *out) {
+	size_t i = len > 0 && (s[0] == '+' || s[0] == '-') ? 1 : 0;
+	bool   neg = i == 1 && s[0] == '-';
+	if (len - i == 8 && memcmp(s + i, "Infinity", 8) == 0) {
+		*out = neg ? -INFINITY : INFINITY;
+		return true;
+	}
+	if (len - i == 3 && memcmp(s + i, "NaN", 3) == 0) {
+		*out = NAN;
+		return true;
+	}
 	size_t j = i;
 	while (j < len && s[j] >= '0' && s[j] <= '9') j++;
 	bool   int_digits = j > i;
@@ -295,19 +300,27 @@ static clj_value b_parse_double(const clj_value *args, size_t n) {
 		while (j < len && s[j] >= '0' && s[j] <= '9') j++;
 		frac = j - start;
 	}
-	if (!int_digits && frac == 0) return CLJ_NIL;
+	if (!int_digits && frac == 0) return false;
 	if (j < len && (s[j] == 'e' || s[j] == 'E')) {
 		size_t k = j + 1;
 		if (k < len && (s[k] == '+' || s[k] == '-')) k++;
-		if (!all_digits(s, k, len)) return CLJ_NIL;
+		if (!all_digits(s, k, len)) return false;
 		j = len;
 	}
-	if (j != len) return CLJ_NIL;
+	if (j != len) return false;
 	char buf[350];
-	if (len >= sizeof buf) return CLJ_NIL;
+	if (len >= sizeof buf) return false;
 	memcpy(buf, s, len);
 	buf[len] = '\0';
-	return clj_double_new(strtod(buf, NULL));
+	*out = strtod(buf, NULL);
+	return true;
+}
+
+static clj_value b_parse_double(const clj_value *args, size_t n) {
+	(void)n;
+	if (!clj_is_string(args[0])) return clj_throw_msg("%s cannot be cast to a string", clj_type_name(args[0]));
+	double d;
+	return double_text(CLJ_STR(args[0]).bytes, clj_string_len(args[0]), &d) ? clj_double_new(d) : CLJ_NIL;
 }
 
 // ---- unchecked coercions: Java's narrowing conversions, as RT.uncheckedIntCast and its siblings
@@ -542,12 +555,89 @@ static void bind_static(const char *ns_name, const char *name, clj_value val) {
 	clj_release(ns_sym);
 }
 
-// One integer type, so the box is the value; a string argument would need Long/parseLong's answer, not this one.
+// Long.parseLong's grammar: a sign, then ASCII digits of the radix, the value inside [lo, hi].
+static bool radix_text(const char *s, size_t len, int radix, int64_t lo, int64_t hi, int64_t *out) {
+	size_t i = len > 0 && (s[0] == '+' || s[0] == '-') ? 1 : 0;
+	if (i == len) return false;
+	// Accumulated negative, as parseLong does: INT64_MIN has no positive twin.
+	int64_t acc = 0;
+	for (; i < len; i++) {
+		char c = s[i];
+		int  d = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'z' ? c - 'a' + 10 : c >= 'A' && c <= 'Z' ? c - 'A' + 10 : 99;
+		if (d >= radix || __builtin_mul_overflow(acc, (int64_t)radix, &acc) || __builtin_sub_overflow(acc, (int64_t)d, &acc))
+			return false;
+	}
+	if (s[0] != '-') {
+		if (acc == INT64_MIN) return false;
+		acc = -acc;
+	}
+	if (acc < lo || acc > hi) return false;
+	*out = acc;
+	return true;
+}
+
+static clj_value number_format_error(clj_value s, int radix) {
+	if (radix == 10) return clj_throw_msg("For input string: \"%s\"", CLJ_STR(s).bytes);
+	return clj_throw_msg("For input string: \"%s\" under radix %d", CLJ_STR(s).bytes, radix);
+}
+
+// One integer type, so an integer's box is the value; a string is Long.parseLong's.
 static clj_value b_long_value_of(const clj_value *args, size_t n) {
 	(void)n;
 	int64_t v;
-	if (!clj_int64_of(args[0], &v)) return clj_throw_msg("Long/valueOf expects an integer, got: %s", clj_type_name(args[0]));
-	return clj_retain(args[0]);
+	if (clj_int64_of(args[0], &v)) return clj_retain(args[0]);
+	if (!clj_is_string(args[0])) return clj_throw_msg("Long/valueOf expects an integer or a string, got: %s", clj_type_name(args[0]));
+	if (!radix_text(CLJ_STR(args[0]).bytes, clj_string_len(args[0]), 10, INT64_MIN, INT64_MAX, &v)) return number_format_error(args[0], 10);
+	return clj_long_new(v);
+}
+
+static clj_value b_integer_parse_int(const clj_value *args, size_t n) {
+	int64_t radix = 10, v;
+	if (!clj_is_string(args[0])) return clj_throw_msg("Integer/parseInt expects a string, got: %s", clj_type_name(args[0]));
+	if (n == 2 && (!clj_int64_of(args[1], &radix) || radix < 2 || radix > 36))
+		return clj_throw_msg("Integer/parseInt expects a radix from 2 to 36");
+	if (!radix_text(CLJ_STR(args[0]).bytes, clj_string_len(args[0]), (int)radix, INT32_MIN, INT32_MAX, &v))
+		return number_format_error(args[0], (int)radix);
+	return clj_long_new(v);
+}
+
+// The int's 32 bits unsigned, lowercase, no leading zeros: (Integer/toHexString -1) is "ffffffff".
+static clj_value b_integer_to_hex_string(const clj_value *args, size_t n) {
+	(void)n;
+	int64_t v;
+	if (!clj_int64_of(args[0], &v)) return clj_throw_msg("Integer/toHexString expects an integer, got: %s", clj_type_name(args[0]));
+	if (v < INT32_MIN || v > INT32_MAX) return range_error("int", args[0]);
+	char buf[9];
+	int  len = snprintf(buf, sizeof buf, "%x", (unsigned)(uint32_t)(int32_t)v);
+	return clj_string_new(buf, (size_t)len);
+}
+
+// Java trims the code units up to the space before it reads the text.
+static clj_value b_double_value_of(const clj_value *args, size_t n) {
+	(void)n;
+	if (clj_is_double(args[0])) return clj_retain(args[0]);
+	if (!clj_is_string(args[0])) return clj_throw_msg("Double/valueOf expects a double or a string, got: %s", clj_type_name(args[0]));
+	const char *s = CLJ_STR(args[0]).bytes;
+	size_t      len = clj_string_len(args[0]);
+	while (len > 0 && (unsigned char)s[0] <= ' ') s++, len--;
+	while (len > 0 && (unsigned char)s[len - 1] <= ' ') len--;
+	double d;
+	if (!double_text(s, len, &d)) return number_format_error(args[0], 10);
+	return clj_double_new(d);
+}
+
+// The overloads Clojure's reflector finds: two longs or two doubles, where NaN wins and -0.0 is below 0.0. It finds
+// none for a long and a double.
+static clj_value b_math_min(const clj_value *args, size_t n) {
+	(void)n;
+	int64_t x, y;
+	if (clj_int64_of(args[0], &x) && clj_int64_of(args[1], &y)) return clj_retain(args[x <= y ? 0 : 1]);
+	if (!clj_is_double(args[0]) || !clj_is_double(args[1]))
+		return clj_throw_msg("Math/min expects two longs or two doubles, got: %s and %s", clj_type_name(args[0]), clj_type_name(args[1]));
+	double a = clj_double_val(args[0]), b = clj_double_val(args[1]);
+	if (a != a || b != b) return clj_double_new(NAN);
+	if (a == 0.0 && b == 0.0) return clj_double_new(signbit(a) ? a : b);
+	return clj_double_new(a < b ? a : b);
 }
 
 // Integer.compare's -1, 0 or 1; a long here is the JVM's int widened, so the order is the same.
@@ -594,6 +684,10 @@ static void install_boxed_classes(void) {
 	bind_static_fn("Double", "isNaN", b_nan_p, 1, 1);
 	bind_static_fn("Integer", "compare", b_integer_compare, 2, 2);
 	bind_static_fn("Math", "sqrt", b_math_sqrt, 1, 1);
+	bind_static_fn("Integer", "parseInt", b_integer_parse_int, 1, 2);
+	bind_static_fn("Integer", "toHexString", b_integer_to_hex_string, 1, 1);
+	bind_static_fn("Double", "valueOf", b_double_value_of, 1, 1);
+	bind_static_fn("Math", "min", b_math_min, 2, 2);
 }
 
 void clj_number_builtins_install(void) {
