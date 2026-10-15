@@ -108,7 +108,7 @@ static const clj_ice_frame *innermost(void) {
 	return s ? s->ice : NULL;
 }
 
-static const char *const opt_names[] = {"reuse", "passes", "specialize", "lazy-seq", "layouts", "compiled", "emit", "inline", "beta", "path", "owned", "lower", "drop", "scalar", "fuse", "acyclic", "dispatch", "unfiled"};
+static const char *const opt_names[] = {"reuse", "passes", "specialize", "lazy-seq", "layouts", "compiled", "emit", "inline", "beta", "path", "owned", "lower", "drop", "scalar", "fuse", "acyclic", "dispatch", "unfiled", "hint", "grow"};
 enum { NOPT = sizeof opt_names / sizeof *opt_names };
 
 static void put_opts(sink *s, uint32_t mask) {

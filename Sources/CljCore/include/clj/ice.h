@@ -59,7 +59,9 @@ enum {
 	CLJ_NO_OPT_ACYCLIC    = 1u << 15, // the local collection's acyclic marks: every walk enters all it reaches
 	CLJ_NO_OPT_DISPATCH   = 1u << 16, // field-read cells, direct field* and new*, implementor arms, the 2-entry protocol cache
 	CLJ_NO_OPT_UNFILED    = 1u << 17, // a validly marked node released to a nonzero count is filed as a candidate
-	CLJ_NO_OPT_ALL        = (1u << 18) - 1,
+	CLJ_NO_OPT_HINT       = 1u << 18, // a long non-ASCII string's index scans from its crumb, not from the code point read last
+	CLJ_NO_OPT_GROW       = 1u << 19, // (str s x) on a unique string copies it rather than appending in place
+	CLJ_NO_OPT_ALL        = (1u << 20) - 1,
 };
 // "1"/"all", ""/"0", or a comma list of the names above; UINT32_MAX for an unknown word.
 uint32_t clj_no_opt_parse(const char *spec);

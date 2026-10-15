@@ -6,6 +6,7 @@
 #include "clj/reduce.h"
 #include "clj/seq.h"
 #include "clj/string.h"
+#include "ice_internal.h"
 
 static inline clj_string *clj_string_of(clj_value v) { return (clj_string *)clj_to_ptr(v); }
 
@@ -106,26 +107,36 @@ static bool all_ascii(const char *p, size_t n) {
 
 // Inline, not a side allocation: freeing one would take strings off rc.c's leaf path, every string's death with them.
 typedef struct {
+	// (index << 32) | byte offset of a code point read last. One word, so a reader on another thread never pairs one
+	// read's index with another's offset; every value stored is true of the bytes, so a stale one is still a start.
+	_Atomic uint64_t hint;
 	_Atomic uint32_t count;   // code points, 0 until built; crumb is valid once it is not
 	_Atomic uint32_t crumb[]; // crumb[k]: the byte offset of code point (k + 1) * CLJ_STRING_CRUMB_STRIDE
 } string_tail;
 
-static inline size_t tail_offset(size_t len) { return (sizeof(clj_string) + len + 1 + 3) & ~(size_t)3; }
+static inline size_t tail_offset(size_t len) { return (sizeof(clj_string) + len + 1 + 7) & ~(size_t)7; }
 // Code points never outnumber bytes, so this bounds the crumbs below the last code point.
 static inline size_t       tail_crumbs(size_t len) { return (len - 1) / CLJ_STRING_CRUMB_STRIDE; }
 static inline string_tail *tail_of(const clj_string *s) { return (string_tail *)((char *)s + tail_offset(s->len)); }
+static inline size_t       string_size(size_t len, bool tail) {
+	return tail ? tail_offset(len) + sizeof(string_tail) + tail_crumbs(len) * sizeof(uint32_t) : sizeof(clj_string) + len + 1;
+}
+
+static inline void tail_init(string_tail *t) {
+	atomic_init(&t->hint, 0);
+	atomic_init(&t->count, 0);
+}
 
 clj_value clj_string_new(const char *bytes, size_t len) {
 	if (len > UINT32_MAX) clj_fatal("string longer than 4 GiB");
-	bool   ascii = all_ascii(bytes, len), tail = !ascii && len > CLJ_STRING_CRUMB_BYTES;
-	size_t size = tail ? tail_offset(len) + sizeof(string_tail) + tail_crumbs(len) * sizeof(uint32_t) : sizeof(clj_string) + len + 1;
-	clj_string *s = clj_alloc_uninit(&clj_string_type, size);
+	bool        ascii = all_ascii(bytes, len), tail = !ascii && len > CLJ_STRING_CRUMB_BYTES;
+	clj_string *s = clj_alloc_uninit(&clj_string_type, string_size(len, tail));
 	atomic_init(&s->hash, 0);
 	s->len = (uint32_t)len;
 	if (len) memcpy(s->bytes, bytes, len);
 	s->bytes[len] = '\0';
 	if (ascii) s->h.flags |= CLJ_STRING_ASCII;
-	if (tail) atomic_init(&tail_of(s)->count, 0);
+	if (tail) tail_init(tail_of(s));
 	return clj_from_ptr(s);
 }
 
@@ -183,18 +194,31 @@ static size_t skip_points(const unsigned char *p, size_t len, size_t pos, size_t
 	return pos;
 }
 
+static size_t back_points(const unsigned char *p, size_t pos, size_t k) {
+	for (; k && pos; k--) {
+		pos--;
+		while (pos && !is_lead(p[pos])) pos--;
+	}
+	return pos;
+}
+
 size_t clj_string_offset_slow(clj_value v, size_t i) {
 	const clj_string    *s = clj_string_of(v);
 	const unsigned char *p = (const unsigned char *)s->bytes;
-	size_t               pos = 0, k = i;
-	if (s->len > CLJ_STRING_CRUMB_BYTES && i >= CLJ_STRING_CRUMB_STRIDE) {
-		string_tail *t = tail_of(s);
-		if (i >= tail_count(s, t)) return s->len;
-		size_t c = i / CLJ_STRING_CRUMB_STRIDE;
-		pos = atomic_load_explicit(&t->crumb[c - 1], memory_order_relaxed);
-		k = i - c * CLJ_STRING_CRUMB_STRIDE;
-	}
-	return skip_points(p, s->len, pos, k);
+	if (s->len <= CLJ_STRING_CRUMB_BYTES) return skip_points(p, s->len, 0, i);
+	string_tail *t = tail_of(s);
+	if (i >= tail_count(s, t)) return s->len;
+	size_t c = i / CLJ_STRING_CRUMB_STRIDE, k = i - c * CLJ_STRING_CRUMB_STRIDE;
+	size_t pos = c ? atomic_load_explicit(&t->crumb[c - 1], memory_order_relaxed) : 0;
+	if (clj_opt_off(CLJ_NO_OPT_HINT)) return skip_points(p, s->len, pos, k);
+	// A walk by index (a reader's charAt, a window copied a char at a time) is one code point from the last read.
+	uint64_t h = atomic_load_explicit(&t->hint, memory_order_relaxed);
+	size_t   hi = (size_t)(h >> 32), ho = (uint32_t)h;
+	if (hi <= i && i - hi < k) pos = skip_points(p, s->len, ho, i - hi);
+	else if (hi > i && hi - i < k) pos = back_points(p, ho, hi - i);
+	else pos = skip_points(p, s->len, pos, k);
+	if (hi != i) atomic_store_explicit(&t->hint, (uint64_t)i << 32 | pos, memory_order_relaxed);
+	return pos;
 }
 
 size_t clj_string_index_slow(clj_value v, size_t pos) {

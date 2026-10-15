@@ -16,7 +16,7 @@
   bit rather than a body field: the body has no spare word (`hash` and `len` fill it to 24 bytes), and one more
   would grow every string for a bit. A string is a leaf object (no `each_child`, no
   drop), so the bit never has to survive into rc.c's dead link, which keeps only `LARGE`, `META` and `SHAPE`.
-- **A non-ASCII string past 64 bytes carries a tail** after its NUL, 4-aligned: its code point count and the byte
+- **A non-ASCII string past 64 bytes carries a tail** after its NUL, 8-aligned: the index hint (below), its code point count and the byte
   offset of every 64th code point (*crumbs*), at most `(len - 1) / 64` of them, ~6 % of the bytes. Both are built
   by one pass on the first indexed access and published by a release store of the count, which an acquiring reader
   takes as "crumbs valid"; two racing builders store the same words, so a shared string needs no lock. Index →
@@ -76,15 +76,17 @@
 - [ ] **The ASCII scan reads every new string's bytes once more**: `clj_string_new` is 5 % of the strings workload
   (bench/RESULTS.md, "Strings"). A builder that knows its parts' bits (`str`, `join`, `subs` of an ASCII string)
   could pass the answer in. Trigger: `clj_string_new` above the copy itself in a profile.
-- [ ] **A loop of `nth` over a long non-ASCII string pays the crumb scan on every read.** Each index decodes up to 63
-  code points from the nearest crumb, so a reader walking a string by index, as clojure.data.json's `StringPBR` does
-  with `charAt` (`nth` here), spends ~32 decodes a character where the JVM's `charAt` is one load. In the json
-  workload (run 38728053580) `clj_string_offset_slow` is 21.3 % of the closed build's samples and 18.1 % of dev's,
-  the largest single item, and the port's `read-quoted-string`, which indexes its 64-char window in place where
-  upstream copies it into a `char[]`, is 42 % of an iteration inclusive (bench/RESULTS.md "JSON"). What would close
-  it: a last-read `(index, byte offset)` hint beside the crumbs, so the next index scans from there (one 64-bit
-  store, racy but self-validating as the crumbs are), or a string cursor the reader keeps. Trigger: a decision to
-  make json's parse a target, or a second workload whose profile it leads.
+- **A walk by index over a long non-ASCII string is one code point a step**: the tail carries an index hint, one
+  64-bit word `(index << 32) | byte offset` of the code point read last, beside the count and the crumbs. An index
+  within a crumb's distance of the hint scans from it, forward or back (UTF-8 finds a lead byte going backwards as
+  well), and stores itself as the next hint; anything farther starts from its crumb as before. So a reader walking a
+  string with `nth`, as clojure.data.json's `StringPBR` does with `charAt`, decodes one code point a character where
+  it decoded ~32. One word, loaded and stored relaxed, is what makes it safe on a shared string — the json payload is
+  a var's, so shared, and so is any string out of an atom, a channel or a literal: a reader on another thread sees
+  one store or another, never one's index with another's offset, and every value ever stored is true of the
+  immutable bytes, so a stale hint is a valid start like a crumb. Two threads walking one string overwrite each
+  other's hint and fall back to the crumbs. The tail grew by the word and is 8-aligned; ASCII strings and non-ASCII
+  ones of at most 64 bytes carry none and take no branch for it. `CLJ_NO_OPT=hint` scans from the crumb.
 - [ ] **No string builder.** `StringBuilder`, `StringWriter` and `goog.string.StringBuffer` have no counterpart: a
   ported library collects parts in `(vswap! v conj x)`, which grows the vector in place, and joins them at the end
   (corpus/data-json's `string-builder`, core's own `StringWriter`). The join walks the vector through a seq, one

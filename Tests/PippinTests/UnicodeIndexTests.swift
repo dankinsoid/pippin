@@ -93,6 +93,39 @@ extension CoreTests.StringTests {
 		clj_release(s)
 	}
 
+	// The index hint (NOTES "Strings"): walks forward and back, steps of one and of a crumb, jumps; shared or not.
+	@Test(arguments: [false, true]) func hintAgreesWithAScan(shared: Bool) {
+		clj_init()
+		let text = "é" + String(repeating: "aé日😀", count: 80) + "z"
+		let scalars = Array(text.unicodeScalars)
+		var offsets: [Int] = []
+		var at = 0
+		for u in scalars {
+			offsets.append(at)
+			at += String(u).utf8.count
+		}
+		let s = Array(text.utf8).withUnsafeBufferPointer { buf in
+			buf.withMemoryRebound(to: CChar.self) { clj_string_new($0.baseAddress, $0.count) }
+		}
+		if shared { clj_share(s) }
+		let n = scalars.count
+		var order = Array(0..<n) + Array((0..<n).reversed()) + Array(stride(from: 0, to: n, by: 63)) + [n - 1, 0, 70, 66, 130, 3]
+		var x: UInt64 = 0x9E3779B97F4A7C15
+		for _ in 0..<2000 {
+			x = x &* 6364136223846793005 &+ 1442695040888963407
+			let base = Int(x >> 33) % n
+			order.append(base)
+			order.append(max(0, min(n - 1, base + Int(x >> 60) - 8)))
+		}
+		for i in order {
+			#expect(clj_string_offset(s, i) == offsets[i], "offset of \(i)")
+			var cp: UInt32 = 0
+			#expect(clj_string_char_at(s, i, &cp) && cp == scalars[i].value, "char \(i)")
+		}
+		#expect(clj_string_offset(s, n) == Int(clj_string_len(s)))
+		clj_release(s)
+	}
+
 	@Test func integersPrintThemselves() throws {
 		clj_init()
 		#expect(try printed("(str 0 -1 9 10 99 100 -100 4611686018427387903 -4611686018427387904)") == #""0-191099100-1004611686018427387903-4611686018427387904""#)

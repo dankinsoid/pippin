@@ -79,6 +79,8 @@ checks the tree and the facts between passes in debug builds; one option turns e
   | `fuse` | the fusion pass over `(sequence XF src)`, a map over two or three colls, `mapv`, `(into to XF P)`, `transduce`, `frequencies`, `group-by` and `reductions` (NOTES "Analyzer and evaluator", the fusion pass), and the compiled step's mapcat, dedupe, distinct, partition-all and reductions stages and its stage fns that are a core var or a keyword (NOTES "Compiler", fused stages) |
   | `acyclic` | the local cycle collection's acyclic marks (NOTES "RC", the acyclic marks): every local walk enters all it reaches, so a leak that goes away with it is a bug of the marks |
   | `dispatch` | the compiled `(.-f x)` cell's fills (NOTES "Type descriptor", field reads); the protocol cache's second way and its retire without a walk; decided at emission: `field*` and `new*` in place and the implementor arms of a closed site (NOTES "Compiler") |
+  | `hint` | a non-ASCII string's index hint (NOTES "Strings"): every index scans from its crumb |
+  | `grow` | the in-place append of `(str s x)` to a unique string (NOTES "Strings", the string builder): every `str` copies |
 
   Not turned off, each because it is no optimization: lazy defs (semantics of design §4, `CLJ_LAZY_DEFS=eager` is
   their control), the analyzer's folding of a literal collection into a constant, the evaluator's borrowing
