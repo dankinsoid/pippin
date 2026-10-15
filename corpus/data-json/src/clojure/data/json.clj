@@ -18,16 +18,15 @@
 
 ;; pippin: *warn-on-reflection* names the JVM compiler (design §8); its two set! forms go.
 
-;; pippin: definterface is refused (design §8): a protocol, called as functions. No char[] window or
-;; String(char[]): read-quoted-string reads the window in place (position, charAt, substring).
+;; pippin: definterface is refused (design §8): a protocol, called as functions. No String(char[], off, len):
+;; read-quoted-string takes its string from the source (position, substring).
 (defprotocol InternalPBR
   (readChar [this])
-  (readChars [this bufflen])
+  (readChars [this buffer start bufflen])
   (unreadChar [this c])
-  (unreadChars [this bufflen])
+  (unreadChars [this buffer start bufflen])
   (toReader [this])
   (position [this])
-  (charAt [this i])
   (substring [this start end]))
 
 ;; pippin: ReaderPBR, the stream over a java.io.PushbackReader, goes with read.
@@ -47,26 +46,30 @@
           c))
       (let [i (int -1)]
         i)))
-  (readChars [_ bufflen]
+  (readChars [_ buffer start bufflen]
     (let [p (aget pos 0)
           remaining (- len p)
           n (Math/min remaining bufflen)]
       (when (pos? n)
-        (aset pos 0 (+ p n)))
+        (let [end (+ p n)]
+          (aset pos 0 end)
+          ;; pippin: no String.getChars: the window is copied a char at a time.
+          (loop [i p j start]
+            (when (< i end)
+              (aset buffer j (nth s i))
+              (recur (unchecked-inc i) (unchecked-inc j))))))
       (if (pos? n) n -1)))
   (unreadChar [_ _c]
     ;; ASSERT: c should never be -1 (EOF)
     (aset pos 0 (unchecked-dec (aget pos 0)))
     nil)
-  (unreadChars [_ bufflen]
+  (unreadChars [_ _buffer _start bufflen]
     (aset pos 0 (unchecked-subtract (aget pos 0) bufflen))
     nil)
   (toReader [_]
     (subs s (aget pos 0) len))
   (position [_]
     (aget pos 0))
-  (charAt [_ i]
-    (nth s i))
   (substring [_ start end]
     (subs s start end)))
 
@@ -168,21 +171,22 @@
 (defn- read-quoted-string [stream]
   ;; Expects to be called with the head of the stream AFTER the
   ;; opening quotation mark.
-  (let [start (position stream)
-        read (readChars stream 64)
+  (let [buffer (char-array 64)
+        start (position stream)
+        read (readChars stream buffer 0 64)
         end-index (unchecked-dec-int read)]
     (when (neg? read)
       (throw (json-error "JSON error (end-of-file inside string)")))
     (loop [i (int 0)]
-      (let [c (int (charAt stream (+ start i)))]
+      (let [c (int (aget buffer i))]
         (codepoint-case c
           \" (let [off (unchecked-inc-int i)
                    len (unchecked-subtract-int read off)]
-               (unreadChars stream len)
+               (unreadChars stream buffer off len)
                (substring stream start (+ start i)))
           \\ (let [off i
                    len (unchecked-subtract-int read off)]
-               (unreadChars stream len)
+               (unreadChars stream buffer off len)
                (slow-read-string stream (substring stream start (+ start i))))
           (if (= i end-index)
             (do (unreadChar stream c)
