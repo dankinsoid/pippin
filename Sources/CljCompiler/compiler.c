@@ -465,6 +465,7 @@ typedef struct fnctx {
 	const clj_facts *facts;    // of the top-level tree being emitted
 	uint64_t         promoted; // slots of the running frame that are C variables l<i>, not fr.slots[i]
 	uint64_t         borrowed; // the promoted slots that hold a +0 value for the whole call: never released, never rebound
+	uint64_t         views;    // of those, let slots of a deftype's field read through a borrowed receiver: rebound by their let
 	uint64_t         ints;     // the promoted slots that are int64_t variables: every binding is an unboxed expression
 	uint64_t         dbls;     // the same as double variables
 	const clj_node  *body;     // the frame's body, what the typed-slot selection walks
@@ -657,7 +658,8 @@ static void verify_slot_plan(const fnctx *f, const clj_fn_arity *a, bool closure
 	const char *what = NULL;
 	if ((f->borrowed & ~f->promoted) || (typed & ~f->promoted) || (f->ints & f->dbls) || (typed & f->borrowed)) what = "a borrowed or typed slot that is not promoted, or both kinds";
 	else if (f->promoted & (linked | captured | wide)) what = "a promoted slot that is read by address";
-	else if (f->borrowed & (written | ~params)) what = "a borrowed slot that is no parameter or is rebound";
+	else if ((f->borrowed & ~f->views) & (written | ~params)) what = "a borrowed slot that is no parameter or is rebound";
+	else if (f->views & params) what = "a field view on a parameter slot";
 	else if (f->borrowed && !closure) what = "a borrowed parameter of a frame whose caller owns its arguments";
 	else if (f->owned_params & (f->borrowed | typed | ~params | (closure ? 0 : ~(uint64_t)0))) what = "an owned parameter that is borrowed, typed, no parameter, or of a frame without an owned entry";
 	if (what) clj_ice("verify/slot-plan", body, "%s (promoted %#llx, borrowed %#llx, typed %#llx); the plan as emit/slots left it", what,
@@ -679,11 +681,13 @@ static bool wparam(const fnctx *f, uint32_t i) { return f->wkinds && i < f->wnpa
 
 static uint64_t owned_positions(void *ctx, const clj_node *invoke);
 
+static uint64_t field_views(fnctx *f, const clj_fn_arity *a, const clj_node *body);
+
 // False for a worker whose parameter cannot be a C value: read by address (a capture, an OUTER read) or not unboxable
 // at every fn-body recur.
 static bool promote_slots(fnctx *f, const clj_node *owner, const clj_fn_arity *a, bool closure, const clj_node *body, uint32_t nslots) {
 	cljc_slot_stats *st = &f->u->slots;
-	f->promoted = f->borrowed = f->ints = f->dbls = 0;
+	f->promoted = f->borrowed = f->views = f->ints = f->dbls = 0;
 	f->body = body;
 	if (!f->facts || nslots == 0) return !f->wkinds;
 	uint32_t fi = facts_frame(f->facts, owner, body);
@@ -716,6 +720,9 @@ static bool promote_slots(fnctx *f, const clj_node *owner, const clj_fn_arity *a
 		st->promoted++;
 		if (e == CLJ_ESCAPE_LOCAL) st->promoted_local++;
 	}
+	f->views = field_views(f, a, body);
+	f->borrowed |= f->views;
+	st->field_views += (uint64_t)__builtin_popcountll(f->views);
 	select_typed_slots(f, body);
 	for (uint32_t i = 0; i < nslots; i++) {
 		if (wparam(f, i) && !in_typed(f, i)) return false;
@@ -733,6 +740,7 @@ static bool promote_slots(fnctx *f, const clj_node *owner, const clj_fn_arity *a
 
 static bool promoted(const fnctx *f, uint32_t i) { return i < 64 && ((f->promoted >> i) & 1); }
 static bool borrowed_slot(const fnctx *f, uint32_t i) { return i < 64 && ((f->borrowed >> i) & 1); }
+static bool in_view(const fnctx *f, uint32_t i) { return i < 64 && ((f->views >> i) & 1); }
 static bool int_slot(const fnctx *f, uint32_t i) { return i < 64 && ((f->ints >> i) & 1); }
 static bool dbl_slot(const fnctx *f, uint32_t i) { return i < 64 && ((f->dbls >> i) & 1); }
 
@@ -893,6 +901,49 @@ static void bind_walk(const clj_node *n, void *ctx) {
 	clj_node_children(n, bind_walk, ctx);
 }
 
+static int64_t field_star_index(const clj_node *n);
+
+static void catch_slots(const clj_node *n, void *ctx) {
+	uint64_t *m = ctx;
+	switch (n->kind) {
+	case CLJ_NODE_FN:
+	case CLJ_NODE_DIRECT_FN:
+	case CLJ_NODE_FUSED: return;
+	case CLJ_NODE_TRY:
+		for (uint32_t i = 0; i < n->u.try_.ncatches; i++) {
+			if (n->u.try_.catches[i].slot < 64) *m |= (uint64_t)1 << n->u.try_.catches[i].slot;
+		}
+		break;
+	default: break;
+	}
+	clj_node_children(n, catch_slots, ctx);
+}
+
+// Closed only: the promoted let slots every binding of which is (field* r i) of a receiver the caller holds, a borrowed
+// parameter whose fact is a deftype. A deftype's fields never change and r outlives the call, so the slot borrows the
+// field rather than owning it (NOTES.md "Compiler", field views); a record may be updated in place, so it owns.
+// @ai-generated(solo)
+static uint64_t field_views(fnctx *f, const clj_fn_arity *a, const clj_node *body) {
+	if (!f->c->opts.closed || clj_opt_off(CLJ_NO_OPT_FIELDS) || clj_opt_off(CLJ_NO_OPT_DISPATCH)) return 0;
+	bind_list b = {0};
+	bind_walk(body, &b);
+	uint64_t ok = 0, refused = 0;
+	catch_slots(body, &refused);
+	for (uint32_t i = 0; i < b.n; i++) {
+		uint32_t s = b.slots[i];
+		if (s >= 64) continue;
+		const clj_node *init = b.inits[i], *r = init->kind == CLJ_NODE_INVOKE && init->u.invoke.n == 2 ? init->u.invoke.args[0] : NULL;
+		const clj_fact *rf = r && r->kind == CLJ_NODE_LOCAL ? clj_facts_node(f->facts, r->id) : NULL;
+		bool view = b.binders[i]->kind == CLJ_NODE_LET && rf && rf->types == CLJ_T_HOST && field_star_index(init) >= 0 &&
+		            borrowed_slot(f, r->u.local.index) && promoted(f, s) && !borrowed_slot(f, s) && !((f->owned_params >> s) & 1) &&
+		            !wparam(f, s) && !(a && (s < a->nparams || (int32_t)s == a->self_slot));
+		if (view) ok |= (uint64_t)1 << s;
+		else refused |= (uint64_t)1 << s;
+	}
+	bind_free(&b);
+	return ok & ~refused;
+}
+
 static bool inside(const clj_node *n, const clj_node *sub) { return sub->id >= n->id && sub->id < n->id + n->nnodes; }
 
 // A fixpoint: a binding may rest on other typed slots. The entry check of `split` converts the exempt inits.
@@ -1032,7 +1083,7 @@ static void emit_promoted_decls(fnctx *f) {
 		if (wparam(f, i)) sb_printf(&f->out, "\t%s l%u = p%u;\n\t(void)l%u;\n", ctype(slot_kind(f, i)), i, i, i);
 		else if (int_slot(f, i)) sb_printf(&f->out, "\tint64_t l%u = 0;\n\t(void)l%u;\n", i, i);
 		else if (dbl_slot(f, i)) sb_printf(&f->out, "\tdouble l%u = 0;\n\t(void)l%u;\n", i, i);
-		else if (promoted(f, i) && !borrowed_slot(f, i) && !((f->owned_params >> i) & 1)) sb_printf(&f->out, "\tclj_value l%u = CLJ_NIL;\n", i);
+		else if (promoted(f, i) && (!borrowed_slot(f, i) || in_view(f, i)) && !((f->owned_params >> i) & 1)) sb_printf(&f->out, "\tclj_value l%u = CLJ_NIL;\n", i);
 	}
 }
 
@@ -1682,6 +1733,14 @@ static void emit_bindings(fnctx *f, const clj_node *n) {
 		} else if (slot_kind(f, n->u.let.slots[i]) != UK_NONE) {
 			itemp t = emit_raw(f, init);
 			sb_printf(&f->out, "\tl%u = %s;\n", n->u.let.slots[i], t.name);
+		} else if (in_view(f, n->u.let.slots[i])) {
+			fn_line(f, init);
+			temp r = emit_borrowed(f, init->u.invoke.args[0]);
+			sb_printf(&f->out, "\tl%u = clj_c_field_view(%s, %u);\n", n->u.let.slots[i], r.name, (unsigned)field_star_index(init));
+			release_temp(f, &r);
+			char name[16];
+			snprintf(name, sizeof name, "l%u", n->u.let.slots[i]);
+			check_thrown(f, name);
 		} else {
 			temp t = emit(f, init);
 			emit_set(f, n->u.let.slots[i], t.name);
@@ -2799,7 +2858,7 @@ static bool fact_of_kind(const fnctx *f, const clj_node *n, uint32_t kinds) {
 // The array kind the facts know, or -1.
 static int fact_array_kind(const fnctx *f, const clj_node *n) {
 	const clj_fact *a = f->facts ? clj_facts_node(f->facts, n->id) : NULL;
-	return a && a->types == CLJ_T_ARRAY && a->elem ? a->elem - 1 : -1;
+	return a && (a->types & ~(uint32_t)CLJ_T_NIL) == CLJ_T_ARRAY && a->elem ? a->elem - 1 : -1;
 }
 
 static bool known_on(const fnctx *f) { return f->facts && !clj_opt_off(CLJ_NO_OPT_KNOWN) && !clj_opt_off(CLJ_NO_OPT_INLINE); }
@@ -2897,7 +2956,8 @@ static temp emit_tag_checked(fnctx *f, const clj_node *n, unbox_op uop, const uk
 			snprintf(failed, sizeof failed, "f%d", f->naux++);
 			sb_printf(&f->out, "\tbool %s = false;\n", failed);
 			emit_int64_op(f, uop, x[0], x[1], z.name, r.name, failed);
-			sb_printf(&f->out, "\tif (!%s) %s = clj_long_new(%s);\n", failed, r.name, z.name);
+			if (unbox_is_unchecked(uop)) sb_printf(&f->out, "\t(void)%s;\n\t%s = clj_long_new(%s);\n", failed, r.name, z.name);
+			else sb_printf(&f->out, "\tif (!%s) %s = clj_long_new(%s);\n", failed, r.name, z.name);
 		} else {
 			emit_double_arith(f, uop, x[0], x[1], z.name);
 			sb_printf(&f->out, "\t%s = clj_double_new(%s);\n", r.name, z.name);
@@ -3691,10 +3751,10 @@ static temp emit_fused(fnctx *f, const clj_node *n) {
 	sb_printf(&f->out, "\tclj_cframe %s = {(clj_value *)%s, NULL, 0, NULL};\n\t(void)%s;\n", frame, array, frame);
 	temp        r = new_temp(f, OWN_YES);
 	const char *saved_frame = f->frame;
-	uint64_t    saved_promoted = f->promoted, saved_borrowed = f->borrowed, saved_ints = f->ints, saved_dbls = f->dbls;
+	uint64_t    saved_promoted = f->promoted, saved_borrowed = f->borrowed, saved_views = f->views, saved_ints = f->ints, saved_dbls = f->dbls;
 	const clj_node *saved_body = f->body;
 	f->frame = frame;
-	f->promoted = f->borrowed = f->ints = f->dbls = 0;
+	f->promoted = f->borrowed = f->views = f->ints = f->dbls = 0;
 	f->body = NULL;
 	if (f->facts) {
 		uint32_t fi = facts_frame(f->facts, n, n->u.fused.fused);
@@ -3751,6 +3811,7 @@ static temp emit_fused(fnctx *f, const clj_node *n) {
 	f->frame = saved_frame;
 	f->promoted = saved_promoted;
 	f->borrowed = saved_borrowed;
+	f->views = saved_views;
 	f->ints = saved_ints;
 	f->dbls = saved_dbls;
 	f->body = saved_body;
@@ -4000,6 +4061,33 @@ static temp emit_outlined_call(fnctx *f, const clj_node *n, const fn_base *fb, c
 	return r;
 }
 
+// A protocol call's inlined body (optimizer.c try_proto_inline), closed only: the guard is the arm of the one
+// implementor, its cell filled from the tables at the epoch, so an extend or a redefinition after the compile runs the
+// call. A dev unit, a receiver held unboxed and an impl out of the set run the call alone.
+// @ai-generated(solo)
+static bool emit_proto_guard(fnctx *f, const clj_node *n, const char *b) {
+	const clj_node *g = n->u.if_.test, *call = n->u.if_.else_;
+	uint32_t        recv = g->u.root_is.recv, nargs = call->u.invoke.n;
+	clj_value       var = g->u.root_is.var.v, root = clj_var_root(var);
+	const clj_type *t = clj_to_ptr(g->u.root_is.type.v);
+	if (!f->c->opts.closed || clj_opt_off(CLJ_NO_OPT_DISPATCH) || clj_opt_off(CLJ_NO_OPT_EMIT) || clj_var_is_dynamic(var) || !clj_is_protocol_method(root)) return false;
+	if (slot_kind(f, recv) != UK_NONE || wparam(f, recv)) return false;
+	clj_value tvar = user_type_var(t);
+	if (clj_is_nil(tvar)) return false;
+	uint32_t id = arm_target(f, t, root, nargs);
+	if (id == UINT32_MAX) return false;
+	int k = f->naux++;
+	char read[48];
+	if (promoted(f, recv)) snprintf(read, sizeof read, "l%u", recv);
+	else snprintf(read, sizeof read, "%s.slots[%u]", f->frame, recv);
+	sb_printf(&f->out, "#ifdef CLJC_PIMPL_%u\n\tbool %s;\n\t{\n\t\tstatic _Atomic uint64_t PG%d;\n\t\tclj_value gr%d = %s;\n\t\tuint64_t ge%d = clj_epoch_load();\n", id, b, k, k, read, k);
+	sb_printf(&f->out, "\t\t%s = clj_dispatch_type_inline(gr%d) == clj_c_var_type(V[%zu]) && (clj_c_arm_hit(&PG%d, ge%d) || clj_c_arm_fill(&PG%d, clj_var_root_relaxed(V[%zu]), &gr%d, %u, CLJC_PIMPL_%u_CODE, CLJC_PIMPL_%u_FN, ge%d));\n",
+	          b, k, var_index(f->u, tvar), k, k, k, var_index(f->u, var), k, nargs, id, id, k);
+	sb_printf(&f->out, "\t}\n#else\n\tbool %s = false;\n#endif\n", b);
+	f->u->slots.proto_inlined++;
+	return true;
+}
+
 // An inlined call (optimizer.c): the body's guard is 1 in a closed set that binds the var to the very fn the body was
 // copied from (CLJC_INL_<target>, decided at write time as the direct targets are), the dispatcher's identity in the
 // unit that compiled that fn, the digest of the copied tree in another dev unit (clj_c_root_tree), and the call alone
@@ -4014,6 +4102,8 @@ static temp emit_inlined_call(fnctx *f, const clj_node *n) {
 	if (lowered) {
 		// the builtin the lowered call runs, which any unit can check: 1 in a closed build, as a fusion guard
 		sb_printf(&f->out, "\tbool %s = CLJC_LOWERED(V[%zu], %u);\n", b.name, var_index(f->u, g->u.root_is.var.v), (unsigned)n->u.if_.then->u.lowered.how);
+	} else if (g->u.root_is.proto) {
+		if (!emit_proto_guard(f, n, b.name)) return emit_call_alone(f, n);
 	} else if (g->u.root_is.nguards) {
 		// a known path stands for core's own fn, whose boot root any unit can check: the fusion guard, 1 when closed
 		int k = f->naux++;

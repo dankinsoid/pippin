@@ -112,6 +112,8 @@ typedef struct {
 	uint64_t owned_steps;    // lowered sites whose reducer hands the accumulator over through an owned step
 	uint64_t thunk_let_go;   // lazy-seq thunks' tail cons sites that release the dead captures before the token
 	uint64_t drops;          // slots released where they die at a read that only borrowed (reuse.c, cljc_reuse_drops)
+	uint64_t field_views;    // let slots borrowing a deftype's field through a borrowed receiver (closed)
+	uint64_t proto_inlined;  // protocol call sites written with their one implementor's body under its arm (closed)
 	uint64_t known;          // intrinsic sites written with the arm their arguments' facts pick: a string's nth or count, a char's int, a known array kind
 } cljc_slot_stats;
 

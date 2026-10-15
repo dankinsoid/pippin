@@ -338,6 +338,14 @@ static clj_compiled_fn CLJC_FN_clojure_core_sort_by_a2;
 #define CLJC_DIRECT_clojure_core_filter_a2 1
 static clj_compiled_fn CLJC_FN_clojure_core_filter_a2;
 #define CLJC_INL_clojure_test_join_fixtures_a1 1
+#define CLJC_PIMPL_16 1
+static clj_cproto_impl PI16 = {"clojure_core_MultiFn__r2__0", "clojure_core_MultiFn__r2__0_a3", NULL, NULL};
+#define CLJC_PIMPL_16_CODE clj_c_impl_code(&PI16)
+#define CLJC_PIMPL_16_FN clj_c_impl_fn(&PI16)
+#define CLJC_PIMPL_17 1
+static clj_cproto_impl PI17 = {"clojure_core_MultiFn__r2__0", "clojure_core_MultiFn__r2__0_a3", NULL, NULL};
+#define CLJC_PIMPL_17_CODE clj_c_impl_code(&PI17)
+#define CLJC_PIMPL_17_FN clj_c_impl_fn(&PI17)
 #define CLJC_PIMPL_18 1
 static clj_cproto_impl PI18 = {"clojure_core_MultiFn__r2__0", "clojure_core_MultiFn__r2__0_a3", NULL, NULL};
 #define CLJC_PIMPL_18_CODE clj_c_impl_code(&PI18)
@@ -394,14 +402,6 @@ static clj_cproto_impl PI30 = {"clojure_core_MultiFn__r2__0", "clojure_core_Mult
 static clj_cproto_impl PI31 = {"clojure_core_MultiFn__r2__0", "clojure_core_MultiFn__r2__0_a3", NULL, NULL};
 #define CLJC_PIMPL_31_CODE clj_c_impl_code(&PI31)
 #define CLJC_PIMPL_31_FN clj_c_impl_fn(&PI31)
-#define CLJC_PIMPL_32 1
-static clj_cproto_impl PI32 = {"clojure_core_MultiFn__r2__0", "clojure_core_MultiFn__r2__0_a3", NULL, NULL};
-#define CLJC_PIMPL_32_CODE clj_c_impl_code(&PI32)
-#define CLJC_PIMPL_32_FN clj_c_impl_fn(&PI32)
-#define CLJC_PIMPL_33 1
-static clj_cproto_impl PI33 = {"clojure_core_MultiFn__r2__0", "clojure_core_MultiFn__r2__0_a3", NULL, NULL};
-#define CLJC_PIMPL_33_CODE clj_c_impl_code(&PI33)
-#define CLJC_PIMPL_33_FN clj_c_impl_fn(&PI33)
 #endif
 
 static clj_value top_0(void) {
@@ -1896,11 +1896,11 @@ static clj_value top_17(void) {
 		const clj_type *pt = clj_dispatch_type_inline(a0[0]);
 		uint64_t pe = clj_epoch_load();
 		clj_cproto_ic *PC1 = PC_6_get();
-#ifdef CLJC_PIMPL_18
-		static _Atomic uint64_t PA18;
+#ifdef CLJC_PIMPL_16
+		static _Atomic uint64_t PA16;
 #endif
-#ifdef CLJC_PIMPL_18
-		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA18, pe) || clj_c_arm_fill(&PA18, t1, a0, 3, CLJC_PIMPL_18_CODE, CLJC_PIMPL_18_FN, pe))) t0 = CLJC_PIMPL_18_FN(CLJ_NIL, NULL, a0, 3);
+#ifdef CLJC_PIMPL_16
+		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA16, pe) || clj_c_arm_fill(&PA16, t1, a0, 3, CLJC_PIMPL_16_CODE, CLJC_PIMPL_16_FN, pe))) t0 = CLJC_PIMPL_16_FN(CLJ_NIL, NULL, a0, 3);
 		else
 #endif
 		t0 = clj_c_proto_ic_call(PC1, t1, a0, 3, pt, pe);
@@ -2012,11 +2012,11 @@ static clj_value top_19(void) {
 		const clj_type *pt = clj_dispatch_type_inline(a0[0]);
 		uint64_t pe = clj_epoch_load();
 		clj_cproto_ic *PC1 = PC_7_get();
-#ifdef CLJC_PIMPL_19
-		static _Atomic uint64_t PA19;
+#ifdef CLJC_PIMPL_17
+		static _Atomic uint64_t PA17;
 #endif
-#ifdef CLJC_PIMPL_19
-		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA19, pe) || clj_c_arm_fill(&PA19, t1, a0, 3, CLJC_PIMPL_19_CODE, CLJC_PIMPL_19_FN, pe))) t0 = CLJC_PIMPL_19_FN(CLJ_NIL, NULL, a0, 3);
+#ifdef CLJC_PIMPL_17
+		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA17, pe) || clj_c_arm_fill(&PA17, t1, a0, 3, CLJC_PIMPL_17_CODE, CLJC_PIMPL_17_FN, pe))) t0 = CLJC_PIMPL_17_FN(CLJ_NIL, NULL, a0, 3);
 		else
 #endif
 		t0 = clj_c_proto_ic_call(PC1, t1, a0, 3, pt, pe);
@@ -2416,11 +2416,11 @@ static clj_value top_21(void) {
 		const clj_type *pt = clj_dispatch_type_inline(a0[0]);
 		uint64_t pe = clj_epoch_load();
 		clj_cproto_ic *PC1 = PC_11_get();
-#ifdef CLJC_PIMPL_20
-		static _Atomic uint64_t PA20;
+#ifdef CLJC_PIMPL_18
+		static _Atomic uint64_t PA18;
 #endif
-#ifdef CLJC_PIMPL_20
-		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA20, pe) || clj_c_arm_fill(&PA20, t1, a0, 3, CLJC_PIMPL_20_CODE, CLJC_PIMPL_20_FN, pe))) t0 = CLJC_PIMPL_20_FN(CLJ_NIL, NULL, a0, 3);
+#ifdef CLJC_PIMPL_18
+		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA18, pe) || clj_c_arm_fill(&PA18, t1, a0, 3, CLJC_PIMPL_18_CODE, CLJC_PIMPL_18_FN, pe))) t0 = CLJC_PIMPL_18_FN(CLJ_NIL, NULL, a0, 3);
 		else
 #endif
 		t0 = clj_c_proto_ic_call(PC1, t1, a0, 3, pt, pe);
@@ -2861,11 +2861,11 @@ static clj_value top_23(void) {
 		const clj_type *pt = clj_dispatch_type_inline(a0[0]);
 		uint64_t pe = clj_epoch_load();
 		clj_cproto_ic *PC1 = PC_16_get();
-#ifdef CLJC_PIMPL_21
-		static _Atomic uint64_t PA21;
+#ifdef CLJC_PIMPL_19
+		static _Atomic uint64_t PA19;
 #endif
-#ifdef CLJC_PIMPL_21
-		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA21, pe) || clj_c_arm_fill(&PA21, t1, a0, 3, CLJC_PIMPL_21_CODE, CLJC_PIMPL_21_FN, pe))) t0 = CLJC_PIMPL_21_FN(CLJ_NIL, NULL, a0, 3);
+#ifdef CLJC_PIMPL_19
+		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA19, pe) || clj_c_arm_fill(&PA19, t1, a0, 3, CLJC_PIMPL_19_CODE, CLJC_PIMPL_19_FN, pe))) t0 = CLJC_PIMPL_19_FN(CLJ_NIL, NULL, a0, 3);
 		else
 #endif
 		t0 = clj_c_proto_ic_call(PC1, t1, a0, 3, pt, pe);
@@ -3109,11 +3109,11 @@ static clj_value top_25(void) {
 		const clj_type *pt = clj_dispatch_type_inline(a0[0]);
 		uint64_t pe = clj_epoch_load();
 		clj_cproto_ic *PC1 = PC_23_get();
-#ifdef CLJC_PIMPL_22
-		static _Atomic uint64_t PA22;
+#ifdef CLJC_PIMPL_20
+		static _Atomic uint64_t PA20;
 #endif
-#ifdef CLJC_PIMPL_22
-		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA22, pe) || clj_c_arm_fill(&PA22, t1, a0, 3, CLJC_PIMPL_22_CODE, CLJC_PIMPL_22_FN, pe))) t0 = CLJC_PIMPL_22_FN(CLJ_NIL, NULL, a0, 3);
+#ifdef CLJC_PIMPL_20
+		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA20, pe) || clj_c_arm_fill(&PA20, t1, a0, 3, CLJC_PIMPL_20_CODE, CLJC_PIMPL_20_FN, pe))) t0 = CLJC_PIMPL_20_FN(CLJ_NIL, NULL, a0, 3);
 		else
 #endif
 		t0 = clj_c_proto_ic_call(PC1, t1, a0, 3, pt, pe);
@@ -3250,11 +3250,11 @@ static clj_value top_27(void) {
 		const clj_type *pt = clj_dispatch_type_inline(a0[0]);
 		uint64_t pe = clj_epoch_load();
 		clj_cproto_ic *PC1 = PC_25_get();
-#ifdef CLJC_PIMPL_23
-		static _Atomic uint64_t PA23;
+#ifdef CLJC_PIMPL_21
+		static _Atomic uint64_t PA21;
 #endif
-#ifdef CLJC_PIMPL_23
-		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA23, pe) || clj_c_arm_fill(&PA23, t1, a0, 3, CLJC_PIMPL_23_CODE, CLJC_PIMPL_23_FN, pe))) t0 = CLJC_PIMPL_23_FN(CLJ_NIL, NULL, a0, 3);
+#ifdef CLJC_PIMPL_21
+		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA21, pe) || clj_c_arm_fill(&PA21, t1, a0, 3, CLJC_PIMPL_21_CODE, CLJC_PIMPL_21_FN, pe))) t0 = CLJC_PIMPL_21_FN(CLJ_NIL, NULL, a0, 3);
 		else
 #endif
 		t0 = clj_c_proto_ic_call(PC1, t1, a0, 3, pt, pe);
@@ -3339,11 +3339,11 @@ static clj_value top_29(void) {
 		const clj_type *pt = clj_dispatch_type_inline(a0[0]);
 		uint64_t pe = clj_epoch_load();
 		clj_cproto_ic *PC1 = PC_26_get();
-#ifdef CLJC_PIMPL_24
-		static _Atomic uint64_t PA24;
+#ifdef CLJC_PIMPL_22
+		static _Atomic uint64_t PA22;
 #endif
-#ifdef CLJC_PIMPL_24
-		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA24, pe) || clj_c_arm_fill(&PA24, t1, a0, 3, CLJC_PIMPL_24_CODE, CLJC_PIMPL_24_FN, pe))) t0 = CLJC_PIMPL_24_FN(CLJ_NIL, NULL, a0, 3);
+#ifdef CLJC_PIMPL_22
+		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA22, pe) || clj_c_arm_fill(&PA22, t1, a0, 3, CLJC_PIMPL_22_CODE, CLJC_PIMPL_22_FN, pe))) t0 = CLJC_PIMPL_22_FN(CLJ_NIL, NULL, a0, 3);
 		else
 #endif
 		t0 = clj_c_proto_ic_call(PC1, t1, a0, 3, pt, pe);
@@ -3428,11 +3428,11 @@ static clj_value top_31(void) {
 		const clj_type *pt = clj_dispatch_type_inline(a0[0]);
 		uint64_t pe = clj_epoch_load();
 		clj_cproto_ic *PC1 = PC_27_get();
-#ifdef CLJC_PIMPL_25
-		static _Atomic uint64_t PA25;
+#ifdef CLJC_PIMPL_23
+		static _Atomic uint64_t PA23;
 #endif
-#ifdef CLJC_PIMPL_25
-		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA25, pe) || clj_c_arm_fill(&PA25, t1, a0, 3, CLJC_PIMPL_25_CODE, CLJC_PIMPL_25_FN, pe))) t0 = CLJC_PIMPL_25_FN(CLJ_NIL, NULL, a0, 3);
+#ifdef CLJC_PIMPL_23
+		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA23, pe) || clj_c_arm_fill(&PA23, t1, a0, 3, CLJC_PIMPL_23_CODE, CLJC_PIMPL_23_FN, pe))) t0 = CLJC_PIMPL_23_FN(CLJ_NIL, NULL, a0, 3);
 		else
 #endif
 		t0 = clj_c_proto_ic_call(PC1, t1, a0, 3, pt, pe);
@@ -3517,11 +3517,11 @@ static clj_value top_33(void) {
 		const clj_type *pt = clj_dispatch_type_inline(a0[0]);
 		uint64_t pe = clj_epoch_load();
 		clj_cproto_ic *PC1 = PC_28_get();
-#ifdef CLJC_PIMPL_26
-		static _Atomic uint64_t PA26;
+#ifdef CLJC_PIMPL_24
+		static _Atomic uint64_t PA24;
 #endif
-#ifdef CLJC_PIMPL_26
-		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA26, pe) || clj_c_arm_fill(&PA26, t1, a0, 3, CLJC_PIMPL_26_CODE, CLJC_PIMPL_26_FN, pe))) t0 = CLJC_PIMPL_26_FN(CLJ_NIL, NULL, a0, 3);
+#ifdef CLJC_PIMPL_24
+		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA24, pe) || clj_c_arm_fill(&PA24, t1, a0, 3, CLJC_PIMPL_24_CODE, CLJC_PIMPL_24_FN, pe))) t0 = CLJC_PIMPL_24_FN(CLJ_NIL, NULL, a0, 3);
 		else
 #endif
 		t0 = clj_c_proto_ic_call(PC1, t1, a0, 3, pt, pe);
@@ -11129,11 +11129,11 @@ static clj_value top_40(void) {
 		const clj_type *pt = clj_dispatch_type_inline(a0[0]);
 		uint64_t pe = clj_epoch_load();
 		clj_cproto_ic *PC1 = PC_35_get();
-#ifdef CLJC_PIMPL_27
-		static _Atomic uint64_t PA27;
+#ifdef CLJC_PIMPL_25
+		static _Atomic uint64_t PA25;
 #endif
-#ifdef CLJC_PIMPL_27
-		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA27, pe) || clj_c_arm_fill(&PA27, t1, a0, 3, CLJC_PIMPL_27_CODE, CLJC_PIMPL_27_FN, pe))) t0 = CLJC_PIMPL_27_FN(CLJ_NIL, NULL, a0, 3);
+#ifdef CLJC_PIMPL_25
+		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA25, pe) || clj_c_arm_fill(&PA25, t1, a0, 3, CLJC_PIMPL_25_CODE, CLJC_PIMPL_25_FN, pe))) t0 = CLJC_PIMPL_25_FN(CLJ_NIL, NULL, a0, 3);
 		else
 #endif
 		t0 = clj_c_proto_ic_call(PC1, t1, a0, 3, pt, pe);
@@ -11357,11 +11357,11 @@ static clj_value top_42(void) {
 		const clj_type *pt = clj_dispatch_type_inline(a0[0]);
 		uint64_t pe = clj_epoch_load();
 		clj_cproto_ic *PC1 = PC_36_get();
-#ifdef CLJC_PIMPL_28
-		static _Atomic uint64_t PA28;
+#ifdef CLJC_PIMPL_26
+		static _Atomic uint64_t PA26;
 #endif
-#ifdef CLJC_PIMPL_28
-		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA28, pe) || clj_c_arm_fill(&PA28, t1, a0, 3, CLJC_PIMPL_28_CODE, CLJC_PIMPL_28_FN, pe))) t0 = CLJC_PIMPL_28_FN(CLJ_NIL, NULL, a0, 3);
+#ifdef CLJC_PIMPL_26
+		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA26, pe) || clj_c_arm_fill(&PA26, t1, a0, 3, CLJC_PIMPL_26_CODE, CLJC_PIMPL_26_FN, pe))) t0 = CLJC_PIMPL_26_FN(CLJ_NIL, NULL, a0, 3);
 		else
 #endif
 		t0 = clj_c_proto_ic_call(PC1, t1, a0, 3, pt, pe);
@@ -15102,11 +15102,11 @@ static clj_value top_44(void) {
 		const clj_type *pt = clj_dispatch_type_inline(a0[0]);
 		uint64_t pe = clj_epoch_load();
 		clj_cproto_ic *PC1 = PC_37_get();
-#ifdef CLJC_PIMPL_29
-		static _Atomic uint64_t PA29;
+#ifdef CLJC_PIMPL_27
+		static _Atomic uint64_t PA27;
 #endif
-#ifdef CLJC_PIMPL_29
-		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA29, pe) || clj_c_arm_fill(&PA29, t1, a0, 3, CLJC_PIMPL_29_CODE, CLJC_PIMPL_29_FN, pe))) t0 = CLJC_PIMPL_29_FN(CLJ_NIL, NULL, a0, 3);
+#ifdef CLJC_PIMPL_27
+		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA27, pe) || clj_c_arm_fill(&PA27, t1, a0, 3, CLJC_PIMPL_27_CODE, CLJC_PIMPL_27_FN, pe))) t0 = CLJC_PIMPL_27_FN(CLJ_NIL, NULL, a0, 3);
 		else
 #endif
 		t0 = clj_c_proto_ic_call(PC1, t1, a0, 3, pt, pe);
@@ -17183,11 +17183,11 @@ static clj_value top_46(void) {
 		const clj_type *pt = clj_dispatch_type_inline(a0[0]);
 		uint64_t pe = clj_epoch_load();
 		clj_cproto_ic *PC1 = PC_38_get();
-#ifdef CLJC_PIMPL_30
-		static _Atomic uint64_t PA30;
+#ifdef CLJC_PIMPL_28
+		static _Atomic uint64_t PA28;
 #endif
-#ifdef CLJC_PIMPL_30
-		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA30, pe) || clj_c_arm_fill(&PA30, t1, a0, 3, CLJC_PIMPL_30_CODE, CLJC_PIMPL_30_FN, pe))) t0 = CLJC_PIMPL_30_FN(CLJ_NIL, NULL, a0, 3);
+#ifdef CLJC_PIMPL_28
+		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA28, pe) || clj_c_arm_fill(&PA28, t1, a0, 3, CLJC_PIMPL_28_CODE, CLJC_PIMPL_28_FN, pe))) t0 = CLJC_PIMPL_28_FN(CLJ_NIL, NULL, a0, 3);
 		else
 #endif
 		t0 = clj_c_proto_ic_call(PC1, t1, a0, 3, pt, pe);
@@ -22658,11 +22658,11 @@ static clj_value top_48(void) {
 		const clj_type *pt = clj_dispatch_type_inline(a0[0]);
 		uint64_t pe = clj_epoch_load();
 		clj_cproto_ic *PC1 = PC_39_get();
-#ifdef CLJC_PIMPL_31
-		static _Atomic uint64_t PA31;
+#ifdef CLJC_PIMPL_29
+		static _Atomic uint64_t PA29;
 #endif
-#ifdef CLJC_PIMPL_31
-		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA31, pe) || clj_c_arm_fill(&PA31, t1, a0, 3, CLJC_PIMPL_31_CODE, CLJC_PIMPL_31_FN, pe))) t0 = CLJC_PIMPL_31_FN(CLJ_NIL, NULL, a0, 3);
+#ifdef CLJC_PIMPL_29
+		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA29, pe) || clj_c_arm_fill(&PA29, t1, a0, 3, CLJC_PIMPL_29_CODE, CLJC_PIMPL_29_FN, pe))) t0 = CLJC_PIMPL_29_FN(CLJ_NIL, NULL, a0, 3);
 		else
 #endif
 		t0 = clj_c_proto_ic_call(PC1, t1, a0, 3, pt, pe);
@@ -29408,11 +29408,11 @@ static clj_value top_60(void) {
 		const clj_type *pt = clj_dispatch_type_inline(a0[0]);
 		uint64_t pe = clj_epoch_load();
 		clj_cproto_ic *PC1 = PC_42_get();
-#ifdef CLJC_PIMPL_32
-		static _Atomic uint64_t PA32;
+#ifdef CLJC_PIMPL_30
+		static _Atomic uint64_t PA30;
 #endif
-#ifdef CLJC_PIMPL_32
-		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA32, pe) || clj_c_arm_fill(&PA32, t1, a0, 3, CLJC_PIMPL_32_CODE, CLJC_PIMPL_32_FN, pe))) t0 = CLJC_PIMPL_32_FN(CLJ_NIL, NULL, a0, 3);
+#ifdef CLJC_PIMPL_30
+		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA30, pe) || clj_c_arm_fill(&PA30, t1, a0, 3, CLJC_PIMPL_30_CODE, CLJC_PIMPL_30_FN, pe))) t0 = CLJC_PIMPL_30_FN(CLJ_NIL, NULL, a0, 3);
 		else
 #endif
 		t0 = clj_c_proto_ic_call(PC1, t1, a0, 3, pt, pe);
@@ -29581,11 +29581,11 @@ static clj_value top_62(void) {
 		const clj_type *pt = clj_dispatch_type_inline(a0[0]);
 		uint64_t pe = clj_epoch_load();
 		clj_cproto_ic *PC1 = PC_43_get();
-#ifdef CLJC_PIMPL_33
-		static _Atomic uint64_t PA33;
+#ifdef CLJC_PIMPL_31
+		static _Atomic uint64_t PA31;
 #endif
-#ifdef CLJC_PIMPL_33
-		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA33, pe) || clj_c_arm_fill(&PA33, t1, a0, 3, CLJC_PIMPL_33_CODE, CLJC_PIMPL_33_FN, pe))) t0 = CLJC_PIMPL_33_FN(CLJ_NIL, NULL, a0, 3);
+#ifdef CLJC_PIMPL_31
+		if (pt == clj_c_var_type(V[43]) && (clj_c_arm_hit(&PA31, pe) || clj_c_arm_fill(&PA31, t1, a0, 3, CLJC_PIMPL_31_CODE, CLJC_PIMPL_31_FN, pe))) t0 = CLJC_PIMPL_31_FN(CLJ_NIL, NULL, a0, 3);
 		else
 #endif
 		t0 = clj_c_proto_ic_call(PC1, t1, a0, 3, pt, pe);

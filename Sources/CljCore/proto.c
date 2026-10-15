@@ -1029,6 +1029,9 @@ static const struct {
 	{"boolean", CLJ_HINT_BOOLEAN}, {"char", CLJ_HINT_CHAR},       {"String", CLJ_HINT_STRING},
 	{"java.lang.String", CLJ_HINT_STRING}, {"Keyword", CLJ_HINT_KEYWORD}, {"clojure.lang.Keyword", CLJ_HINT_KEYWORD},
 	{"Symbol", CLJ_HINT_SYMBOL},   {"clojure.lang.Symbol", CLJ_HINT_SYMBOL},
+	{"longs", CLJ_HINT_ARRAY + CLJ_ARRAY_I64}, {"ints", CLJ_HINT_ARRAY + CLJ_ARRAY_I32}, {"shorts", CLJ_HINT_ARRAY + CLJ_ARRAY_I16},
+	{"bytes", CLJ_HINT_ARRAY + CLJ_ARRAY_I8},  {"doubles", CLJ_HINT_ARRAY + CLJ_ARRAY_F64}, {"floats", CLJ_HINT_ARRAY + CLJ_ARRAY_F32},
+	{"booleans", CLJ_HINT_ARRAY + CLJ_ARRAY_BOOL}, {"chars", CLJ_HINT_ARRAY + CLJ_ARRAY_CHAR}, {"objects", CLJ_HINT_ARRAY + CLJ_ARRAY_OBJECT},
 };
 
 static clj_value kw_tag;
@@ -1081,8 +1084,16 @@ clj_value clj_field_admit(const clj_user_type *ut, uint32_t i, clj_value v) {
 	case CLJ_HINT_STRING: return clj_is_nil(v) || clj_is_string(v) ? clj_retain(v) : refuse_field(ut, i, v, "String");
 	case CLJ_HINT_KEYWORD: return clj_is_nil(v) || clj_is_keyword(v) ? clj_retain(v) : refuse_field(ut, i, v, "Keyword");
 	case CLJ_HINT_SYMBOL: return clj_is_nil(v) || clj_is_symbol(v) ? clj_retain(v) : refuse_field(ut, i, v, "Symbol");
+	default: break;
 	}
-	clj_ice("proto/hint", NULL, "field hint %u", (unsigned)ut->hints[i]);
+	uint8_t h = ut->hints[i];
+	if (h < CLJ_HINT_ARRAY || h >= CLJ_HINT_ARRAY + CLJ_ARRAY_KIND_COUNT) clj_ice("proto/hint", NULL, "field hint %u", (unsigned)h);
+	clj_array_kind k = (clj_array_kind)(h - CLJ_HINT_ARRAY);
+	// (bytes x) admits the bridge's u8 buffer as well (builtins_array.c)
+	if (clj_is_nil(v) || (clj_is_array(v) && (clj_array_kind_of(v) == k || (k == CLJ_ARRAY_I8 && clj_array_kind_of(v) == CLJ_ARRAY_U8)))) return clj_retain(v);
+	char what[24];
+	snprintf(what, sizeof what, "%s array", clj_array_kind_name(k));
+	return refuse_field(ut, i, v, what);
 }
 
 clj_value clj_user_type_init(clj_user_type *ut, clj_value name, clj_value fields, const clj_value *impls, size_t nimpls) {

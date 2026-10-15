@@ -651,6 +651,15 @@ static inline clj_value clj_c_field_at(clj_value fn, const clj_value *args, uint
 	return clj_c_invoke(fn, args, 2);
 }
 
+// (field* x i) at +0 for a let slot that borrows it (closed): x outlives the slot and a deftype's fields never change.
+// Not an instance or past its fields is the builtin's throw, the only other answer it has.
+static inline clj_value clj_c_field_view(clj_value x, uint32_t i) {
+	if (clj_is_instance(x) && i < ((const clj_user_type *)clj_type_of(x))->nfields) return ((const clj_instance *)clj_to_ptr(x))->fields[i].v;
+	clj_value r = clj_b_field_star((const clj_value[]){x, clj_fixnum((intptr_t)i)}, 2);
+	if (r != CLJ_THROWN) clj_fatal("field*: a value from a receiver that is no instance or has no such field");
+	return r;
+}
+
 // (new* T args...) of a deftype: the instance built in place, its hints checked; a record, a wrong count or a non-type through the builtin.
 static inline clj_value clj_c_new(clj_value fn, const clj_value *args, size_t n) {
 	clj_value type = args[0];

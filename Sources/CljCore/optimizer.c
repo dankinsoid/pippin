@@ -19,6 +19,7 @@
 #include "clj/string.h"
 #include "clj/summary.h"
 #include "clj/symbol.h"
+#include "clj/proto.h"
 #include "clj/var.h"
 #include "clj/vector.h"
 #include "clj/verify.h"
@@ -712,6 +713,7 @@ bool clj_inline_set_enabled(bool on) {
 
 enum {
 	INLINE_CALLEE_MAX = 32,  // nodes of the callee's arity body: what "small" means
+	INLINE_PROTO_MAX = 64,   // a protocol method's: a dispatch saved beside the call, and a deftype body binds its fields first
 	INLINE_GROWTH_MIN = 64,  // nodes a frame may grow by, or by its own size when that is larger
 	INLINE_SLOTS_SMALL = 16, // eval.c's SMALL_SLOTS: a frame past it goes to the heap, so a small frame stays small
 	INLINE_SLOTS_MAX = 64,   // the owned mask and the last-use marks stop at 64 slots
@@ -996,6 +998,9 @@ static clj_node *copy_node(const clj_node *n, copy_ctx *c, int level) {
 	// A nested inline past the depth keeps its call: the guard's else branch is the call as it was.
 	if (n->kind == CLJ_NODE_IF && n->u.if_.test->kind == CLJ_NODE_ROOT_IS && level != VERBATIM && c->depth + 1 > CLJ_INLINE_DEPTH_MAX)
 		return copy_node(n->u.if_.else_, c, level);
+	// its receiver slot may be substituted away in the copy: the call is copied, as a nested inline past the depth is
+	if (n->kind == CLJ_NODE_IF && n->u.if_.test->kind == CLJ_NODE_ROOT_IS && n->u.if_.test->u.root_is.proto && level != VERBATIM)
+		return copy_node(n->u.if_.else_, c, level);
 	if (n->kind == CLJ_NODE_LOCAL && level == 0 && n->u.local.index < c->nmap && c->subst[n->u.local.index])
 		return copy_node(c->subst[n->u.local.index], c, VERBATIM);
 	if (n->kind == CLJ_NODE_CAPTURED && level == 0 && c->caps) return env_read(c, n);
@@ -1134,6 +1139,9 @@ static clj_node *copy_node(const clj_node *n, copy_ctx *c, int level) {
 			m->u.root_is.ops = ops;
 			m->u.root_is.nops = n->u.root_is.nops;
 		}
+		m->u.root_is.proto = n->u.root_is.proto;
+		m->u.root_is.recv = n->u.root_is.recv;
+		clj_slot_store(&m->h, &m->u.root_is.type, clj_retain(n->u.root_is.type.v));
 		break;
 	case CLJ_NODE_INLINE: {
 		// a guard's body is a level of the budget; a literal fn's body and a path's levels sit inside one
@@ -1472,6 +1480,145 @@ static bool try_inline(clj_node *n, inline_frame *fr, uint32_t depth, uint32_t b
 	free(map);
 	free(sub);
 	free(lit);
+	return true;
+}
+
+// ---- a protocol call's one implementation inlined (design §6 «Инлайнинг без JIT»; NOTES.md "Compiler", protocol
+// inlining): (m r a...) whose protocol has a single implementor, a deftype or record whose impl is a small closure
+// without an environment, becomes
+//   (let [t a'...] (if ROOT_IS[m, impl, r] (let [p t...] INLINE[impl, body']) (m r t...)))
+// over the receiver's slot r: the guard asks the method's tables for r's impl after every argument ran, as the call's
+// dispatch does, so an extend or a redefinition after the analysis runs the call. The body is the arity's, any effects
+// allowed: it runs where the call would have, after the arguments. A receiver that is no local read stays a call.
+
+typedef struct {
+	const clj_type *one;
+	uint32_t        n;
+} implementors;
+
+static void count_implementor(const clj_type *t, void *ctx) {
+	implementors *s = ctx;
+	if (s->n++ == 0) s->one = t;
+}
+
+// The one type implementing the method's protocol, borrowed from the registry: a deftype or record, no builtin.
+static const clj_type *single_implementor(clj_value method) {
+	clj_value    proto = clj_method_ctx_of(method)->proto;
+	implementors builtin = {NULL, 0}, user = {NULL, 0};
+	clj_proto_each_immortal(proto, count_implementor, &builtin);
+	if (builtin.n) return NULL;
+	clj_proto_each_user(proto, count_implementor, &user);
+	if (user.n != 1 || ((const clj_user_type *)user.one)->reified) return NULL;
+	return user.one;
+}
+
+// @ai-generated(solo)
+static bool try_proto_inline(clj_node *n, inline_frame *fr, uint32_t base) {
+	const clj_node *head = n->u.invoke.fn;
+	uint32_t        nargs = n->u.invoke.n;
+	if (clj_opt_off(CLJ_NO_OPT_PROTO_INLINE) || head->kind != CLJ_NODE_VAR || nargs < 1 || nargs > CLJ_FN_MAX_FIXED) return false;
+	clj_value var = head->u.var.v;
+	if (!clj_is_var(var) || clj_var_is_dynamic(var) || n->u.invoke.args[0]->kind != CLJ_NODE_LOCAL) return false;
+	clj_value root = clj_var_root(var);
+	if (!clj_is_protocol_method(root)) return false;
+	const clj_type *t = single_implementor(root);
+	if (!t) return false;
+	clj_value impl = clj_proto_impl_for_type(root, t);
+	bool      shaped = clj_is_fn(impl) && clj_fn_of(impl)->kind == CLJ_FN_CLOSURE && !clj_fn_of(impl)->nenv;
+	const clj_node     *code = shaped ? clj_fn_of(impl)->u.node : NULL;
+	const clj_fn_arity *a = code ? code->u.fn.fixed[nargs] : NULL;
+	callee_scan         s = {0};
+	if (a) s = scan_arity(a, fr->def_var);
+	bool calls = false;
+	for (uint32_t i = 0; a && i < nargs; i++) calls = calls || s.heads[i];
+	if (!a || a->body->nnodes > INLINE_PROTO_MAX || s.arity_recur || s.self_read || s.has_fn || s.calls_def || calls) {
+		clj_release(impl);
+		return false;
+	}
+	const clj_node *const *args = n->u.invoke.args;
+	// the arguments past the receiver that are no plain read are bound first, so the guard follows all of them
+	uint32_t nbound = 0, cost = a->body->nnodes + 4;
+	for (uint32_t i = 1; i < nargs; i++) {
+		if (args[i]->kind != CLJ_NODE_LOCAL && args[i]->kind != CLJ_NODE_CONST) {
+			nbound++;
+			cost += nodes_in(args[i]);
+		}
+	}
+	uint64_t added = (uint64_t)nbound + a->nslots;
+	if (!slots_fit(fr, (uint64_t)base + added) || fr->grown + cost > fr->budget) {
+		clj_release(impl);
+		return false;
+	}
+	position         at = {n->line, n->col};
+	uint32_t         next = base;
+	const clj_node **reads = zalloc(nargs, sizeof *reads); // what the guarded call and the body read, per argument
+	uint32_t        *bslots = zalloc(nbound ? nbound : 1, sizeof *bslots);
+	const clj_node **binits = zalloc(nbound ? nbound : 1, sizeof *binits);
+	copy_ctx         argc = {.depth = 0};
+	for (uint32_t i = 0, k = 0; i < nargs; i++) {
+		if (i == 0 || args[i]->kind == CLJ_NODE_LOCAL || args[i]->kind == CLJ_NODE_CONST) {
+			reads[i] = args[i];
+			continue;
+		}
+		bslots[k] = next++;
+		binits[k] = args[i];
+		reads[i] = local_node(bslots[k++], at);
+	}
+	// the body: a parameter read only as a local of its frame reads the argument's slot, the others are bound to it
+	uint32_t        *map = zalloc(a->nslots, sizeof *map);
+	const clj_node **sub = zalloc(a->nslots, sizeof *sub);
+	uint32_t         np = 0;
+	for (uint32_t k = 0; k < a->nslots; k++) {
+		if (k < nargs && ((s.local_only >> k) & 1)) {
+			sub[k] = reads[k];
+			map[k] = SLOT_NONE;
+		} else {
+			map[k] = next++;
+			np += k < nargs;
+		}
+	}
+	copy_ctx  c = {.map = map, .subst = sub, .nmap = a->nslots, .next = &next, .depth = 1};
+	clj_node *then = inline_node(code, CLJ_INLINE_COPY, copy_node(a->body, &c, 0), at);
+	if (np) {
+		uint32_t        *ps = zalloc(np, sizeof *ps);
+		const clj_node **pi = zalloc(np, sizeof *pi);
+		for (uint32_t k = 0, j = 0; k < nargs; k++) {
+			if (map[k] == SLOT_NONE) continue;
+			ps[j] = map[k];
+			pi[j++] = copy_node(reads[k], &argc, VERBATIM);
+		}
+		then = let_node(ps, pi, np, then, at);
+	}
+	clj_node *test = node_at(CLJ_NODE_ROOT_IS, at);
+	clj_slot_store(&test->h, &test->u.root_is.var, clj_retain(var));
+	clj_slot_store(&test->h, &test->u.root_is.expect, impl);
+	clj_slot_store(&test->h, &test->u.root_is.type, clj_retain(clj_from_ptr((void *)t)));
+	test->u.root_is.proto = true;
+	test->u.root_is.recv = args[0]->u.local.index;
+	// the call's own nodes move: the head and the plain reads into the guarded call, the others into the let
+	clj_node *call = invoke_node((clj_node *)head, reads, nargs, at);
+	free(n->u.invoke.args);
+	clj_node *guarded = nbound ? node_at(CLJ_NODE_IF, at) : n;
+	guarded->kind = CLJ_NODE_IF;
+	guarded->u.if_.test = test;
+	guarded->u.if_.then = then;
+	guarded->u.if_.else_ = call;
+	if (nbound) {
+		n->kind = CLJ_NODE_LET;
+		n->u.let.slots = bslots;
+		n->u.let.inits = binits;
+		n->u.let.n = nbound;
+		n->u.let.body = guarded;
+	} else {
+		free(bslots);
+		free(binits);
+	}
+	if (next > fr->arity->nslots) fr->arity->nslots = next;
+	fr->grown += c.nodes + argc.nodes + 4;
+	copy_ctx_free(&c);
+	copy_ctx_free(&argc);
+	free(map);
+	free(sub);
 	return true;
 }
 
@@ -1820,7 +1967,8 @@ static void inline_walk(const clj_node *n, void *ctx) {
 	default: break;
 	}
 	clj_node_children(m, inline_walk, ctx);
-	if (m->kind == CLJ_NODE_INVOKE && fr->arity && !try_lower(m) && !try_path(m, fr)) try_inline(m, fr, 0, fresh_base(fr, m));
+	if (m->kind == CLJ_NODE_INVOKE && fr->arity && !try_lower(m) && !try_path(m, fr) && !try_inline(m, fr, 0, fresh_base(fr, m)))
+		try_proto_inline(m, fr, fresh_base(fr, m));
 }
 
 // ---- scalar replacement (design §10 step 7б; §4 «Известный shape + не убегает = мапы нет вообще»): a let-bound
@@ -2333,6 +2481,11 @@ static int sr_rw(const clj_node **pp, sr_ctx *c, bool bind) {
 	case CLJ_NODE_VAR:
 	case CLJ_NODE_ROOT_IS: return -1;
 	case CLJ_NODE_IF: {
+		// a protocol guard reads its receiver's slot, which no rewrite may empty
+		if (n->u.if_.test->kind == CLJ_NODE_ROOT_IS && n->u.if_.test->u.root_is.proto && sr_hit(c, n->u.if_.test->u.root_is.recv)) {
+			c->fail = true;
+			return -1;
+		}
 		if (n->u.if_.test->kind == CLJ_NODE_ROOT_IS) {
 			// an inlined or lowered call: the body reads what the call passes, and the call's literal fn is the body's
 			sr_rw(&n->u.if_.then, c, false);
@@ -3025,11 +3178,11 @@ static uint64_t live(const clj_node *n, uint64_t out, live_ctx *c, live_use use)
 			if (n->u.lowered.fn->u.fn.captures[i].kind == CLJ_CAPTURE_LOCAL) out |= slot_bit(n->u.lowered.fn->u.fn.captures[i].index);
 		}
 		return live_args(NULL, n->u.lowered.args, n->u.lowered.n, 0, out, c);
+	case CLJ_NODE_ROOT_IS: return n->u.root_is.proto ? out | slot_bit(n->u.root_is.recv) : out;
 	case CLJ_NODE_CONST:
 	case CLJ_NODE_CAPTURED:
 	case CLJ_NODE_OUTER:
 	case CLJ_NODE_VAR:
-	case CLJ_NODE_ROOT_IS:
 	case CLJ_NODE_DIRECT_FN: return out;
 	}
 	clj_ice("optimize/unknown-kind", n, "node kind %u", (unsigned)n->kind);

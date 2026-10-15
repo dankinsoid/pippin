@@ -104,6 +104,7 @@ static void node_each_child(void *self, clj_visitor visit, void *ctx) {
 	case CLJ_NODE_ROOT_IS:
 		visit(n->u.root_is.var.v, ctx);
 		visit(n->u.root_is.expect.v, ctx);
+		visit(n->u.root_is.type.v, ctx);
 		break;
 	case CLJ_NODE_INLINE: visit_node(n->u.inline_.body, visit, ctx); break;
 	case CLJ_NODE_LOWERED:

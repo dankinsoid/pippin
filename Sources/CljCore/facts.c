@@ -122,8 +122,9 @@ static clj_fact normalize(clj_fact f) {
 	if (!(f.types & CLJ_T_NIL)) f.null &= CLJ_NULL_NEVER;
 	if (f.types == CLJ_T_NIL) f.null &= CLJ_NULL_ALWAYS;
 	if (f.types != CLJ_T_BOTTOM && f.null == CLJ_NULL_BOTTOM) f.types = CLJ_T_BOTTOM;
-	if (popcount(f.types) != 1) {
-		f.singleton = CLJ_UNBOUND;
+	if (popcount(f.types) != 1) f.singleton = CLJ_UNBOUND;
+	// a descriptor and an element kind survive a nil beside them: a hinted field, an array or nil
+	if (popcount(f.types & ~(uint32_t)CLJ_T_NIL) != 1) {
 		f.desc = NULL;
 		f.elem = 0;
 	}
@@ -965,6 +966,7 @@ static refinement refinement_call(const fact_sig *s, const clj_node *const *args
 static refinement predicate_of(const clj_node *n, bool *negated) {
 	*negated = false;
 	switch (n->kind) {
+
 	case CLJ_NODE_INTRINSIC: {
 		const char *name = strchr(n->u.intrinsic.op->name, '/') + 1;
 		if (strcmp(name, "not") == 0 && n->u.intrinsic.n == 1) {
@@ -1018,6 +1020,16 @@ static void refine(pass *p, const clj_node *test, env *yes, env *no) {
 		refine_slot(p, yes, slot, truthy, false);
 		refine_slot(p, no, slot, falsy, false);
 		if (slot < yes->n) apply_refinement(p, yes->pred[slot], yes, no);
+		return;
+	}
+	if (test->kind == CLJ_NODE_ROOT_IS && test->u.root_is.proto) {
+		// a protocol guard holds only for a receiver of its implementor type, the field hints' descriptor; a receiver
+		// whose fact excludes the type leaves the branch unrefined
+		const clj_type *t = clj_to_ptr(test->u.root_is.type.v);
+		uint32_t        slot = test->u.root_is.recv;
+		clj_fact        narrow = fact_of((t->core_bits & CLJ_CORE_RECORD) ? CLJ_T_RECORD : CLJ_T_HOST);
+		narrow.desc = t;
+		if (!clj_opt_off(CLJ_NO_OPT_FIELDS) && slot < yes->n && (yes->slots[slot].types & narrow.types)) refine_slot(p, yes, slot, narrow, false);
 		return;
 	}
 	bool       negated = false;
@@ -1281,6 +1293,13 @@ static clj_fact hint_fact(clj_field_hint h) {
 	case CLJ_HINT_KEYWORD: return fact_of(CLJ_T_KEYWORD | CLJ_T_NIL);
 	case CLJ_HINT_SYMBOL: return fact_of(CLJ_T_SYMBOL | CLJ_T_NIL);
 	case CLJ_HINT_NONE: break;
+	default:
+		if (h >= CLJ_HINT_ARRAY && h < CLJ_HINT_ARRAY + CLJ_ARRAY_KIND_COUNT) {
+			clj_fact f = fact_of(CLJ_T_ARRAY | CLJ_T_NIL);
+			f.elem = (uint8_t)(h - CLJ_HINT_ARRAY + 1);
+			return f;
+		}
+		break;
 	}
 	return clj_fact_top();
 }
@@ -1311,7 +1330,7 @@ static clj_fact known_result(const char *name, const clj_fact *have, uint32_t n)
 		clj_fact f = fact_of(r);
 		return n == 3 ? clj_fact_join(fact_of(CLJ_T_CHAR | ((t & CLJ_T_NIL) ? CLJ_T_NIL : 0)), have[2]) : f;
 	}
-	if (strcmp(name, "aget") == 0 && n == 2 && t == CLJ_T_ARRAY && have[0].elem) {
+	if (strcmp(name, "aget") == 0 && n == 2 && (t & ~(uint32_t)CLJ_T_NIL) == CLJ_T_ARRAY && have[0].elem) {
 		switch ((clj_array_kind)(have[0].elem - 1)) {
 		case CLJ_ARRAY_I64: return fact_of(CLJ_T_FIXNUM | CLJ_T_LONG);
 		case CLJ_ARRAY_I8:
@@ -1939,8 +1958,9 @@ static void verify_fact(const clj_fact *x, const clj_node *at, const char *what)
 	if ((t != CLJ_T_BOTTOM && x->null == CLJ_NULL_BOTTOM) || (!(t & CLJ_T_NIL) && (x->null & CLJ_NULL_ALWAYS)) ||
 	    (t == CLJ_T_NIL && (x->null & CLJ_NULL_NEVER)))
 		clj_ice("verify/fact-null", at, "%s: nullability %u contradicts types %#x", what, x->null, t);
-	if ((x->singleton != CLJ_UNBOUND && (members != 1 || clj_fact_kind_of_value(x->singleton) != t)) || (x->desc && members != 1) ||
-	    (x->elem && t != CLJ_T_ARRAY))
+	uint32_t some = t & ~(uint32_t)CLJ_T_NIL;
+	if ((x->singleton != CLJ_UNBOUND && (members != 1 || clj_fact_kind_of_value(x->singleton) != t)) || (x->desc && popcount(some) != 1) ||
+	    (x->elem && some != CLJ_T_ARRAY))
 		clj_ice("verify/fact-pinned", at, "%s: a singleton, descriptor or element kind beside types %#x", what, t);
 }
 

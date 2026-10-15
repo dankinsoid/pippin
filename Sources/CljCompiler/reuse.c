@@ -604,11 +604,11 @@ static uint64_t live_tail(const clj_node *n, uint64_t out, ctx *c, bool tail) {
 			out |= slot_bit(n->u.lowered.fn->u.fn.captures[i].index);
 		}
 		return live_args(NULL, n->u.lowered.args, n->u.lowered.n, out, c, NULL);
+	case CLJ_NODE_ROOT_IS: return n->u.root_is.proto ? out | slot_bit(n->u.root_is.recv) : out;
 	case CLJ_NODE_CONST:
 	case CLJ_NODE_CAPTURED:
 	case CLJ_NODE_OUTER:
 	case CLJ_NODE_VAR:
-	case CLJ_NODE_ROOT_IS:
 	case CLJ_NODE_DIRECT_FN: return out;
 	}
 	clj_ice("emit/reuse-unknown-kind", n, "node kind %u", (unsigned)n->kind);

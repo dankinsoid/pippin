@@ -111,6 +111,7 @@ typedef enum {
 	CLJ_HINT_STRING,
 	CLJ_HINT_KEYWORD,
 	CLJ_HINT_SYMBOL,
+	CLJ_HINT_ARRAY, // longs, doubles, ...: CLJ_HINT_ARRAY + the clj_array_kind, an array of that kind or nil
 } clj_field_hint;
 
 typedef struct {

@@ -36,8 +36,8 @@
   (compile 'clojure.data.json)
   )
 
-;; pippin: no mutable fields (docs/notes/type-descriptor.md): pos is the one slot of a long array.
-(deftype StringPBR [^String s pos ^long len]
+;; pippin: no mutable fields (docs/notes/type-descriptor.md): pos is the one slot of a long array, hinted ^longs.
+(deftype StringPBR [^String s ^longs pos ^long len]
   InternalPBR
   (readChar [_]
     (if (< (aget pos 0) len)

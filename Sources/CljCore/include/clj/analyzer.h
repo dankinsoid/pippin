@@ -165,6 +165,8 @@ struct clj_node {
 		// guards: a known-path specialization's core vars that must hold their boot roots (fusion.h), the var among them.
 		// ops: a scalar replacement's guard (optimizer.c), a let init and nothing else: the intrinsics it answered
 		// statically on a replaced value, each var still at its builtin; var and expect are the first one's.
+		// proto: a protocol call's guard (optimizer.c try_proto_inline): var's root is a method whose impl for the value
+		// in slot recv is expect, the one implementor type's; its else branch's call reads recv as its receiver.
 		struct {
 			clj_slot               var;
 			clj_slot               expect;
@@ -172,6 +174,9 @@ struct clj_node {
 			uint32_t               nguards;
 			const clj_intrinsic  **ops;
 			uint32_t               nops;
+			bool                   proto;
+			uint32_t               recv;
+			clj_slot               type;
 		} root_is;
 		// fn is borrowed: the guard's closure holds the callee's tree, its else branch a literal argument's FN node.
 		struct {

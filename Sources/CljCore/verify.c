@@ -13,6 +13,7 @@
 #include "clj/keyword.h"
 #include "clj/lowered.h"
 #include "clj/string.h"
+#include "clj/proto.h"
 #include "clj/var.h"
 #include "clj/verify.h"
 #include "guard_internal.h"
@@ -401,6 +402,13 @@ static bool walk_inlined(vctx *c, vframe *f, const vtarget *t, const clj_node *n
 	const clj_node *code = clj_fn_of(expect)->u.node;
 	uint32_t        nargs = call->u.invoke.n;
 	if (inl->u.inline_.fn != code) return bad(c, "verify/inline-guard", n, "an inlined body of another fn than its guard checks");
+	if (g->u.root_is.proto) {
+		const clj_node *r = nargs ? call->u.invoke.args[0] : NULL;
+		if (!r || r->kind != CLJ_NODE_LOCAL || r->u.local.index != g->u.root_is.recv)
+			return bad(c, "verify/inline-guard", n, "a protocol guard whose receiver slot is not its call's first argument");
+		if (!clj_is_user_type(g->u.root_is.type.v) || g->u.root_is.nguards || g->u.root_is.nops)
+			return bad(c, "verify/inline-guard", n, "a protocol guard without its implementor type, or with other guards");
+	}
 	if (g->u.root_is.nguards) {
 		if (!path_guard_ok(c, g, n)) return false;
 		if (inl->u.inline_.how != CLJ_INLINE_PATH) return bad(c, "verify/inline-shape", n, "a path guard whose then branch is no path body");
@@ -564,7 +572,7 @@ static bool walk_kind(vctx *c, vframe *f, const vtarget *t, const clj_node *n, b
 		if (n->u.root_is.nops) return init ? scalar_guard_ok(c, n) : bad(c, "verify/scalar-guard", n, "a scalar guard that is no let init");
 		if (n != c->root_is) return bad(c, "verify/inline-shape", n, "an inline guard that is no test of an inlined call");
 		c->root_is = NULL;
-		return true;
+		return !n->u.root_is.proto || slot_read_ok(c, f, n, n->u.root_is.recv);
 	case CLJ_NODE_LOWERED:
 		if (n != c->lowered) return bad(c, "verify/lowered-shape", n, "a lowered call outside the then branch of its guard");
 		c->lowered = NULL;
@@ -870,7 +878,10 @@ static lstate lv(lctx *x, const clj_node *n, lstate s, bool owned) {
 		}
 		return s;
 	}
-	case CLJ_NODE_ROOT_IS: return s;
+	case CLJ_NODE_ROOT_IS:
+		if (n->u.root_is.proto && (s.dead & bit(n->u.root_is.recv)))
+			bad(c, "verify/read-after-last-use", n, "a protocol guard reads slot %u after a last use handed its value over", n->u.root_is.recv);
+		return s;
 	}
 	return s;
 }
@@ -1024,6 +1035,7 @@ static void digest(const clj_node *n, void *ctx) {
 		x = mix(x, n->u.root_is.nguards);
 		for (uint32_t i = 0; i < n->u.root_is.nguards; i++) x = mix(x, (uintptr_t)n->u.root_is.guards[i]);
 		for (uint32_t i = 0; i < n->u.root_is.nops; i++) x = mix(x, (uintptr_t)n->u.root_is.ops[i]);
+		if (n->u.root_is.proto) x = mix(mix(x, n->u.root_is.recv), n->u.root_is.type.v);
 		break;
 	case CLJ_NODE_INLINE:
 		x = mix(x, (uintptr_t)n->u.inline_.fn);
