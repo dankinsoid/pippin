@@ -17,9 +17,9 @@ JVM's, checked with = on every run); what behaves otherwise, or not at all, is n
 - InternalPBR is a protocol (definterface is refused, design §8), its call sites functions in place of method
   calls. StringPBR keeps its position in a one-slot long array (no mutable fields, NOTES "Type descriptor"), reads
   a char with nth and counts the string with count: indexes are code points here, UTF-16 units on the JVM, which
-  differ only outside the BMP. readChars fills read-quoted-string's 64-char char-array a char at a time with nth
-  (no String.getChars), and read-quoted-string scans it with aget as upstream does but takes its string from the
-  source with subs (no String(char[], off, len)).
+  differ only outside the BMP. readChars and unreadChars move the position without a char[] buffer, and
+  read-quoted-string scans its 64-char window in place and takes the string with subs, where upstream copies it
+  into a char[] and makes a String of it.
 - StringBuilder and StringWriter are a string in a volatile, which (vswap! v str x) appends to in place while the
   volatile alone holds it (string-builder, append, builder-str; NOTES "Strings"); .append of a range is subs.
 - Exception. and EOFException. are ex-info with the same message (json-error); (catch NumberFormatException ...)

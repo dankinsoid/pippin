@@ -1,6 +1,6 @@
 --- upstream/data.json/clojure/data/json.clj
 +++ corpus/data-json/src/clojure/data/json.clj
-@@ -11,86 +11,97 @@
+@@ -11,86 +11,94 @@
    See http://www.json.org/"}
    clojure.data.json
    (:refer-clojure :exclude (read))
@@ -21,15 +21,16 @@
 -  (^void unreadChar [^int c])
 -  (^void unreadChars [^chars buffer ^int off ^int bufflen])
 -  (^java.io.Reader toReader []))
-+;; pippin: definterface is refused (design §8): a protocol, called as functions. No String(char[], off, len):
-+;; read-quoted-string takes its string from the source (position, substring).
++;; pippin: definterface is refused (design §8): a protocol, called as functions. No char[] window or
++;; String(char[]): read-quoted-string reads the window in place (position, charAt, substring).
 +(defprotocol InternalPBR
 +  (readChar [this])
-+  (readChars [this buffer start bufflen])
++  (readChars [this bufflen])
 +  (unreadChar [this c])
-+  (unreadChars [this buffer start bufflen])
++  (unreadChars [this bufflen])
 +  (toReader [this])
 +  (position [this])
++  (charAt [this i])
 +  (substring [this start end]))
  
 -(deftype ReaderPBR [^PushbackReader rdr]
@@ -69,7 +70,7 @@
          i)))
 -  (readChars [_  buffer start bufflen]
 -    (let [remaining (- len pos)
-+  (readChars [_ buffer start bufflen]
++  (readChars [_ bufflen]
 +    (let [p (aget pos 0)
 +          remaining (- len p)
            n (Math/min remaining bufflen)]
@@ -78,21 +79,16 @@
 -              end (+ p n)]
 -          (set! pos end)
 -          (.getChars ^String s p end ^chars buffer start)))
-+        (let [end (+ p n)]
-+          (aset pos 0 end)
-+          ;; pippin: no String.getChars: the window is copied a char at a time.
-+          (loop [i p j start]
-+            (when (< i end)
-+              (aset buffer j (nth s i))
-+              (recur (unchecked-inc i) (unchecked-inc j))))))
++        (aset pos 0 (+ p n)))
        (if (pos? n) n -1)))
    (unreadChar [_ _c]
      ;; ASSERT: c should never be -1 (EOF)
 -    (set! pos (unchecked-dec pos))
 +    (aset pos 0 (unchecked-dec (aget pos 0)))
      nil)
-   (unreadChars [_ _buffer _start bufflen]
+-  (unreadChars [_ _buffer _start bufflen]
 -    (set! pos (unchecked-subtract pos bufflen))
++  (unreadChars [_ bufflen]
 +    (aset pos 0 (unchecked-subtract (aget pos 0) bufflen))
      nil)
    (toReader [_]
@@ -100,6 +96,8 @@
 +    (subs s (aget pos 0) len))
 +  (position [_]
 +    (aget pos 0))
++  (charAt [_ i]
++    (nth s i))
 +  (substring [_ start end]
 +    (subs s start end)))
  
@@ -144,7 +142,7 @@
          :else (str x)))
  
  (defn- default-value-fn [k v] v)
-@@ -116,25 +127,25 @@
+@@ -116,25 +124,25 @@
       ~@(when (odd? (count clauses))
           [(last clauses)])))
  
@@ -179,7 +177,7 @@
      (codepoint-case c
        (\" \\ \/) (char c)
        \b \backspace
-@@ -144,41 +155,42 @@
+@@ -144,41 +152,41 @@
        \t \tab
        \u (read-hex-char stream))))
  
@@ -209,27 +207,27 @@
    ;; opening quotation mark.
 -  (let [buffer ^chars (char-array 64)
 -        read (.readChars stream buffer 0 64)
-+  (let [buffer (char-array 64)
-+        start (position stream)
-+        read (readChars stream buffer 0 64)
++  (let [start (position stream)
++        read (readChars stream 64)
          end-index (unchecked-dec-int read)]
      (when (neg? read)
 -      (throw (EOFException. "JSON error (end-of-file inside string)")))
 +      (throw (json-error "JSON error (end-of-file inside string)")))
      (loop [i (int 0)]
-       (let [c (int (aget buffer i))]
+-      (let [c (int (aget buffer i))]
++      (let [c (int (charAt stream (+ start i)))]
          (codepoint-case c
            \" (let [off (unchecked-inc-int i)
                     len (unchecked-subtract-int read off)]
 -               (.unreadChars stream buffer off len)
 -               (String. buffer 0 i))
-+               (unreadChars stream buffer off len)
++               (unreadChars stream len)
 +               (substring stream start (+ start i)))
            \\ (let [off i
                     len (unchecked-subtract-int read off)]
 -               (.unreadChars stream buffer off len)
 -               (slow-read-string stream (String. buffer 0 i)))
-+               (unreadChars stream buffer off len)
++               (unreadChars stream len)
 +               (slow-read-string stream (substring stream start (+ start i))))
            (if (= i end-index)
 -            (do (.unreadChar stream c)
@@ -239,7 +237,7 @@
              (recur (unchecked-inc-int i))))))))
  
  (defn- read-integer [^String string]
-@@ -193,152 +205,152 @@
+@@ -193,152 +201,152 @@
      (bigdec string)
      (Double/valueOf string)))
  
@@ -436,7 +434,7 @@
    ;; Handles all array values after the first.
    (loop [result (transient [])]
      (let [r (conj! result (-read stream true nil options))]
-@@ -348,7 +360,7 @@
+@@ -348,7 +356,7 @@
          -1 (throw (eof-array-exception))
          (throw (invalid-array-exception))))))
  
@@ -445,7 +443,7 @@
    ;; Expects to be called with the head of the stream AFTER the
    ;; opening bracket.
    ;; Only handles array value.
-@@ -357,25 +369,25 @@
+@@ -357,25 +365,25 @@
        \] []
        \, (throw (invalid-array-exception))
        -1 (throw (eof-array-exception))
@@ -476,7 +474,7 @@
    (let [c (int (next-token stream))]
      (if (= c (codepoint \"))
        (let [key (read-quoted-string stream)]
-@@ -386,7 +398,7 @@
+@@ -386,7 +394,7 @@
          nil
          (invalid-key-exception c)))))
  
@@ -485,7 +483,7 @@
    ;; Expects to be called with the head of the stream AFTER the
    ;; opening bracket.
    (let [key-fn (get options :key-fn)
-@@ -405,45 +417,45 @@
+@@ -405,45 +413,45 @@
              \, (recur r)
              \} (persistent! r)
              -1 (throw (eof-object-exception))
@@ -548,7 +546,7 @@
  
          ;; Read JSON objects
          \{ (read-object stream options)
-@@ -453,22 +465,22 @@
+@@ -453,22 +461,22 @@
  
          (if (neg? c) ;; Handle end-of-stream
            (if eof-error?
@@ -577,7 +575,7 @@
          val)
        val)))
  
-@@ -482,70 +494,16 @@
+@@ -482,70 +490,16 @@
    "Pass as :extra-data-fn to `read` or `read-str` to throw if data is found
    after the first object and return the remaining data in ex-data :remaining."
    [val rdr]
@@ -651,7 +649,7 @@
  
  (defn read-str
    "Reads one JSON value from input String. Options are the same as for
-@@ -564,17 +522,17 @@
+@@ -564,17 +518,17 @@
    (-write [object out options]
      "Print object to Appendable out as JSON"))
  
@@ -675,7 +673,7 @@
  
  (def ^{:tag "[S"} codepoint-decoder
    (let [shorts (short-array 128)]
-@@ -593,63 +551,63 @@
+@@ -593,63 +547,63 @@
            (aset shorts i (short 0)))))
      shorts))
  
@@ -765,7 +763,7 @@
      (when (and indent (seq m))
        (write-indent out opts))
      (loop [x m, have-printed-kv false]
-@@ -659,17 +617,17 @@
+@@ -659,17 +613,17 @@
                out-value (value-fn k v)
                nxt (next x)]
            (when-not (string? out-key)
@@ -787,7 +785,7 @@
                (-write out-value out opts)
                (when (seq nxt)
                  (recur nxt true)))
-@@ -677,13 +635,13 @@
+@@ -677,13 +631,13 @@
                (recur nxt have-printed-kv))))))
      (when (and indent (seq m))
        (write-indent out options)))
@@ -804,7 +802,7 @@
      (when (and indent (seq s))
        (write-indent out opts))
      (loop [x s]
-@@ -692,227 +650,109 @@
+@@ -692,227 +646,109 @@
                nxt (next x)]
            (-write fst out opts)
            (when (seq nxt)
@@ -1078,7 +1076,7 @@
  ;; DEPRECATED APIs from 0.1.x
  
  (defn read-json
-@@ -928,25 +768,16 @@
+@@ -928,25 +764,16 @@
     (read-json input keywordize? true nil))
    ([input keywordize? eof-error? eof-value]
     (let [key-fn (if keywordize? keyword identity)]
@@ -1106,7 +1104,7 @@
  (defn json-str
    "DEPRECATED; replaced by 'write-str'.
  
-@@ -957,25 +788,3 @@
+@@ -957,25 +784,3 @@
          to turn of \\uXXXX escapes of Unicode characters."
    [x & options]
    (apply write-str x options))
