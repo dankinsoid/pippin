@@ -37,6 +37,7 @@
 #include "clj/proto.h"
 #include "facts_internal.h"
 #include "guard_internal.h"
+#include "ice_internal.h"
 
 // A loop variable that has not settled after this many rounds goes straight to TOP.
 #define WIDEN_ROUNDS 3
@@ -279,7 +280,9 @@ typedef struct {
 static const fact_sig sigs[] = {
 	// arithmetic and comparison
 	RA("+", 2, SIG_ARITH), RA("-", 2, SIG_ARITH), RA("*", 2, SIG_ARITH), RA("/", 2, SIG_DIV),
-	RA("inc", 1, SIG_ARITH), RA("dec", 1, SIG_ARITH),
+	RA("inc", 1, SIG_ARITH), RA("dec", 1, SIG_ARITH), RA("unchecked-add", 2, SIG_ARITH), RA("unchecked-subtract", 2, SIG_ARITH),
+	RA("unchecked-inc", 1, SIG_ARITH), RA("unchecked-dec", 1, SIG_ARITH), F("unchecked-add-int", 2, CLJ_T_FIXNUM),
+	F("unchecked-subtract-int", 2, CLJ_T_FIXNUM), F("unchecked-inc-int", 1, CLJ_T_FIXNUM), F("unchecked-dec-int", 1, CLJ_T_FIXNUM),
 	F("<", 2, CLJ_T_BOOL), F("<=", 2, CLJ_T_BOOL), F(">", 2, CLJ_T_BOOL), F(">=", 2, CLJ_T_BOOL),
 	F("=", 0, CLJ_T_BOOL), F("not=", 0, CLJ_T_BOOL), F("==", 0, CLJ_T_BOOL), F("identical?", 2, CLJ_T_BOOL),
 	F("compare", 2, CLJ_T_FIXNUM), F("hash", 1, CLJ_T_FIXNUM), F("count", 1, CLJ_T_FIXNUM), F("alength", 1, CLJ_T_FIXNUM),
@@ -470,6 +473,11 @@ typedef struct {
 	uint32_t      effects; // of the frame being walked
 	uint32_t      caught;  // try bodies with a handler the walk is inside of
 	clj_value     def_var; // the var whose def's init is the fn about to be walked, else nil
+	clj_value     def_target; // the var whose def's init is being walked, whatever the init, else nil
+	// The method fns of the deftype*/record* call being walked and the type it made: their receiver is its instance.
+	const clj_node **methods;
+	uint32_t         nmethods;
+	const clj_type  *method_type;
 	bool          head;    // the node being inferred is the head of a call, not a value read
 	uint32_t      joined;  // frames whose parameters came from a caller join the walk is inside of
 	uint32_t      in_fn;   // fn bodies the walk is inside of
@@ -844,13 +852,48 @@ static void run_frame(pass *p, uint32_t owner, const clj_fn_arity *a, const clj_
 	env_free(&e);
 }
 
-// join_var is the var when the fn is the init of its def: the parameters may enter at the caller join.
-static void run_fn(pass *p, const clj_node *n, const clj_fact *captured, uint32_t ncaptured, clj_value join_var) {
+static bool rebinds_receiver(const clj_node *n);
+
+static void rebinds_receiver_visit(const clj_node *n, void *ctx) {
+	bool *found = ctx;
+	if (!*found && rebinds_receiver(n)) *found = true;
+}
+
+// A recur of the arity's own frame passing anything but the receiver: slot 0 then holds another value.
+static bool rebinds_receiver(const clj_node *n) {
+	switch (n->kind) {
+	case CLJ_NODE_FN:
+	case CLJ_NODE_DIRECT_FN:
+	case CLJ_NODE_FUSED: return false;
+	case CLJ_NODE_LOOP:
+		for (uint32_t i = 0; i < n->u.let.n; i++) {
+			if (rebinds_receiver(n->u.let.inits[i])) return true;
+		}
+		return false;
+	case CLJ_NODE_RECUR: {
+		const clj_node *a = n->u.recur.n && n->u.recur.slots[0] == 0 ? n->u.recur.args[0] : NULL;
+		if (a && !(a->kind == CLJ_NODE_LOCAL && a->u.local.index == 0)) return true;
+		break;
+	}
+	default: break;
+	}
+	bool found = false;
+	clj_node_children(n, rebinds_receiver_visit, &found);
+	return found;
+}
+
+// join_var is the var when the fn is the init of its def: the parameters may enter at the caller join. receiver, when
+// given, is what every arity's first parameter holds: the fn is a method of a type (NOTES.md "Facts", field hints).
+static void run_fn(pass *p, const clj_node *n, const clj_fact *captured, uint32_t ncaptured, clj_value join_var, const clj_fact *receiver) {
 	clj_fact self = fact_of(CLJ_T_FN);
 	p->in_fn++;
 	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED + 1; i++) {
 		const clj_fn_arity *a = i <= CLJ_FN_MAX_FIXED ? n->u.fn.fixed[i] : n->u.fn.variadic;
-		if (a) run_frame(p, n->id, a, a->body, captured, ncaptured, &self, NULL, n, join_var, NULL);
+		if (!a) continue;
+		clj_fact params[CLJ_FN_MAX_FIXED + 1];
+		bool     at = receiver && a->nparams >= 1 && !rebinds_receiver(a->body);
+		for (uint32_t k = 0; at && k < a->nparams; k++) params[k] = k ? clj_fact_top() : *receiver;
+		run_frame(p, n->id, a, a->body, captured, ncaptured, &self, NULL, n, join_var, at ? params : NULL);
 	}
 	p->in_fn--;
 }
@@ -1221,6 +1264,101 @@ static clj_fact construct_result(pass *p, const char *name, const clj_node *cons
 
 #define ARGS_INLINE 8
 
+// ---- field hints (NOTES.md "Facts", field hints): a constructor admits only what a field's hint allows (proto.c), so a
+// field read through a receiver of the type is what its hint says.
+
+static clj_fact hint_fact(clj_field_hint h) {
+	switch (h) {
+	case CLJ_HINT_LONG: return fact_of(CLJ_T_FIXNUM | CLJ_T_LONG);
+	case CLJ_HINT_INT:
+	case CLJ_HINT_SHORT:
+	case CLJ_HINT_BYTE: return fact_of(CLJ_T_FIXNUM);
+	case CLJ_HINT_DOUBLE:
+	case CLJ_HINT_FLOAT: return fact_of(CLJ_T_DOUBLE);
+	case CLJ_HINT_BOOLEAN: return fact_of(CLJ_T_BOOL);
+	case CLJ_HINT_CHAR: return fact_of(CLJ_T_CHAR);
+	case CLJ_HINT_STRING: return fact_of(CLJ_T_STRING | CLJ_T_NIL);
+	case CLJ_HINT_KEYWORD: return fact_of(CLJ_T_KEYWORD | CLJ_T_NIL);
+	case CLJ_HINT_SYMBOL: return fact_of(CLJ_T_SYMBOL | CLJ_T_NIL);
+	case CLJ_HINT_NONE: break;
+	}
+	return clj_fact_top();
+}
+
+static const clj_user_type *hinted_type(const clj_type *t) {
+	if (!t || t->h.type != &clj_type_type || (t->h.flags & CLJ_FLAG_IMMORTAL)) return NULL;
+	const clj_user_type *ut = (const clj_user_type *)t;
+	return ut->reified || !ut->hints ? NULL : ut;
+}
+
+// (field* x i) over a receiver whose descriptor the facts know.
+static clj_fact field_fact(const clj_fact *have, const clj_node *const *args, uint32_t n) {
+	if (n != 2 || args[1]->kind != CLJ_NODE_CONST || !clj_is_fixnum(args[1]->u.value.v) || clj_opt_off(CLJ_NO_OPT_FIELDS)) return clj_fact_top();
+	const clj_user_type *ut = (have[0].types == CLJ_T_HOST || have[0].types == CLJ_T_RECORD) ? hinted_type(have[0].desc) : NULL;
+	intptr_t             i = clj_fixnum_val(args[1]->u.value.v);
+	if (!ut || i < 0 || (uintptr_t)i >= ut->nfields) return clj_fact_top();
+	return hint_fact((clj_field_hint)ut->hints[i]);
+}
+
+// What nth, get and aget answer over a string or an array of a known kind (NOTES.md "Facts", known types).
+static clj_fact known_result(const char *name, const clj_fact *have, uint32_t n) {
+	if (n < 2 || clj_opt_off(CLJ_NO_OPT_KNOWN)) return clj_fact_top();
+	bool nth = strcmp(name, "nth") == 0, get = strcmp(name, "get") == 0;
+	uint32_t t = have[0].types;
+	if ((nth || get) && (t & CLJ_T_STRING) && !(t & ~(uint32_t)(CLJ_T_STRING | CLJ_T_NIL))) {
+		// nth past the end throws and over nil answers nil; get answers nil for both, a not-found argument in its place
+		uint32_t r = CLJ_T_CHAR | ((get || (t & CLJ_T_NIL)) ? CLJ_T_NIL : 0);
+		clj_fact f = fact_of(r);
+		return n == 3 ? clj_fact_join(fact_of(CLJ_T_CHAR | ((t & CLJ_T_NIL) ? CLJ_T_NIL : 0)), have[2]) : f;
+	}
+	if (strcmp(name, "aget") == 0 && n == 2 && t == CLJ_T_ARRAY && have[0].elem) {
+		switch ((clj_array_kind)(have[0].elem - 1)) {
+		case CLJ_ARRAY_I64: return fact_of(CLJ_T_FIXNUM | CLJ_T_LONG);
+		case CLJ_ARRAY_I8:
+		case CLJ_ARRAY_U8:
+		case CLJ_ARRAY_I16:
+		case CLJ_ARRAY_I32: return fact_of(CLJ_T_FIXNUM);
+		case CLJ_ARRAY_F32:
+		case CLJ_ARRAY_F64: return fact_of(CLJ_T_DOUBLE);
+		case CLJ_ARRAY_BOOL: return fact_of(CLJ_T_BOOL);
+		case CLJ_ARRAY_CHAR: return fact_of(CLJ_T_CHAR);
+		default: break;
+		}
+	}
+	return clj_fact_top();
+}
+
+// The fn nodes among the method maps of (deftype* 'T '[fields] P {:m (fn ...)} ...) when the def being walked holds the
+// type this very call made (its fields vector is the call's constant), into a malloc'd *out; their count. Reads the
+// var's root, so only with a store, whose table the var's epoch guards (add_dep).
+static uint32_t type_methods(pass *p, clj_value var, const clj_node *const *args, uint32_t n, const clj_node ***out) {
+	if (!p->f->sums || !clj_is_var(var) || !is_core_var(var) || n < 2 || !clj_is_var(p->def_target) || clj_opt_off(CLJ_NO_OPT_FIELDS)) return 0;
+	const char *name = CLJ_STR(clj_symbol_name(clj_var_name(var))).bytes;
+	if (strcmp(name, "deftype*") != 0 && strcmp(name, "record*") != 0) return 0;
+	clj_value root = clj_var_root(p->def_target);
+	if (args[1]->kind != CLJ_NODE_CONST || root == CLJ_UNBOUND || !clj_is_user_type(root)) return 0;
+	const clj_user_type *ut = clj_to_ptr(root);
+	if (ut->reified || ut->fields.v != args[1]->u.value.v) return 0;
+	uint32_t count = 0;
+	for (uint32_t i = 3; i < n; i += 2) {
+		if (args[i]->kind == CLJ_NODE_MAP) count += args[i]->u.seq.n / 2;
+	}
+	if (!count) return 0;
+	add_dep(p->f, p->def_target);
+	const clj_node **fns = xalloc(count, sizeof *fns);
+	count = 0;
+	for (uint32_t i = 3; i < n; i += 2) {
+		const clj_node *m = args[i];
+		if (m->kind != CLJ_NODE_MAP) continue;
+		for (uint32_t k = 1; k < m->u.seq.n; k += 2) {
+			if (m->u.seq.items[k]->kind == CLJ_NODE_FN) fns[count++] = m->u.seq.items[k];
+		}
+	}
+	p->method_type = &ut->t;
+	*out = fns;
+	return count;
+}
+
 uint32_t clj_facts_nsignatures(void) { return NSIGS; }
 
 bool clj_facts_signature(uint32_t i, const char **name, uint32_t *arity, clj_fact *result, bool *transfer) {
@@ -1298,7 +1436,17 @@ static clj_fact infer_call(pass *p, const clj_node *site, const clj_node *const 
 	clj_fact  inline_have[ARGS_INLINE];
 	clj_fact *have = n <= ARGS_INLINE ? inline_have : xalloc(n, sizeof(clj_fact));
 	use_kind  use = (s && !s->keeps) ? USE_NONE : USE_ESCAPE;
-	for (uint32_t i = 0; i < n; i++) have[i] = infer(p, args[i], e, use);
+	const clj_node **methods = NULL, **outer_methods = p->methods;
+	uint32_t         nmethods = type_methods(p, var, args, n, &methods), outer_n = p->nmethods;
+	for (uint32_t i = 0; i < n; i++) {
+		// the method maps' fns are walked as methods, nothing else among the arguments
+		p->methods = methods;
+		p->nmethods = i >= 3 ? nmethods : 0;
+		have[i] = infer(p, args[i], e, use);
+	}
+	p->methods = outer_methods;
+	p->nmethods = outer_n;
+	free(methods);
 	// the optimistic value of a fixpoint in flight, or a branch a refinement killed: the call is not reached, so its
 	// result joins nothing, and a recursive numeric fn climbs from its base case instead of from "a number"
 	for (uint32_t i = 0; p->summary && i < n; i++) {
@@ -1325,6 +1473,8 @@ static clj_fact infer_call(pass *p, const clj_node *site, const clj_node *const 
 	}
 	apply_summary(p, e, sum, args, n, have, var, named == NOT_NAMED);
 	clj_fact r = s ? sig_result(s, have, n < 4 ? n : 4) : (name ? construct_result(p, name, args, n) : clj_fact_top());
+	if (name && strcmp(name, "field*") == 0) r = field_fact(have, args, n);
+	else if (name && clj_fact_is_top(r)) r = known_result(name, have, n);
 	const clj_summary *spec = specialized_of(p, var, n, have, sum);
 	if (have != inline_have) free(have);
 	return result_with_summary(p, r, spec ? spec : sum);
@@ -1580,7 +1730,17 @@ static clj_fact infer_fn(pass *p, const clj_node *n, env *e) {
 	}
 	clj_value join_var = p->def_var;
 	p->def_var = CLJ_NIL; // the fns nested in the body are not the def's
-	if (p->record) run_fn(p, n, caps, n->u.fn.ncaptures, join_var);
+	clj_fact receiver = clj_fact_top();
+	bool     method = false;
+	for (uint32_t i = 0; i < p->nmethods; i++) method = method || p->methods[i] == n;
+	if (method) {
+		receiver = fact_of((p->method_type->core_bits & CLJ_CORE_RECORD) ? CLJ_T_RECORD : CLJ_T_HOST);
+		receiver.desc = p->method_type;
+	}
+	uint32_t nmethods = p->nmethods;
+	p->nmethods = 0; // a fn inside a method is no method
+	if (p->record) run_fn(p, n, caps, n->u.fn.ncaptures, join_var, method ? &receiver : NULL);
+	p->nmethods = nmethods;
 	free(caps);
 	p->effects |= CLJ_EFFECT_ALLOC;
 	return fact_of(CLJ_T_FN);
@@ -1695,7 +1855,7 @@ static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use) {
 	case CLJ_NODE_FN: r = infer_fn(p, n, e); break;
 	case CLJ_NODE_DIRECT_FN:
 		// its slot holds nil at run time and nothing reads it as a value; the node still denotes the function
-		if (p->record) run_fn(p, n, p->frame->captured, p->frame->ncaptured, CLJ_NIL);
+		if (p->record) run_fn(p, n, p->frame->captured, p->frame->ncaptured, CLJ_NIL, NULL);
 		r = fact_of(CLJ_T_FN);
 		break;
 	case CLJ_NODE_INVOKE: r = infer_invoke(p, n, e); break;
@@ -1707,7 +1867,10 @@ static clj_fact infer_node(pass *p, const clj_node *n, env *e, use_kind use) {
 		if (n->u.def.init) {
 			// a dynamic var may be bound to anything: its fn's parameters take no caller join
 			if (n->u.def.init->kind == CLJ_NODE_FN && !n->u.def.dynamic) p->def_var = n->u.def.var.v;
+			clj_value target = p->def_target;
+			p->def_target = n->u.def.var.v;
 			infer(p, n->u.def.init, e, USE_ESCAPE);
+			p->def_target = target;
 			p->def_var = CLJ_NIL;
 		}
 		if (n->u.def.meta) infer(p, n->u.def.meta, e, USE_ESCAPE);
@@ -2115,7 +2278,8 @@ static const char *const pure_names[] = {
 	"get-in", "assoc-in", "not-empty", "empty", "array-map", "sorted-map", "sorted-set", "re-pattern", "re-find",
 	"re-matches", "re-seq", "bit-and", "bit-or", "bit-xor", "bit-not", "bit-shift-left", "bit-shift-right", "abs", "sort",
 	"sequence", "comp", "partial", "juxt", "complement", "constantly", "fnil", "some-fn", "every-pred", "nnext", "fnext",
-	"ffirst", "doall", "dorun", "dedupe",
+	"ffirst", "doall", "dorun", "dedupe", "unchecked-add", "unchecked-subtract", "unchecked-inc", "unchecked-dec",
+	"unchecked-add-int", "unchecked-subtract-int", "unchecked-inc-int", "unchecked-dec-int",
 };
 static const char *const io_names[] = {"print", "println", "pr", "prn", "printf", "newline", "flush", "slurp", "spit", "load", "require"};
 static const char *const atom_names[] = {"swap!", "reset!", "swap-vals!", "reset-vals!", "compare-and-set!", "vreset!", "vswap!",

@@ -97,10 +97,27 @@ typedef enum {
 	CLJ_CORE_METHOD_COUNT
 } clj_core_method;
 
+// A field's :tag (NOTES "Type descriptor"): a primitive casts as the JVM unboxes, a class admits only itself and nil.
+typedef enum {
+	CLJ_HINT_NONE,
+	CLJ_HINT_LONG,
+	CLJ_HINT_INT,
+	CLJ_HINT_SHORT,
+	CLJ_HINT_BYTE,
+	CLJ_HINT_DOUBLE,
+	CLJ_HINT_FLOAT,
+	CLJ_HINT_BOOLEAN,
+	CLJ_HINT_CHAR,
+	CLJ_HINT_STRING,
+	CLJ_HINT_KEYWORD,
+	CLJ_HINT_SYMBOL,
+} clj_field_hint;
+
 typedef struct {
 	clj_type  t;
 	clj_slot  name;   // string; t.name points into it
 	clj_slot  fields; // vector of symbols
+	uint8_t  *hints;  // clj_field_hint per field, NULL when no field is hinted; written at creation only
 	uint32_t  nfields;
 	bool      reified; // its fields hold the method closures, named after the methods: no field to read
 	uint64_t  serial;  // from 1, never reused: a field-read cell keys on it, so a freed descriptor's address cannot alias
@@ -120,8 +137,12 @@ clj_value clj_user_type_new(clj_value name, clj_value fields, const clj_value *i
 clj_value clj_user_type_init(clj_user_type *ut, clj_value name, clj_value fields, const clj_value *impls, size_t nimpls);
 static inline bool clj_is_type(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_type_type; }
 static inline bool clj_is_user_type(clj_value v) { return clj_is_type(v) && !(clj_header_of(v)->flags & CLJ_FLAG_IMMORTAL); }
-// n must equal the type's nfields; fields are retained.
+// n must equal the type's nfields; fields are retained, cast or checked by their hints.
 clj_value clj_instance_new(clj_value type, const clj_value *fields, size_t n);
+// The hint a field symbol's :tag names, CLJ_HINT_NONE for a tag outside the vocabulary.
+clj_field_hint clj_field_hint_of(clj_value field);
+// Owned value field i of ut holds for v: v retained, a primitive hint's cast, or CLJ_THROWN for a value the hint refuses.
+clj_value clj_field_admit(const clj_user_type *ut, uint32_t i, clj_value v);
 static inline bool clj_is_instance(clj_value v) { return clj_is_ptr(v) && clj_is_user_type(clj_from_ptr((void *)clj_type_of(v))); }
 // Borrowed; aborts out of range.
 clj_value clj_instance_field(clj_value obj, uint32_t i);

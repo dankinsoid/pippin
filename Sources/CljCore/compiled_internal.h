@@ -202,6 +202,31 @@ static inline clj_value clj_c_long(clj_value v) { return clj_is_fixnum(v) ? v : 
 static inline clj_value clj_c_int(clj_value v) {
 	return clj_is_fixnum(v) && clj_fixnum_val(v) >= INT32_MIN && clj_fixnum_val(v) <= INT32_MAX ? v : clj_int_cast(v);
 }
+// The JVM's unchecked ops wrap at 64 bits; two fixnums cannot reach the wrap, so the sum is the long it is.
+static inline clj_value clj_c_unchecked_add(clj_value a, clj_value b) {
+	return CLJ_C_FIX2(a, b) ? clj_long_new(clj_fixnum_val(a) + clj_fixnum_val(b)) : clj_unchecked_add(a, b);
+}
+static inline clj_value clj_c_unchecked_subtract(clj_value a, clj_value b) {
+	return CLJ_C_FIX2(a, b) ? clj_long_new(clj_fixnum_val(a) - clj_fixnum_val(b)) : clj_unchecked_subtract(a, b);
+}
+static inline clj_value clj_c_unchecked_inc(clj_value v) { return clj_is_fixnum(v) ? clj_long_new(clj_fixnum_val(v) + 1) : clj_unchecked_inc(v); }
+static inline clj_value clj_c_unchecked_dec(clj_value v) { return clj_is_fixnum(v) ? clj_long_new(clj_fixnum_val(v) - 1) : clj_unchecked_dec(v); }
+static inline bool      clj_c_is_int32(clj_value v) { return clj_is_fixnum(v) && clj_fixnum_val(v) >= INT32_MIN && clj_fixnum_val(v) <= INT32_MAX; }
+static inline clj_value clj_c_unchecked_add_int(clj_value a, clj_value b) {
+	if (clj_c_is_int32(a) && clj_c_is_int32(b)) return clj_fixnum((int32_t)((uint32_t)clj_fixnum_val(a) + (uint32_t)clj_fixnum_val(b)));
+	return clj_unchecked_add_int(a, b);
+}
+static inline clj_value clj_c_unchecked_subtract_int(clj_value a, clj_value b) {
+	if (clj_c_is_int32(a) && clj_c_is_int32(b)) return clj_fixnum((int32_t)((uint32_t)clj_fixnum_val(a) - (uint32_t)clj_fixnum_val(b)));
+	return clj_unchecked_subtract_int(a, b);
+}
+static inline clj_value clj_c_unchecked_inc_int(clj_value v) {
+	return clj_c_is_int32(v) ? clj_fixnum((int32_t)((uint32_t)clj_fixnum_val(v) + 1u)) : clj_unchecked_inc_int(v);
+}
+static inline clj_value clj_c_unchecked_dec_int(clj_value v) {
+	return clj_c_is_int32(v) ? clj_fixnum((int32_t)((uint32_t)clj_fixnum_val(v) - 1u)) : clj_unchecked_dec_int(v);
+}
+
 static inline clj_value clj_c_integer_compare(clj_value a, clj_value b) {
 	if (CLJ_C_FIX2(a, b)) return clj_fixnum((clj_fixnum_val(a) > clj_fixnum_val(b)) - (clj_fixnum_val(a) < clj_fixnum_val(b)));
 	return clj_integer_compare(a, b);
@@ -263,6 +288,72 @@ static inline clj_value clj_c_aset(clj_value a, clj_value i, clj_value v) {
 	clj_slot_store(&clj_array_of(a)->h, s, clj_retain(v));
 	clj_release(old);
 	return clj_retain(v);
+}
+
+// ---- the arms the facts of the arguments pick (NOTES.md "Compiler", known types): each tests what the fact says, so a
+// wrong fact costs the generic call, never the answer.
+
+// A string's code point at a fixnum index within bounds: a byte when ASCII, else from the walk's index hint (string.c).
+static inline bool clj_c_string_at(clj_value s, clj_value i, clj_value *out) {
+	if (!clj_is_string(s) || !clj_is_fixnum(i) || clj_fixnum_val(i) < 0) return false;
+	size_t k = (size_t)clj_fixnum_val(i);
+	if (clj_string_is_ascii(s)) {
+		if (k >= clj_string_len(s)) return false;
+		*out = clj_char((unsigned char)CLJ_STR(s).bytes[k]);
+		return true;
+	}
+	uint32_t cp;
+	if (!clj_string_char_at(s, k, &cp)) return false;
+	*out = clj_char(cp);
+	return true;
+}
+
+static inline clj_value clj_c_string_nth2(clj_value s, clj_value i) {
+	clj_value r;
+	return clj_c_string_at(s, i, &r) ? r : clj_nth2(s, i);
+}
+
+static inline clj_value clj_c_string_nth3(clj_value s, clj_value i, clj_value not_found) {
+	clj_value r;
+	return clj_c_string_at(s, i, &r) ? r : clj_nth3(s, i, not_found);
+}
+
+static inline clj_value clj_c_string_count(clj_value s) { return clj_is_string(s) ? clj_fixnum((intptr_t)clj_string_count(s)) : clj_count(s); }
+static inline clj_value clj_c_char_int(clj_value v) { return clj_is_char(v) ? clj_fixnum((intptr_t)clj_char_val(v)) : clj_c_int(v); }
+static inline clj_value clj_c_char_long(clj_value v) { return clj_is_char(v) ? clj_fixnum((intptr_t)clj_char_val(v)) : clj_c_long(v); }
+
+// An element of an array of kind k at a fixnum index within bounds, boxed as clj_array_get boxes it.
+static inline clj_value clj_c_aget_k(clj_value a, clj_value i, clj_array_kind k) {
+	if (clj_is_array(a) && clj_is_fixnum(i) && clj_array_kind_of(a) == k && clj_fixnum_val(i) >= 0 && (uint64_t)clj_fixnum_val(i) < clj_array_count(a)) {
+		intptr_t    x = clj_fixnum_val(i);
+		const void *d = clj_array_data(a);
+		switch (k) {
+		case CLJ_ARRAY_I8: return clj_fixnum(((const int8_t *)d)[x]);
+		case CLJ_ARRAY_U8: return clj_fixnum(((const uint8_t *)d)[x]);
+		case CLJ_ARRAY_I16: return clj_fixnum(((const int16_t *)d)[x]);
+		case CLJ_ARRAY_I32: return clj_fixnum(((const int32_t *)d)[x]);
+		case CLJ_ARRAY_I64: return clj_long_new(((const int64_t *)d)[x]);
+		case CLJ_ARRAY_F32: return clj_double_new((double)((const float *)d)[x]);
+		case CLJ_ARRAY_F64: return clj_double_new(((const double *)d)[x]);
+		case CLJ_ARRAY_BOOL: return clj_bool(((const uint8_t *)d)[x] != 0);
+		case CLJ_ARRAY_CHAR: return clj_char(((const uint32_t *)d)[x]);
+		case CLJ_ARRAY_OBJECT: return clj_retain(((const clj_slot *)d)[x].v);
+		default: break;
+		}
+	}
+	return clj_aget(a, i);
+}
+
+// A store into an i64 or f64 array of a value it holds as it is; every cast and check else is aset's.
+static inline clj_value clj_c_aset_k(clj_value a, clj_value i, clj_value v, clj_array_kind k) {
+	if (k == CLJ_ARRAY_OBJECT) return clj_c_aset(a, i, v);
+	bool fits = (k == CLJ_ARRAY_I64 && clj_is_fixnum(v)) || (k == CLJ_ARRAY_F64 && clj_is_double(v));
+	if (fits && clj_is_array(a) && clj_is_fixnum(i) && clj_array_kind_of(a) == k && clj_fixnum_val(i) >= 0 && (uint64_t)clj_fixnum_val(i) < clj_array_count(a)) {
+		if (k == CLJ_ARRAY_I64) ((int64_t *)clj_array_data(a))[clj_fixnum_val(i)] = clj_fixnum_val(v);
+		else ((double *)clj_array_data(a))[clj_fixnum_val(i)] = clj_double_val(v);
+		return clj_retain(v);
+	}
+	return clj_aset(a, i, v);
 }
 
 static inline clj_value clj_c_alength(clj_value a) { return clj_is_array(a) ? clj_fixnum((intptr_t)clj_array_count(a)) : clj_alength(a); }
@@ -560,12 +651,12 @@ static inline clj_value clj_c_field_at(clj_value fn, const clj_value *args, uint
 	return clj_c_invoke(fn, args, 2);
 }
 
-// (new* T args...) of a deftype: the instance built in place; a record, a wrong count or a non-type through the builtin.
+// (new* T args...) of a deftype: the instance built in place, its hints checked; a record, a wrong count or a non-type through the builtin.
 static inline clj_value clj_c_new(clj_value fn, const clj_value *args, size_t n) {
 	clj_value type = args[0];
 	if (CLJC_NATIVE_IS(fn, clj_b_new_star) && clj_is_user_type(type)) {
 		const clj_user_type *ut = (const clj_user_type *)clj_to_ptr(type);
-		if (!(ut->t.core_bits & CLJ_CORE_RECORD) && ut->nfields == n - 1) return clj_instance_make(ut, args + 1, n - 1);
+		if (!(ut->t.core_bits & CLJ_CORE_RECORD) && ut->nfields == n - 1) return ut->hints ? clj_instance_new(type, args + 1, n - 1) : clj_instance_make(ut, args + 1, n - 1);
 	}
 	return clj_c_invoke(fn, args, n);
 }

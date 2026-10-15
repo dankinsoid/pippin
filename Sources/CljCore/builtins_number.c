@@ -452,14 +452,19 @@ static clj_value unchecked_int1(const clj_value *args, int32_t delta, bool negat
 	return clj_fixnum((int32_t)(negate ? 0u - u : u + (uint32_t)delta));
 }
 
-static clj_value b_unchecked_add_int(const clj_value *args, size_t n) { (void)n; return unchecked_int2(args, '+'); }
-static clj_value b_unchecked_subtract_int(const clj_value *args, size_t n) { (void)n; return unchecked_int2(args, '-'); }
+clj_value clj_unchecked_add_int(clj_value a, clj_value b) { return unchecked_int2((const clj_value[]){a, b}, '+'); }
+clj_value clj_unchecked_subtract_int(clj_value a, clj_value b) { return unchecked_int2((const clj_value[]){a, b}, '-'); }
+clj_value clj_unchecked_inc_int(clj_value v) { return unchecked_int1(&v, 1, false); }
+clj_value clj_unchecked_dec_int(clj_value v) { return unchecked_int1(&v, -1, false); }
+
+static clj_value b_unchecked_add_int(const clj_value *args, size_t n) { (void)n; return clj_unchecked_add_int(args[0], args[1]); }
+static clj_value b_unchecked_subtract_int(const clj_value *args, size_t n) { (void)n; return clj_unchecked_subtract_int(args[0], args[1]); }
 static clj_value b_unchecked_multiply_int(const clj_value *args, size_t n) { (void)n; return unchecked_int2(args, '*'); }
 static clj_value b_unchecked_divide_int(const clj_value *args, size_t n) { (void)n; return unchecked_int2(args, '/'); }
 static clj_value b_unchecked_remainder_int(const clj_value *args, size_t n) { (void)n; return unchecked_int2(args, '%'); }
 static clj_value b_unchecked_negate_int(const clj_value *args, size_t n) { (void)n; return unchecked_int1(args, 0, true); }
-static clj_value b_unchecked_inc_int(const clj_value *args, size_t n) { (void)n; return unchecked_int1(args, 1, false); }
-static clj_value b_unchecked_dec_int(const clj_value *args, size_t n) { (void)n; return unchecked_int1(args, -1, false); }
+static clj_value b_unchecked_inc_int(const clj_value *args, size_t n) { (void)n; return clj_unchecked_inc_int(args[0]); }
+static clj_value b_unchecked_dec_int(const clj_value *args, size_t n) { (void)n; return clj_unchecked_dec_int(args[0]); }
 
 // ---- unchecked arithmetic: two's-complement wrap at 64 bits, as on the JVM
 
@@ -471,8 +476,11 @@ static clj_value unchecked2(const clj_value *args, clj_num_op op) {
 	return clj_long_new((int64_t)r);
 }
 
-static clj_value b_unchecked_add(const clj_value *args, size_t n) { (void)n; return unchecked2(args, CLJ_OP_ADD); }
-static clj_value b_unchecked_subtract(const clj_value *args, size_t n) { (void)n; return unchecked2(args, CLJ_OP_SUB); }
+clj_value clj_unchecked_add(clj_value a, clj_value b) { return unchecked2((const clj_value[]){a, b}, CLJ_OP_ADD); }
+clj_value clj_unchecked_subtract(clj_value a, clj_value b) { return unchecked2((const clj_value[]){a, b}, CLJ_OP_SUB); }
+
+static clj_value b_unchecked_add(const clj_value *args, size_t n) { (void)n; return clj_unchecked_add(args[0], args[1]); }
+static clj_value b_unchecked_subtract(const clj_value *args, size_t n) { (void)n; return clj_unchecked_subtract(args[0], args[1]); }
 static clj_value b_unchecked_multiply(const clj_value *args, size_t n) { (void)n; return unchecked2(args, CLJ_OP_MUL); }
 
 static clj_value unchecked1(clj_value v, int64_t delta, bool negate) {
@@ -486,8 +494,11 @@ static clj_value unchecked1(clj_value v, int64_t delta, bool negate) {
 	return clj_long_new((int64_t)r);
 }
 
-static clj_value b_unchecked_inc(const clj_value *args, size_t n) { (void)n; return unchecked1(args[0], 1, false); }
-static clj_value b_unchecked_dec(const clj_value *args, size_t n) { (void)n; return unchecked1(args[0], -1, false); }
+clj_value clj_unchecked_inc(clj_value v) { return unchecked1(v, 1, false); }
+clj_value clj_unchecked_dec(clj_value v) { return unchecked1(v, -1, false); }
+
+static clj_value b_unchecked_inc(const clj_value *args, size_t n) { (void)n; return clj_unchecked_inc(args[0]); }
+static clj_value b_unchecked_dec(const clj_value *args, size_t n) { (void)n; return clj_unchecked_dec(args[0]); }
 static clj_value b_unchecked_negate(const clj_value *args, size_t n) { (void)n; return unchecked1(args[0], 0, true); }
 
 #define ANY CLJ_ARITY_ANY

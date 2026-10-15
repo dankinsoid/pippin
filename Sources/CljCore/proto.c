@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "clj/array.h"
 #include "clj/coll.h"
 #include "clj/core.h"
 #include "clj/epoch.h"
@@ -12,6 +13,7 @@
 #include "clj/hosttype.h"
 #include "clj/fn.h"
 #include "clj/ice.h"
+#include "clj/intrinsics.h"
 #include "clj/keyword.h"
 #include "clj/list.h"
 #include "clj/lock.h"
@@ -703,6 +705,7 @@ static void type_each_child(void *self, clj_visitor visit, void *ctx) {
 static void type_finalize(void *self) {
 	users_remove(self);
 	free(((clj_user_type *)self)->t.user_protos);
+	free(((clj_user_type *)self)->hints);
 	clj_epoch_bump();
 }
 
@@ -1017,6 +1020,71 @@ static clj_value user_type_shape(clj_value name, clj_value fields, size_t nimpls
 
 static _Atomic uint64_t type_serials;
 
+static const struct {
+	const char    *name;
+	clj_field_hint hint;
+} hint_names[] = {
+	{"long", CLJ_HINT_LONG},       {"int", CLJ_HINT_INT},         {"short", CLJ_HINT_SHORT},
+	{"byte", CLJ_HINT_BYTE},       {"double", CLJ_HINT_DOUBLE},   {"float", CLJ_HINT_FLOAT},
+	{"boolean", CLJ_HINT_BOOLEAN}, {"char", CLJ_HINT_CHAR},       {"String", CLJ_HINT_STRING},
+	{"java.lang.String", CLJ_HINT_STRING}, {"Keyword", CLJ_HINT_KEYWORD}, {"clojure.lang.Keyword", CLJ_HINT_KEYWORD},
+	{"Symbol", CLJ_HINT_SYMBOL},   {"clojure.lang.Symbol", CLJ_HINT_SYMBOL},
+};
+
+static clj_value kw_tag;
+
+clj_field_hint clj_field_hint_of(clj_value field) {
+	if (!clj_is_symbol(field)) return CLJ_HINT_NONE;
+	clj_value m = clj_meta(field);
+	clj_value tag = clj_is_nil(m) || m == CLJ_THROWN ? CLJ_NIL : clj_map_get(m, kw_tag, CLJ_NIL);
+	clj_field_hint h = CLJ_HINT_NONE;
+	// A qualified tag (clojure.core/long) names no class; the reader leaves a class name unqualified.
+	if (clj_is_symbol(tag) && clj_is_nil(clj_symbol_ns(tag))) {
+		const char *name = CLJ_STR(clj_symbol_name(tag)).bytes;
+		for (size_t i = 0; i < sizeof hint_names / sizeof *hint_names; i++) {
+			if (strcmp(hint_names[i].name, name) == 0) h = hint_names[i].hint;
+		}
+	}
+	if (m != CLJ_THROWN) clj_release(m);
+	return h;
+}
+
+static uint8_t *field_hints(clj_value fields) {
+	if (!clj_is_vector(fields)) return NULL;
+	uint32_t n = clj_vector_count(fields);
+	uint8_t *hints = NULL;
+	for (uint32_t i = 0; i < n; i++) {
+		clj_field_hint h = clj_field_hint_of(clj_vector_nth(fields, i));
+		if (h == CLJ_HINT_NONE) continue;
+		if (!hints && !(hints = calloc(n, 1))) clj_fatal("out of memory");
+		hints[i] = (uint8_t)h;
+	}
+	return hints;
+}
+
+static clj_value refuse_field(const clj_user_type *ut, uint32_t i, clj_value v, const char *hint) {
+	clj_value f = clj_vector_nth(ut->fields.v, i);
+	return clj_throw_msg("%s cannot be cast to %s: field %s of %s", clj_type_name(v), hint, CLJ_STR(clj_symbol_name(f)).bytes, ut->t.name);
+}
+
+clj_value clj_field_admit(const clj_user_type *ut, uint32_t i, clj_value v) {
+	switch (ut->hints ? (clj_field_hint)ut->hints[i] : CLJ_HINT_NONE) {
+	case CLJ_HINT_NONE: return clj_retain(v);
+	case CLJ_HINT_LONG: return clj_is_fixnum(v) ? v : clj_long_cast(v);
+	case CLJ_HINT_INT: return clj_is_fixnum(v) && clj_fixnum_val(v) >= INT32_MIN && clj_fixnum_val(v) <= INT32_MAX ? v : clj_int_cast(v);
+	case CLJ_HINT_SHORT: return clj_array_cast(CLJ_ARRAY_I16, v);
+	case CLJ_HINT_BYTE: return clj_array_cast(CLJ_ARRAY_I8, v);
+	case CLJ_HINT_DOUBLE: return clj_is_double(v) ? clj_retain(v) : clj_array_cast(CLJ_ARRAY_F64, v);
+	case CLJ_HINT_FLOAT: return clj_array_cast(CLJ_ARRAY_F32, v);
+	case CLJ_HINT_BOOLEAN: return clj_array_cast(CLJ_ARRAY_BOOL, v);
+	case CLJ_HINT_CHAR: return clj_array_cast(CLJ_ARRAY_CHAR, v);
+	case CLJ_HINT_STRING: return clj_is_nil(v) || clj_is_string(v) ? clj_retain(v) : refuse_field(ut, i, v, "String");
+	case CLJ_HINT_KEYWORD: return clj_is_nil(v) || clj_is_keyword(v) ? clj_retain(v) : refuse_field(ut, i, v, "Keyword");
+	case CLJ_HINT_SYMBOL: return clj_is_nil(v) || clj_is_symbol(v) ? clj_retain(v) : refuse_field(ut, i, v, "Symbol");
+	}
+	clj_ice("proto/hint", NULL, "field hint %u", (unsigned)ut->hints[i]);
+}
+
 clj_value clj_user_type_init(clj_user_type *ut, clj_value name, clj_value fields, const clj_value *impls, size_t nimpls) {
 	ut->serial = atomic_fetch_add_explicit(&type_serials, 1, memory_order_relaxed) + 1;
 	users_add(&ut->t);
@@ -1037,6 +1105,7 @@ clj_value clj_user_type_init(clj_user_type *ut, clj_value name, clj_value fields
 	clj_release(spelled);
 	clj_slot_init(&ut->t.h, &ut->fields, clj_retain(fields));
 	ut->nfields = clj_vector_count(fields);
+	ut->hints = field_hints(fields);
 	ut->reified = false;
 	ut->t.name = clj_string_heap_bytes(ut->name.v);
 	ut->t.each_child = instance_each_child;
@@ -1072,7 +1141,19 @@ clj_value clj_instance_new(clj_value type, const clj_value *fields, size_t n) {
 	if (!clj_is_user_type(type)) return clj_throw_msg("new* expects a deftype, got: %s", clj_type_name(type));
 	clj_user_type *ut = clj_to_ptr(type);
 	if (n != ut->nfields) return clj_throw_msg("%s has %u fields, got %zu", ut->t.name, ut->nfields, n);
-	return clj_instance_make(ut, fields, n);
+	if (!ut->hints) return clj_instance_make(ut, fields, n);
+	clj_value  small[8];
+	clj_value *vals = n <= 8 ? small : malloc(n * sizeof *vals);
+	if (!vals) clj_fatal("out of memory");
+	size_t k = 0;
+	for (; k < n; k++) {
+		vals[k] = clj_field_admit(ut, (uint32_t)k, fields[k]);
+		if (vals[k] == CLJ_THROWN) break;
+	}
+	clj_value r = k == n ? clj_instance_make(ut, vals, n) : CLJ_THROWN;
+	for (size_t i = 0; i < k; i++) clj_release(vals[i]);
+	if (vals != small) free(vals);
+	return r;
 }
 
 clj_value clj_instance_field(clj_value obj, uint32_t i) {
@@ -1261,6 +1342,7 @@ static void bind_core(const char *name, clj_value val) {
 }
 
 void clj_proto_install(void) {
+	kw_tag = clj_keyword_from_cstr("tag");
 	static const struct {
 		const char   *name;
 		clj_native_fn fn;

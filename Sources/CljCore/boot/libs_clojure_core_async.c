@@ -25525,7 +25525,7 @@ static CLJC_FRAME clj_value clojure_core_async_map__0__1_a1(clj_value self, cons
 	(void)a0;
 	clj_value t3;
 	if (CLJC_GUARD(V[187], B[24])) {
-	t3 = clj_c_aset(t0, t1, t2);
+	t3 = clj_c_aset_k(t0, t1, t2, 9);
 	} else {
 	t3 = clj_c_intrinsic_fallback(V[187], a0, 3);
 	}

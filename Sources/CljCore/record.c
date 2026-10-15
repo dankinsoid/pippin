@@ -196,9 +196,14 @@ static clj_value record_assoc(clj_value self, clj_value key, clj_value val) {
 	int32_t i = clj_record_basis_index(clj_type_of(self), key);
 	if (i >= 0) {
 		if (rec_of(self)->slots[i].v == val) return self;
+		clj_value v = clj_field_admit((const clj_user_type *)clj_type_of(self), (uint32_t)i, val);
+		if (v == CLJ_THROWN) {
+			clj_release(self);
+			return CLJ_THROWN;
+		}
 		clj_record *r = record_own(self);
 		clj_value   old = r->slots[i].v;
-		clj_slot_store(&r->h, &r->slots[i], clj_retain(val));
+		clj_slot_store(&r->h, &r->slots[i], v);
 		clj_release(old);
 		return clj_from_ptr(r);
 	}
@@ -294,20 +299,47 @@ clj_value clj_record_new(clj_value type, const clj_value *vals, size_t n) {
 	const clj_user_type *ut = clj_to_ptr(type);
 	if (n != ut->nfields) return clj_throw_msg("%s has %u fields, got %zu", ut->t.name, ut->nfields, n);
 	clj_record *r = record_alloc(ut);
-	for (size_t i = 0; i < n; i++) clj_slot_init(&r->h, &r->slots[i], clj_retain(vals[i]));
+	for (size_t i = 0; i < n; i++) {
+		clj_value v = clj_field_admit(ut, (uint32_t)i, vals[i]);
+		if (v == CLJ_THROWN) {
+			clj_release(clj_from_ptr(r));
+			return CLJ_THROWN;
+		}
+		clj_slot_init(&r->h, &r->slots[i], v);
+	}
 	return clj_from_ptr(r);
 }
 
 typedef struct {
 	clj_record *rec;
 	clj_value   ext;
+	bool        thrown;
 } from_map_ctx;
 
 static bool take_entry(clj_value key, clj_value val, void *ctx) {
 	from_map_ctx *c = ctx;
 	int32_t       i = clj_record_basis_index(c->rec->h.type, key);
-	if (i >= 0) clj_slot_store(&c->rec->h, &c->rec->slots[i], clj_retain(val));
-	else c->ext = clj_map_assoc(c->ext, key, val);
+	if (i < 0) {
+		c->ext = clj_map_assoc(c->ext, key, val);
+		return true;
+	}
+	clj_value v = clj_field_admit((const clj_user_type *)c->rec->h.type, (uint32_t)i, val);
+	c->thrown = v == CLJ_THROWN;
+	if (c->thrown) return false;
+	clj_value old = c->rec->slots[i].v;
+	clj_slot_store(&c->rec->h, &c->rec->slots[i], v);
+	clj_release(old);
+	return true;
+}
+
+// A basis key the map lacks is nil, which a primitive hint refuses as the JVM's create does.
+static bool admit_missing(const from_map_ctx *c, const clj_user_type *ut) {
+	for (uint32_t i = 0; ut->hints && i < ut->nfields; i++) {
+		if (ut->hints[i] == CLJ_HINT_NONE || !clj_is_nil(c->rec->slots[i].v)) continue;
+		clj_value v = clj_field_admit(ut, i, CLJ_NIL);
+		if (v == CLJ_THROWN) return false;
+		clj_slot_store(&c->rec->h, &c->rec->slots[i], v);
+	}
 	return true;
 }
 
@@ -315,7 +347,7 @@ clj_value clj_record_from_map(clj_value type, clj_value m) {
 	if (!clj_is_record_type(type)) return clj_throw_msg("map->Name expects a record type, got: %s", clj_type_name(type));
 	if (!clj_has_core(m, CLJ_CORE_MAP)) return clj_throw_msg("map->Name expects a map, got: %s", clj_type_name(m));
 	const clj_user_type *ut = clj_to_ptr(type);
-	from_map_ctx         c = {record_alloc(ut), clj_map_empty()};
+	from_map_ctx         c = {record_alloc(ut), clj_map_empty(), false};
 	if (clj_is_map(m)) {
 		clj_map_each(m, take_entry, &c);
 	} else {
@@ -327,14 +359,17 @@ clj_value clj_record_from_map(clj_value type, clj_value m) {
 		}
 		clj_seq_iter it = clj_seq_iter_start(s);
 		clj_value    entry;
-		while (clj_seq_iter_next(&it, &entry)) take_entry(clj_vector_nth(entry, 0), clj_vector_nth(entry, 1), &c);
+		while (clj_seq_iter_next(&it, &entry) && take_entry(clj_vector_nth(entry, 0), clj_vector_nth(entry, 1), &c)) {
+		}
 		clj_seq_iter_close(&it);
 		clj_release(s);
-		if (it.thrown) {
-			clj_release(c.ext);
-			clj_release(clj_from_ptr(c.rec));
-			return CLJ_THROWN;
-		}
+		c.thrown = c.thrown || it.thrown;
+	}
+	if (!c.thrown && !admit_missing(&c, ut)) c.thrown = true;
+	if (c.thrown) {
+		clj_release(c.ext);
+		clj_release(clj_from_ptr(c.rec));
+		return CLJ_THROWN;
 	}
 	clj_slot_store(&c.rec->h, &c.rec->slots[ut->nfields], normalized(c.ext));
 	return clj_from_ptr(c.rec);

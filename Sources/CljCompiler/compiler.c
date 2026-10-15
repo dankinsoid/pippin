@@ -738,7 +738,13 @@ static bool dbl_slot(const fnctx *f, uint32_t i) { return i < 64 && ((f->dbls >>
 
 // ---- unboxed arithmetic (NOTES.md, "Compiler": unboxed arithmetic, int64 and double slots, entry-checked frames)
 
-typedef enum { UNBOX_NONE, UNBOX_ADD, UNBOX_SUB, UNBOX_MUL, UNBOX_DIV, UNBOX_QUOT, UNBOX_REM, UNBOX_INC, UNBOX_DEC, UNBOX_LT, UNBOX_LE, UNBOX_GT, UNBOX_GE, UNBOX_EQ, UNBOX_ZERO, UNBOX_POS, UNBOX_NEG, UNBOX_NUMEQ, UNBOX_LONG, UNBOX_INT, UNBOX_CMP, UNBOX_ALENGTH, UNBOX_ICMP } unbox_op;
+typedef enum {
+	UNBOX_NONE, UNBOX_ADD, UNBOX_SUB, UNBOX_MUL, UNBOX_DIV, UNBOX_QUOT, UNBOX_REM, UNBOX_INC, UNBOX_DEC, UNBOX_UADD, UNBOX_USUB, UNBOX_UINC,
+	UNBOX_UDEC, UNBOX_LT, UNBOX_LE, UNBOX_GT, UNBOX_GE, UNBOX_EQ, UNBOX_ZERO, UNBOX_POS, UNBOX_NEG, UNBOX_NUMEQ, UNBOX_LONG, UNBOX_INT,
+	UNBOX_CMP, UNBOX_ALENGTH, UNBOX_ICMP, UNBOX_UADD_INT, UNBOX_USUB_INT, UNBOX_UINC_INT, UNBOX_UDEC_INT
+} unbox_op;
+
+static bool unbox_is_unchecked(unbox_op op);
 
 // The C representation of an unboxed value: int64_t or double.
 typedef enum { UK_NONE, UK_INT, UK_DBL } ukind;
@@ -757,16 +763,26 @@ static unbox_op unbox_op_of(const clj_intrinsic *op) {
 		{"clojure.core/pos?", 1, UNBOX_POS}, {"clojure.core/neg?", 1, UNBOX_NEG}, {"clojure.core/==", 2, UNBOX_NUMEQ},
 		{"clojure.core/long", 1, UNBOX_LONG}, {"clojure.core/int", 1, UNBOX_INT}, {"clojure.core/compare", 2, UNBOX_CMP},
 		{"clojure.core/alength", 1, UNBOX_ALENGTH}, {"Integer/compare", 2, UNBOX_ICMP},
+		{"clojure.core/unchecked-add", 2, UNBOX_UADD}, {"clojure.core/unchecked-subtract", 2, UNBOX_USUB},
+		{"clojure.core/unchecked-inc", 1, UNBOX_UINC}, {"clojure.core/unchecked-dec", 1, UNBOX_UDEC},
+		{"clojure.core/unchecked-add-int", 2, UNBOX_UADD_INT}, {"clojure.core/unchecked-subtract-int", 2, UNBOX_USUB_INT},
+		{"clojure.core/unchecked-inc-int", 1, UNBOX_UINC_INT}, {"clojure.core/unchecked-dec-int", 1, UNBOX_UDEC_INT},
 	};
 	for (size_t i = 0; i < sizeof table / sizeof *table; i++) {
-		if (table[i].arity == op->arity && strcmp(table[i].name, op->name) == 0) return table[i].op;
+		if (table[i].arity != op->arity || strcmp(table[i].name, op->name) != 0) continue;
+		if (unbox_is_unchecked(table[i].op) && clj_opt_off(CLJ_NO_OPT_KNOWN)) return UNBOX_NONE;
+		return table[i].op;
 	}
 	return UNBOX_NONE;
 }
 
-static bool unbox_is_arith(unbox_op op) { return op >= UNBOX_ADD && op <= UNBOX_DEC; }
+static bool unbox_is_arith(unbox_op op) { return op >= UNBOX_ADD && op <= UNBOX_UDEC; }
 // An int64 or a throw whatever the arguments are, so always unboxable: the boxed ones go through the fast arm.
-static bool unbox_is_int_valued(unbox_op op) { return op >= UNBOX_LONG && op <= UNBOX_ICMP; }
+static bool unbox_is_int_valued(unbox_op op) { return op >= UNBOX_LONG && op <= UNBOX_UDEC_INT; }
+// The 32-bit wrapping ones: an operand outside an int throws, as the int cast does.
+static bool unbox_is_int32(unbox_op op) { return op >= UNBOX_UADD_INT && op <= UNBOX_UDEC_INT; }
+
+static bool unbox_is_unchecked(unbox_op op) { return (op >= UNBOX_UADD && op <= UNBOX_UDEC) || unbox_is_int32(op); }
 
 // The kind of an arithmetic result over the kinds of its arguments; an integer quotient may be a ratio, so it stays
 // boxed, and quot/rem over doubles round through the builtin.
@@ -1087,6 +1103,8 @@ static void emit_int64_fail(fnctx *f, const char *msg, const char *boxed, const 
 	emit_unwind(f);
 }
 
+static char arith_char(unbox_op op);
+
 // r = a op b with the checks of long_arith (number.c): an overflow, a zero divisor throw where the interpreter would.
 static void emit_int64_op(fnctx *f, unbox_op op, const char *a, const char *b, const char *r, const char *boxed, const char *failed) {
 	sb_printf(&f->out, "\tint64_t %s = 0;\n", r);
@@ -1102,6 +1120,11 @@ static void emit_int64_op(fnctx *f, unbox_op op, const char *a, const char *b, c
 		sb_printf(&f->out, "\t} else %s = -%s;\n\t} else %s = %s / %s;\n", r, a, r, a, b);
 		return;
 	}
+	if (unbox_is_unchecked(op)) {
+		// two's complement, as the JVM's unchecked ops: no overflow to throw
+		sb_printf(&f->out, "\t%s = (int64_t)((uint64_t)%s %c (uint64_t)%s);\n", r, a, arith_char(op), b);
+		return;
+	}
 	const char *builtin = (op == UNBOX_ADD || op == UNBOX_INC) ? "__builtin_add_overflow" : (op == UNBOX_MUL) ? "__builtin_mul_overflow" : "__builtin_sub_overflow";
 	sb_printf(&f->out, "\tif (__builtin_expect(%s(%s, %s, &%s), 0)) {\n", builtin, a, b, r);
 	emit_int64_fail(f, "integer overflow", boxed, failed);
@@ -1113,9 +1136,17 @@ static void emit_int64_arith(fnctx *f, unbox_op op, const char *a, const char *b
 static char arith_char(unbox_op op) {
 	switch (op) {
 	case UNBOX_ADD:
-	case UNBOX_INC: return '+';
+	case UNBOX_INC:
+	case UNBOX_UADD:
+	case UNBOX_UINC:
+	case UNBOX_UADD_INT:
+	case UNBOX_UINC_INT: return '+';
 	case UNBOX_SUB:
-	case UNBOX_DEC: return '-';
+	case UNBOX_DEC:
+	case UNBOX_USUB:
+	case UNBOX_UDEC:
+	case UNBOX_USUB_INT:
+	case UNBOX_UDEC_INT: return '-';
 	case UNBOX_MUL: return '*';
 	default: return '/';
 	}
@@ -1131,6 +1162,7 @@ static itemp emit_raw(fnctx *f, const clj_node *n);
 static temp  emit_borrowed(fnctx *f, const clj_node *n);
 static void  release_temp(fnctx *f, const temp *t);
 static const char *fast_cname(const clj_intrinsic *op);
+static const char *known_cname(const fnctx *f, const clj_node *n, char *extra, size_t cap);
 
 // compare, Integer/compare, long, int and alength as an int64: on the C values where the arguments allow, else the fast arm over
 // the boxed arguments, whose result is a fixnum or a long box with the guard constant (unboxable is closed only).
@@ -1152,6 +1184,26 @@ static itemp emit_raw_int_valued(fnctx *f, const clj_node *n, unbox_op op) {
 		f->u->slots.unboxed++;
 		return x;
 	}
+	if (unbox_is_int32(op) && ka == UK_INT && (nargs == 1 || kb == UK_INT)) {
+		itemp x = emit_raw(f, args[0]), y = {"INT64_C(1)", UK_INT};
+		if (nargs == 2) y = emit_raw(f, args[1]);
+		sb_printf(&f->out, "\tif (__builtin_expect(%s < INT32_MIN || %s > INT32_MAX || %s < INT32_MIN || %s > INT32_MAX, 0)) {\n", x.name, x.name, y.name, y.name);
+		// the operation's own throw, so the message is the boxed path's
+		int k = f->naux++;
+		if (nargs == 2) {
+			sb_printf(&f->out, "\tclj_value bx%d = clj_long_new(%s), by%d = clj_long_new(%s);\n\t(void)%s(bx%d, by%d);\n\tclj_release(bx%d);\n\tclj_release(by%d);\n", k, x.name, k,
+			          y.name, n->u.intrinsic.op->cname, k, k, k, k);
+		} else {
+			sb_printf(&f->out, "\tclj_value bx%d = clj_long_new(%s);\n\t(void)%s(bx%d);\n\tclj_release(bx%d);\n", k, x.name, n->u.intrinsic.op->cname, k, k);
+		}
+		emit_site(f);
+		emit_unwind(f);
+		sb_puts(&f->out, "\t}\n");
+		itemp t = new_itemp(f, UK_INT);
+		sb_printf(&f->out, "\tint64_t %s = (int32_t)((uint32_t)%s %c (uint32_t)%s);\n", t.name, x.name, arith_char(op), y.name);
+		f->u->slots.unboxed++;
+		return t;
+	}
 	if ((op == UNBOX_CMP && ka != UK_NONE && kb != UK_NONE) || (op == UNBOX_ICMP && ka == UK_INT && kb == UK_INT)) {
 		itemp x = emit_raw(f, args[0]), y = emit_raw(f, args[1]);
 		itemp t = new_itemp(f, UK_INT);
@@ -1164,7 +1216,10 @@ static itemp emit_raw_int_valued(fnctx *f, const clj_node *n, unbox_op op) {
 	temp b[2];
 	for (uint32_t i = 0; i < nargs; i++) b[i] = emit_borrowed(f, args[i]);
 	int k = f->naux++;
-	sb_printf(&f->out, "\tclj_value r%d = %s(%s%s%s);\n", k, fast_cname(n->u.intrinsic.op), b[0].name, nargs == 2 ? ", " : "", nargs == 2 ? b[1].name : "");
+	char        extra[16];
+	const char *known = known_cname(f, n, extra, sizeof extra);
+	if (known) f->u->slots.known++;
+	sb_printf(&f->out, "\tclj_value r%d = %s(%s%s%s);\n", k, known ? known : fast_cname(n->u.intrinsic.op), b[0].name, nargs == 2 ? ", " : "", nargs == 2 ? b[1].name : "");
 	emit_site(f);
 	sb_printf(&f->out, "\tif (r%d == CLJ_THROWN) {\n", k);
 	emit_unwind(f);
@@ -2723,12 +2778,54 @@ static const char *fast_cname(const clj_intrinsic *op) {
 		{"clj_nth3", "clj_c_nth3"},   {"clj_first", "clj_c_first"}, {"clj_compare2", "clj_c_compare"}, {"clj_num_eq2", "clj_c_num_eq"},
 		{"clj_long_cast", "clj_c_long"}, {"clj_int_cast", "clj_c_int"}, {"clj_integer_compare", "clj_c_integer_compare"},
 		{"clj_aget", "clj_c_aget"},   {"clj_aset", "clj_c_aset"},   {"clj_alength", "clj_c_alength"},
+		{"clj_unchecked_add", "clj_c_unchecked_add"}, {"clj_unchecked_subtract", "clj_c_unchecked_subtract"},
+		{"clj_unchecked_inc", "clj_c_unchecked_inc"}, {"clj_unchecked_dec", "clj_c_unchecked_dec"},
+		{"clj_unchecked_add_int", "clj_c_unchecked_add_int"}, {"clj_unchecked_subtract_int", "clj_c_unchecked_subtract_int"},
+		{"clj_unchecked_inc_int", "clj_c_unchecked_inc_int"}, {"clj_unchecked_dec_int", "clj_c_unchecked_dec_int"},
 	};
 	if (clj_opt_off(CLJ_NO_OPT_INLINE)) return op->cname;
 	for (size_t i = 0; i < sizeof fast / sizeof *fast; i++) {
 		if (strcmp(op->cname, fast[i][0]) == 0) return fast[i][1];
 	}
 	return op->cname;
+}
+
+// Of these kinds and nil at most, with one of them: the facts of a hinted field, a string read, a char.
+static bool fact_of_kind(const fnctx *f, const clj_node *n, uint32_t kinds) {
+	const clj_fact *a = f->facts ? clj_facts_node(f->facts, n->id) : NULL;
+	return a && (a->types & kinds) && !(a->types & ~(kinds | (uint32_t)CLJ_T_NIL));
+}
+
+// The array kind the facts know, or -1.
+static int fact_array_kind(const fnctx *f, const clj_node *n) {
+	const clj_fact *a = f->facts ? clj_facts_node(f->facts, n->id) : NULL;
+	return a && a->types == CLJ_T_ARRAY && a->elem ? a->elem - 1 : -1;
+}
+
+static bool known_on(const fnctx *f) { return f->facts && !clj_opt_off(CLJ_NO_OPT_KNOWN) && !clj_opt_off(CLJ_NO_OPT_INLINE); }
+
+// The fast arm the first argument's fact picks over the generic one (NOTES.md "Compiler", known types), else NULL; aget
+// and aset of a known array kind take the kind as a last argument, written into extra.
+static const char *known_cname(const fnctx *f, const clj_node *n, char *extra, size_t cap) {
+	extra[0] = 0;
+	if (!known_on(f) || n->kind != CLJ_NODE_INTRINSIC) return NULL;
+	const char     *c = n->u.intrinsic.op->cname;
+	const clj_node *a0 = n->u.intrinsic.args[0];
+	if (fact_of_kind(f, a0, CLJ_T_STRING)) {
+		if (strcmp(c, "clj_nth2") == 0) return "clj_c_string_nth2";
+		if (strcmp(c, "clj_nth3") == 0) return "clj_c_string_nth3";
+		if (strcmp(c, "clj_count") == 0) return "clj_c_string_count";
+	}
+	if (fact_of_kind(f, a0, CLJ_T_CHAR)) {
+		if (strcmp(c, "clj_int_cast") == 0) return "clj_c_char_int";
+		if (strcmp(c, "clj_long_cast") == 0) return "clj_c_char_long";
+	}
+	int k = fact_array_kind(f, a0);
+	if (k >= 0 && (strcmp(c, "clj_aget") == 0 || strcmp(c, "clj_aset") == 0)) {
+		snprintf(extra, cap, ", %d", k);
+		return c[5] == 'g' ? "clj_c_aget_k" : "clj_c_aset_k";
+	}
+	return NULL;
 }
 
 static void emit_intrinsic_call(fnctx *f, const clj_intrinsic *op, const char *cname, const temp *args, const char *result) {
@@ -2979,7 +3076,16 @@ static temp emit_intrinsic(fnctx *f, const clj_node *n) {
 		          args[0].name, args[1].name);
 		f->u->slots.reuse_tokens++;
 	} else {
-		emit_intrinsic_call(f, op, fast_cname(op), args, r.name);
+		char        extra[16];
+		const char *known = known_cname(f, n, extra, sizeof extra);
+		if (known) {
+			sb_printf(&f->out, "\t%s = %s(", r.name, known);
+			for (uint32_t i = 0; i < op->arity; i++) sb_printf(&f->out, "%s%s", i ? ", " : "", args[i].name);
+			sb_printf(&f->out, "%s);\n", extra);
+			f->u->slots.known++;
+		} else {
+			emit_intrinsic_call(f, op, fast_cname(op), args, r.name);
+		}
 	}
 	sb_printf(&f->out, "\t} else {\n\t%s = clj_c_intrinsic_fallback(V[%zu], %s, %u);\n", r.name, vi, array, n->u.intrinsic.n);
 	if (consuming && args[0].own == OWN_YES) sb_printf(&f->out, "\tclj_release(%s);\n", args[0].name);

@@ -107790,7 +107790,7 @@ L3: ;
 	(void)a3;
 	clj_value t16;
 	if (CLJC_GUARD(V[360], B[52])) {
-	t16 = clj_c_aset(t10, t11, t12);
+	t16 = clj_c_aset_k(t10, t11, t12, 9);
 	} else {
 	t16 = clj_c_intrinsic_fallback(V[360], a3, 3);
 	}

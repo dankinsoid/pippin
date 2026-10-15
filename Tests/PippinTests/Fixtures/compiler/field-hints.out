@@ -1,0 +1,8 @@
+233 99 4 3 5 0
+:thrown nil cannot be cast to a number
+keyword cannot be cast to String: field s of fixture.field-hints.Text string cannot be cast to a number symbol cannot be cast to String: field s of fixture.field-hints.Text
+[7 300 -5 1.0 2.5 false \a] [97 1 1 1.5 1.0 true \z]
+Value out of range for int: 3000000000 symbol cannot be cast to a char string cannot be cast to a number
+[1 2.0 "a"] [2 3.0 nil] [4 5.0 "m"]
+[7 2.0 "a"] [1 4.0 "a"] 1
+nil cannot be cast to a number nil cannot be cast to a number long cannot be cast to String: field label of fixture.field-hints.Point keyword cannot be cast to String: field label of fixture.field-hints.Point

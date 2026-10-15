@@ -115,6 +115,7 @@ class Side:
 		self.bin = {}
 		self.compile = None
 		self.rev = None
+		self.env = {}  # over the bench's: what its compiles and runs see
 
 
 class Bench:
@@ -193,7 +194,10 @@ class Bench:
 		side.rev = p.stdout.strip()
 		# This tree's harness on both sides, so both print what this script parses.
 		shutil.copy(os.path.join(ROOT, HARNESS), os.path.join(root, HARNESS))
-		log("base %s = %s, in %s" % (self.args.base, side.rev, root))
+		if self.args.base_no_opt:
+			# a kill switch's share: the same tree with those optimizations off in its compiles and runs
+			side.env["CLJ_NO_OPT"] = self.args.base_no_opt
+		log("base %s = %s, in %s%s" % (self.args.base, side.rev, root, " with CLJ_NO_OPT=" + self.args.base_no_opt if self.args.base_no_opt else ""))
 		return side
 
 	def drop_base_tree(self):
@@ -220,7 +224,7 @@ class Bench:
 	def ours(self, tag, workload, binary, extra=(), env=None, side=None):
 		cmd = [binary] + self.lp_of(side or self.head) + ["--features", FEATURES, "--min-iterations", "3", "--min-seconds", "2"] + list(extra) + \
 		      ["workloads." + workload]
-		e = dict(self.env)
+		e = dict(self.env, **(side or self.head).env)
 		# The units are compiled against this root's headers, which must be the binary's own.
 		e["CLJ_EVAL_ROOT"] = (side or self.head).root
 		if env:
@@ -260,7 +264,7 @@ class Bench:
 		shutil.rmtree(d, ignore_errors=True)
 		os.makedirs(d)
 		p, _ = sh([side.compile, "--lenient", "--allow-refused"] + self.lp_of(side) + ["--features", FEATURES, "--ns",
-		          "workloads." + workload, "--out", d], env=self.env, timeout=RUN_TIMEOUT, check=False)
+		          "workloads." + workload, "--out", d], env=dict(self.env, **side.env), timeout=RUN_TIMEOUT, check=False)
 		self.keep("%s.%scompile-dev.txt" % (workload, side.prefix), p.stderr)
 		if p.returncode not in (0, 2):
 			self.errors.append("%s: %s clj-compile (dev) exited %d: %s" % (workload, side.name, p.returncode, p.stderr[-600:]))
@@ -274,7 +278,7 @@ class Bench:
 		os.makedirs(boot)
 		p, ms = sh([side.compile, "--core", "--closed", "--stats", "--lenient", "--allow-refused"] + self.lp_of(side) +
 		           ["--features", FEATURES, "--ns", "workloads." + workload, "--out", boot],
-		           env=self.env, timeout=RUN_TIMEOUT, check=False)
+		           env=dict(self.env, **side.env), timeout=RUN_TIMEOUT, check=False)
 		self.keep("%s.%scompile-closed.txt" % (workload, side.prefix), p.stderr)
 		if p.returncode not in (0, 2):
 			self.errors.append("%s: %s clj-compile --closed exited %d: %s" % (workload, side.name, p.returncode, p.stderr[-600:]))
@@ -666,7 +670,8 @@ def median_interval(sorted_values):
 
 def ab_section(b, add):
 	base, head = b.base, b.head
-	add("## Same runner: head %s against base %s %s" % (head.rev[:10], b.args.base, base.rev[:10]))
+	add("## Same runner: head %s against base %s %s%s" % (head.rev[:10], b.args.base, base.rev[:10],
+	    " with CLJ_NO_OPT=" + b.args.base_no_opt if b.args.base_no_opt else ""))
 	add("")
 	full = median_interval(list(range(b.args.reps)))[2] if b.args.reps > 1 else None
 	add("Both trees built and run in this job, %s; %d repetitions, each running every "
@@ -1038,6 +1043,8 @@ def main():
 	ap.add_argument("--base", help="a ref built and timed beside this tree on the same runner, alternated")
 	ap.add_argument("--base-sources", action="store_true",
 	                help="the base runs its own workload sources and ports, not this tree's: a port's change timed")
+	ap.add_argument("--base-no-opt", metavar="NAMES",
+	                help="CLJ_NO_OPT for the base's compiles and runs: with --base=HEAD, the share of those optimizations")
 	ap.add_argument("--reps", type=int, help="timed runs per mode and side (default 8 with --base, else 1)")
 	args = ap.parse_args()
 	args.only = [w for w in args.only.split(",") if w]

@@ -36,6 +36,16 @@ clj_value clj_long_cast(clj_value v);
 clj_value clj_int_cast(clj_value v);
 // (Integer/compare a b): -1, 0 or 1 for two integers; anything else throws.
 clj_value clj_integer_compare(clj_value a, clj_value b);
+// unchecked-add and the rest: two's-complement wrap at 64 bits over integers, the checked operation over other numbers.
+clj_value clj_unchecked_add(clj_value a, clj_value b);
+clj_value clj_unchecked_subtract(clj_value a, clj_value b);
+clj_value clj_unchecked_inc(clj_value v);
+clj_value clj_unchecked_dec(clj_value v);
+// unchecked-add-int and the rest: wrap at 32 bits over operands an int holds, the int cast's throw otherwise.
+clj_value clj_unchecked_add_int(clj_value a, clj_value b);
+clj_value clj_unchecked_subtract_int(clj_value a, clj_value b);
+clj_value clj_unchecked_inc_int(clj_value v);
+clj_value clj_unchecked_dec_int(clj_value v);
 
 // ---- predicates: a boolean, never thrown, except zero?/pos?/neg? on a non-number and even?/odd? on a non-integer
 clj_value clj_not(clj_value v);
