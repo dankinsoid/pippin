@@ -63,6 +63,7 @@ _Static_assert(sizeof(clj_slot) == sizeof(clj_value), "a slot is the bare word")
 // write before publishing. Invariant: every child of a shared object is shared, so clj_share stops at
 // a shared node. In-place reuse of a shared object (rc == 1) must clj_share any new child before storing it.
 #define CLJ_FLAG_SHARED   ((uint32_t)1 << 0)
+_Static_assert(CLJ_FLAG_SHARED == 1, "clj_reach_from masks by (flags & SHARED) - 1");
 // Static objects (builtin type descriptors): retain/release are no-ops.
 #define CLJ_FLAG_IMMORTAL ((uint32_t)1 << 1)
 // Lives in the system allocator, not a pool slab: too big for a size class, or CLJ_SYSTEM_ALLOC=1.
@@ -369,8 +370,8 @@ static inline void clj_reach_from(clj_header *owner, uint32_t flags, clj_value v
 		flags &= ~CLJ_FLAG_ACYCLIC;
 		owner->flags = flags;
 	}
-	uint32_t add = (f & (CLJ_FLAG_REACH | CLJ_FLAG_LAZY)) |
-	               ((f & CLJ_FLAG_SHARED) ? 0 : f & (CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_ONCYCLE));
+	// SHARED is bit 0: the subtraction is all ones for an unshared child, no branch on the in-place path.
+	uint32_t add = f & (CLJ_FLAG_REACH | CLJ_FLAG_LAZY | (((f & CLJ_FLAG_SHARED) - 1) & (CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_ONCYCLE)));
 	if (!(add & ~flags)) return;
 	CLJ_ASSERT(!(flags & CLJ_FLAG_SHARED) || atomic_load_explicit(&owner->rc, memory_order_relaxed) == 1,
 	           "reach bits into a published owner another reference can read");
@@ -415,7 +416,7 @@ static inline void clj_slot_init(clj_header *owner, clj_slot *slot, clj_value v)
 // A node copy has its source's children, so its reach bits once rather than per slot: the path copy is hot.
 static inline void clj_reach_copy(clj_header *owner, const clj_header *src) {
 	uint32_t f = src->flags;
-	owner->flags |= f & (CLJ_FLAG_REACH | CLJ_FLAG_LAZY | ((f & CLJ_FLAG_SHARED) ? 0 : CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_ONCYCLE));
+	owner->flags |= f & (CLJ_FLAG_REACH | CLJ_FLAG_LAZY | (((f & CLJ_FLAG_SHARED) - 1) & (CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_ONCYCLE)));
 }
 
 // clj_slot_init of a slot copied from src, whose bits clj_reach_copy gives the owner.
