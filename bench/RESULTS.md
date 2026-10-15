@@ -3304,3 +3304,40 @@ repetition. ms per iteration, ratios ours over theirs.
   an `aget`/`aset` per character (NOTES "Type descriptor", mutable fields).
 - **Per iteration** (closed stats): 4.97M plain and 2.16M shared RC ops, 901.8k allocations (vector-seq 495k, vector
   101k, string 97k, list 69k, map 55k), 2.43M compiled generic calls.
+
+## JSON's string gap — eb4dd9a, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+Three pieces against the "JSON" section's profile, each timed on one runner against the commit before it
+(`corpus-bench --base=<ref> --base-sources`, so each side runs its own port; json and strings, 8 repetitions): the
+index hint (NOTES "Strings"), the string appended in place as the port's StringBuilder (NOTES "Strings", the string
+builder entry), and upstream's `char[]` window in `read-quoted-string`, which was measured and reverted. Cells are
+head / base, the median over the pairs with the sign test's interval.
+
+| piece (run) | interp | core+interp | dev | closed | strings, closed |
+|---|---:|---:|---:|---:|---:|
+| index hint, 607b07b vs main (38736810922) | 0.906 [0.852–0.909]* | 0.909 [0.827–0.915]* | 0.828 [0.813–0.888]* | 0.800 [0.783–0.807]* | 1.003 [0.993–1.010] |
+| string builder, be442b3 vs 607b07b (38737611292) | 0.939 [0.913–0.995]* | 0.949 [0.934–0.969]* | 0.930 [0.891–1.033] | 0.874 [0.795–0.930]* | 0.953 [0.903–0.968]* |
+| char[] window, 4049a21 vs be442b3 (38737821230), reverted | 1.613 [1.558–1.810]* | 1.712 [1.673–1.887]* | 1.804 [1.709–2.066]* | 1.928 [1.808–2.094]* | 1.016 [0.997–1.057] |
+| all kept, eb4dd9a vs main (38741095205) | 0.868 [0.794–0.909]* | 0.851 [0.830–0.977]* | 0.736 [0.714–0.793]* | 0.704 [0.585–0.733]* | 0.940 [0.912–1.016] |
+
+- **json against the references** (run 38741095205, the full `make corpus-bench` with every workload, main on the same
+  runner): closed 229.4 → 156.5 ms, so 9.9× → 6.7× the JVM's data.json (23.2 ms on this runner; 12.4× in the
+  "JVM" section's run, on another), 6.6× → 4.5× bb's, 7.5× → 5.1× Swift's Codable, 12.2× → 8.3× Dart's, 5.4× → 3.7×
+  Node's `JSON`; Hermes is 2.6× slower than we are now.
+- **The hint** took `clj_string_offset_slow` from 21.3 % of the closed profile to 4.1 %, and nothing else moved: the
+  counters are equal. What is left of it (5.0 % in the full run) is `subs` of a string just read: its start lies
+  behind the hint, scanned back from it or from a crumb.
+- **The builder** took json's allocations from 882.1k to 375.7k an iteration (vector-seq 477.6k → 6.0k, the join's
+  cells; vector-node 26.4k → 2.4k) and its bytes from 35.5 to 18.1 MB; the strings workload gains through its
+  `(reduce (fn [s i] (str s i)) ...)` (55.4 → 26.6 MB an iteration) and the core's own `(str a b)` sites.
+- **The window** fills 64 chars per string with `nth` and `aset`, whatever the string's length, where upstream's
+  `getChars` is one memcpy: compiled generic calls went from 2.42M to 9.78M an iteration and `element_index` led the
+  profile at 13 %. The port reads in place again; what is missing is NOTES "Strings", the bulk copy entry.
+- **Elsewhere** (run 38741095205): the closed geomean over the fourteen workloads is 0.967, strings 0.940. Three cells
+  outside json and strings carry `*`, all dev and all slower: medley 1.042, suite-data 1.034, async-pipeline 1.140;
+  their closed cells are 1.023, 0.985 and 1.037 without one, and the A/A runs put the mark on 4 and 2 of 48 cells.
+- **The micro-benchmarks** (`CLJ_BENCH_ONLY=strings`, `make bench-ab` against main, 9 rounds, run 38741090413; ns,
+  medians of the rounds): `clj_string_char_at` over every index of a shared 1.08M-code-point non-ASCII string in
+  order 74.1 → 9.7; at random indexes 117.0 → 118.1, at random mid-crumb ones 120.2 → 114.7; the same three on an
+  ASCII string 4.6 → 4.5, 5.5 → 5.0, 4.8 → 5.0. Interpreted `(nth s i)` in a loop 120.8 → 78.6 non-ASCII, 62.1 → 62.1
+  ASCII. Appending, per append over 5000: `(reduce str "" (range n))` 667.8 → 50.0, `(vswap! v str \é)` 525.5 → 84.8.
