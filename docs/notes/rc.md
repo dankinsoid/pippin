@@ -279,21 +279,23 @@
 - [~] **The cycle check at a store: only a node on a cycle is a local candidate** (`clj_reach_from` and
   `clj_cc_edge_check` in `object.h`, `clj_cc_store_check`, `file_local`, `local_component` and
   `clj_cc_audit_unfiled` in `cc.c`, `release_reaches_zero` in `rc.c`; design §7, «Проверка цикла в момент записи», which
-  holds the invariant and its proof). Header bits 14 `CLJ_FLAG_HEAPREF` (a heap edge reached the object: every
-  `clj_reach_from` sets it on the child, never cleared, never written on a published one) and 7 `CLJ_FLAG_ONCYCLE`
-  (inherited as `REACH_LOCAL` is: OR of children, `clj_reach_copy`, the `with-meta` copies, a token's cell);
-  `REACH_LOCAL` moved to bit 16, so the inline release's mask is main's constant (with bit 16 in it nested-update's
-  closed build lost 5 %), and the debug owner tag to bit 17 and 15 bits. A store of a `REACH_LOCAL` value into an unshared reference type with
+  holds the invariant and its proof). Header bits 14 `CLJ_FLAG_HEAPREF` (a heap edge reached the reference type:
+  `clj_reach_from` sets it on a `MUTABLE` child, never cleared, never written on a published one; on every child it
+  cost nested-update's closed build 3.3 %) and 7 `CLJ_FLAG_ONCYCLE` (not inherited at a store; a node copy takes its
+  source's: `clj_reach_copy`, the `with-meta` copies, a token's cell);
+  `REACH_LOCAL` moved to bit 15 and the stats build's `RETAINED` to 16, so every hot path's mask stays below bit
+  16, one `movz` on arm64 (a release mask with bit 16 cost nested-update's closed build 5 %), and the debug owner tag to bit 17 and 15 bits. A store of a `REACH_LOCAL` value into an unshared reference type with
   `HEAPREF` (or into itself), and an edit of a transient flat map (`flat_assoc`, `flat_append`), call
   `clj_cc_store_check`: a walk from the value through what a local collection enters, validly marked nodes skipped,
   at most 256 nodes and 4096 children read; meeting the owner, a backward pass from it over the recorded edges flags
-  every node with a path to it. Past the budget, and for every lazy-seq realization without a walk, the owner is
-  filed as a local candidate without a collection or a hand-off (the slot is not written yet); a local collection
+  every node with a path to it. A lazy-seq realization walks 8 nodes and 64 children at most. Past the budget the
+  owner is filed as a local candidate without a collection or a hand-off (the slot is not written yet); a local collection
   flags every black cyclic Tarjan component it builds. A nonzero release files an unshared object only with
   `ONCYCLE`; the inline `clj_release`/`clj_drop_value` test it instead of `REACH_LOCAL` (debug builds test both, for
   the audit). An immutable owner is never checked: it is edited only while unique from an owned root down. The shared
-  rule is unchanged (atoms, channels, promises, coroutines are born shared). `CLJ_NO_OPT=store-check` (bit 20) gives
-  `ONCYCLE` at the birth of an array or volatile, so it equals `REACH_LOCAL`: the old rule. Debug builds audit one
+  rule is unchanged (atoms, channels, promises, coroutines are born shared). `CLJ_NO_OPT=store-check` (bit 20) sets
+  `clj_cc_kill_oncycle`, which gives `ONCYCLE` at the birth of an array or volatile and wherever `clj_reach_from` gives
+  an owner a new `REACH_LOCAL`, so it equals `REACH_LOCAL`: the old rule. Debug builds audit one
   nonzero release in 16 of a `REACH_LOCAL` object without `ONCYCLE` (every one in the store-check tests): the old
   rule's graph from it, up to 1024 nodes, without freeing; a cyclic component with neither every member flagged nor
   one buffered dies with `cc/store-check-missed`. Stats `CLJ_CC_STAT_STORE_CHECKS`, `_STORE_NODES`, `_STORE_CYCLES`,
