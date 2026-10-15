@@ -2201,12 +2201,10 @@ static proto_arms implementor_arms(fnctx *f, clj_value proto) {
 	return a;
 }
 
-// The direct target of an arm: the impl the tables hold for the descriptor, when it is a closure of the compiled set
-// (an emitted node, or a compiled closure whose dispatcher a closed unit registered) with a fixed arity a direct
-// arm may enter. UINT32_MAX otherwise.
-static uint32_t arm_target(fnctx *f, const clj_type *t, clj_value method, uint32_t nargs) {
-	clj_value impl = clj_proto_impl_for_type(method, t);
-	uint32_t  id = UINT32_MAX;
+// The direct target of an impl, when it is a closure of the compiled set (an emitted node, or a compiled closure whose
+// dispatcher a closed unit registered) with a fixed arity a direct arm may enter. UINT32_MAX otherwise.
+static uint32_t impl_target(fnctx *f, clj_value impl, uint32_t nargs) {
+	uint32_t id = UINT32_MAX;
 	if (clj_is_fn(impl)) {
 		const clj_fn *fn = clj_fn_of(impl);
 		if (fn->kind == CLJ_FN_CLOSURE && (entry_arities(fn->u.node) >> nargs) & 1 && tree_in_set(f->c, fn)) {
@@ -2216,6 +2214,13 @@ static uint32_t arm_target(fnctx *f, const clj_type *t, clj_value method, uint32
 			if (name) id = pimpl_add(f->c, f->u, NULL, name, nargs);
 		}
 	}
+	return id;
+}
+
+// An arm's: the impl the tables hold for the descriptor.
+static uint32_t arm_target(fnctx *f, const clj_type *t, clj_value method, uint32_t nargs) {
+	clj_value impl = clj_proto_impl_for_type(method, t);
+	uint32_t  id = impl_target(f, impl, nargs);
 	clj_release(impl);
 	return id;
 }
@@ -4074,7 +4079,8 @@ static bool emit_proto_guard(fnctx *f, const clj_node *n, const char *b) {
 	if (slot_kind(f, recv) != UK_NONE || wparam(f, recv)) return false;
 	clj_value tvar = user_type_var(t);
 	if (clj_is_nil(tvar)) return false;
-	uint32_t id = arm_target(f, t, root, nargs);
+	// the impl the body was copied from, not the tables' final one: a later extend may have replaced it
+	uint32_t id = impl_target(f, g->u.root_is.expect.v, nargs);
 	if (id == UINT32_MAX) return false;
 	int k = f->naux++;
 	char read[48];
