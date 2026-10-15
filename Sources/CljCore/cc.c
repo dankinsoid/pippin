@@ -73,6 +73,9 @@ static struct timespec wall_at(uint64_t ns) {
 // Registries hold execs and descriptors without a reference (design §7).
 static bool opaque(const clj_type *t) { return t->unlink || t == &clj_type_type; }
 
+// Set with the kill switch, before the first object (ice.c): a plain read on the paths that give REACH_LOCAL.
+__attribute__((used)) uint32_t clj_cc_kill_oncycle;
+
 // CLJ_CC=0 keeps the bits and drops every candidate: the control of a cost measurement.
 static int enabled_state;
 
@@ -1194,8 +1197,9 @@ int clj_debug_cc_on_cycle(clj_value v) { return clj_is_ptr(v) && (clj_header_of(
 
 // ---- the cycle check at a store (design §7, «Проверка цикла в момент записи»)
 
-// Past either the owner waits for the next local collection, which walks without a bound.
-enum { STORE_NODES = 256, STORE_READS = 4096, STORE_TABLE = 4 * STORE_NODES };
+// Past either the owner waits for the next local collection, which walks without a bound. A realization's value
+// reaches what its thunk walked, a whole index for a seq over one: its budget is small (bench/RESULTS.md).
+enum { STORE_NODES = 256, STORE_READS = 4096, LAZY_NODES = 8, LAZY_READS = 64, STORE_TABLE = 4 * STORE_NODES };
 
 // The nodes the walk from the value entered, 0 the owner (never entered), and the edges among them.
 typedef struct {
@@ -1203,7 +1207,7 @@ typedef struct {
 	uint64_t     table[STORE_TABLE]; // gen << 32 | index + 1
 	uint32_t     work[STORE_NODES + 1];
 	uint32_t    *from, *to;
-	uint32_t     n, nw, ne, ecap, cur, reads, gen;
+	uint32_t     n, nw, ne, ecap, cur, reads, gen, max_nodes, max_reads;
 	bool         over, found;
 	checked_set *ck;
 } store_walk;
@@ -1214,7 +1218,7 @@ static uint32_t store_index(store_walk *w, clj_header *h) {
 	for (uint32_t s = ck_slot(STORE_TABLE, h);; s = (s + 1) & (STORE_TABLE - 1)) {
 		uint64_t e = w->table[s];
 		if ((uint32_t)(e >> 32) != w->gen) {
-			if (w->n == STORE_NODES + 1) {
+			if (w->n == w->max_nodes + 1) {
 				w->over = true;
 				return NONE;
 			}
@@ -1232,7 +1236,7 @@ static bool local_enterable(const clj_header *c) { return enterable(&(graph){0},
 static void store_visit(clj_value v, void *ctx) {
 	store_walk *w = ctx;
 	if (!clj_is_ptr(v) || w->over) return;
-	if (++w->reads > STORE_READS) {
+	if (++w->reads > w->max_reads) {
 		w->over = true;
 		return;
 	}
@@ -1291,12 +1295,6 @@ void clj_cc_store_check(clj_header *x, clj_header *y) {
 		return;
 	}
 	clj_coro *c = clj_coro_current();
-	// A realization's value reaches what its thunk walked, a whole index for a seq over one: no walk, the entry's.
-	if (x->type == &clj_lazy_seq_type) {
-		stat_add(CLJ_CC_STAT_STORE_DEFERRED, 1);
-		file_local(c, x);
-		return;
-	}
 	if (!store_w && !(store_w = calloc(1, sizeof *store_w))) clj_fatal("out of memory");
 	store_walk *w = store_w;
 	if (++w->gen == 0) {
@@ -1305,6 +1303,9 @@ void clj_cc_store_check(clj_header *x, clj_header *y) {
 	}
 	w->n = w->nw = w->ne = w->reads = 0;
 	w->over = w->found = false;
+	bool lazy = x->type == &clj_lazy_seq_type;
+	w->max_nodes = lazy ? LAZY_NODES : STORE_NODES;
+	w->max_reads = lazy ? LAZY_READS : STORE_READS;
 	w->ck = c->cc_local ? ck_current(c->cc_local) : NULL;
 	w->nodes[w->n++] = x;
 	store_index(w, y);

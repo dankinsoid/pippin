@@ -283,6 +283,7 @@ void clj_no_opt_set(uint32_t mask) {
 	}
 	if (now & CLJ_NO_OPT_SPECIALIZE) clj_specialize_enable(false);
 	if (now & CLJ_NO_OPT_LAZY_SEQ) clj_lazy_seq_inline_enable(false);
+	if (now & CLJ_NO_OPT_STORE_CHECK) clj_cc_kill_oncycle = CLJ_FLAG_ONCYCLE;
 }
 
 uint32_t clj_no_opt(void) { return atomic_load_explicit(&clj_no_opt_bits, memory_order_relaxed); }

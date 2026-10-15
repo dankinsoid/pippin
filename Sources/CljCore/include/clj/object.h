@@ -82,8 +82,8 @@ _Static_assert(CLJ_FLAG_SHARED == 1, "clj_reach_from masks by (flags & SHARED) -
 // The same through unshared objects only: what a local collection enters. Bit 16, so the inline release's mask
 // keeps bit 7 (ONCYCLE): a mask with bit 16 cost nested-update's closed build 5 % (bench/RESULTS.md).
 #define CLJ_FLAG_REACH_LOCAL ((uint32_t)1 << 16)
-// On a cycle of unshared objects, or built over one: only it makes an unshared object's nonzero release a candidate.
-// Propagated as REACH_LOCAL; under CLJ_NO_OPT=store-check born with it, so it is REACH_LOCAL (design §7).
+// On a cycle of unshared objects: only it makes an unshared object's nonzero release a candidate. Under
+// CLJ_NO_OPT=store-check it goes wherever REACH_LOCAL does (clj_cc_kill_oncycle), the rule before the check (design §7).
 #define CLJ_FLAG_ONCYCLE     ((uint32_t)1 << 7)
 // A shared MUTABLE type the collector reads under the lock its stores take (clj_type.cc_locked: an atom, a channel):
 // a store into it needs no barrier. In the header, since a store has the owner's flags in hand already.
@@ -260,6 +260,8 @@ bool      clj_is_shared(clj_value v);
 void      clj_cc_note_store(clj_header *owner, uint32_t flags);
 // An edge stored into a GUARDED owner: every acyclic mark is void (cc.c).
 void      clj_cc_guard_hit(void);
+// CLJ_FLAG_ONCYCLE under CLJ_NO_OPT=store-check, else 0: what an object gaining REACH_LOCAL gains with it (cc.c).
+extern uint32_t clj_cc_kill_oncycle;
 // An edge owner → child that may close a cycle of unshared objects: its members take CLJ_FLAG_ONCYCLE (cc.c).
 void      clj_cc_store_check(clj_header *owner, clj_header *child);
 #if CLJ_STATS
@@ -372,10 +374,11 @@ static inline void clj_reach_from(clj_header *owner, uint32_t flags, clj_value v
 		owner->flags = flags;
 	}
 	// SHARED is bit 0: the subtraction is all ones for an unshared child, no branch on the in-place path.
-	uint32_t add = f & (CLJ_FLAG_REACH | CLJ_FLAG_LAZY | (((f & CLJ_FLAG_SHARED) - 1) & (CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_ONCYCLE)));
+	uint32_t add = f & (CLJ_FLAG_REACH | CLJ_FLAG_LAZY | (((f & CLJ_FLAG_SHARED) - 1) & CLJ_FLAG_REACH_LOCAL));
 	if (!(add & ~flags)) return;
 	CLJ_ASSERT(!(flags & CLJ_FLAG_SHARED) || atomic_load_explicit(&owner->rc, memory_order_relaxed) == 1,
 	           "reach bits into a published owner another reference can read");
+	if (add & ~flags & CLJ_FLAG_REACH_LOCAL) add |= clj_cc_kill_oncycle;
 	owner->flags |= add;
 }
 

@@ -165,13 +165,13 @@ extension CoreTests.CycleTests {
 		base.check()
 	}
 
-	// A vector over an array, marked by two local collections; owned by the caller. The array's self-edge, gone
-	// again, leaves the flag a release needs to ask the checked table (design §7, «Проверка цикла в момент записи»).
+	// A vector over an array, marked by two local collections; owned by the caller. A ring through both, gone again,
+	// leaves the flag a release needs to ask the checked table (design §7, «Проверка цикла в момент записи»).
 	private func markedVector() -> clj_value {
 		let arr = clj_array_new(CLJ_ARRAY_OBJECT, 1)
-		clj_release(clj_array_set(arr, 0, arr))
-		clj_release(clj_array_set(arr, 0, CLJ_NIL))
 		let v = clj_vector_conj(clj_vector_empty(), arr)
+		clj_release(clj_array_set(arr, 0, v))
+		clj_release(clj_array_set(arr, 0, CLJ_NIL))
 		clj_release(arr)
 		for _ in 0..<2 {
 			clj_debug_cc_file_local(v)
