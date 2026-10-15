@@ -79,8 +79,12 @@ _Static_assert(CLJ_FLAG_SHARED == 1, "clj_reach_from masks by (flags & SHARED) -
 // May lie on a reference cycle: a cycle-capable type, or a child with the bit at the slot's write. Trial deletion
 // descends only through it, and a release of a shared object with it to a nonzero count makes a candidate.
 #define CLJ_FLAG_REACH       ((uint32_t)1 << 6)
-// The same through unshared objects only: the inline release takes the slow path for it, the local candidate.
-#define CLJ_FLAG_REACH_LOCAL ((uint32_t)1 << 7)
+// The same through unshared objects only: what a local collection enters. Bit 16, so the inline release's mask
+// keeps bit 7 (ONCYCLE): a mask with bit 16 cost nested-update's closed build 5 % (bench/RESULTS.md).
+#define CLJ_FLAG_REACH_LOCAL ((uint32_t)1 << 16)
+// On a cycle of unshared objects, or built over one: only it makes an unshared object's nonzero release a candidate.
+// Propagated as REACH_LOCAL; under CLJ_NO_OPT=store-check born with it, so it is REACH_LOCAL (design §7).
+#define CLJ_FLAG_ONCYCLE     ((uint32_t)1 << 7)
 // A shared MUTABLE type the collector reads under the lock its stores take (clj_type.cc_locked: an atom, a channel):
 // a store into it needs no barrier. In the header, since a store has the owner's flags in hand already.
 #define CLJ_FLAG_CC_LOCKED   ((uint32_t)1 << 8)
@@ -100,9 +104,6 @@ _Static_assert(CLJ_FLAG_SHARED == 1, "clj_reach_from masks by (flags & SHARED) -
 #define CLJ_FLAG_HEAPREF     ((uint32_t)1 << 14)
 // -DCLJ_STATS only: retained at least once, so its count passed 1 (the allocation census, stats.c).
 #define CLJ_FLAG_RETAINED    ((uint32_t)1 << 15)
-// On a cycle of unshared objects, or built over one: only it makes an unshared object's nonzero release a candidate.
-// Propagated as REACH_LOCAL; under CLJ_NO_OPT=store-check born with it, so it is REACH_LOCAL (design §7).
-#define CLJ_FLAG_ONCYCLE     ((uint32_t)1 << 16)
 // Bits above it: the owning execution's tag in debug builds (clj_debug_owner_check), 0 for none; release leaves them 0.
 #define CLJ_OWNER_SHIFT 17
 
