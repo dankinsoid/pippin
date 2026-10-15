@@ -13,6 +13,7 @@
 #include "clj/stats.h"
 #include "clj/string.h"
 #include "clj/vector.h"
+#include "ice_internal.h"
 
 static clj_value not_a_seq(clj_value v) { return clj_throw_msg("Don't know how to create ISeq from: %s", clj_type_name(v)); }
 
@@ -149,6 +150,21 @@ bool clj_volatile_conj_take(clj_value vol, clj_value x, clj_value *out) {
 	clj_slot_store(&v->h, &v->value, CLJ_NIL);
 	clj_value r = clj_conj(cur, x);
 	if (r == CLJ_THROWN) clj_ice("coll/volatile-conj-take", NULL, "conj onto a vector threw");
+	clj_slot_store(&v->h, &v->value, r);
+	CLJ_STAT(CLJ_STAT_TAKEN_OUT);
+	DEBUG_TAKEN_OUT();
+	*out = clj_retain(r);
+	return true;
+}
+
+// @ai-generated(solo)
+// Appending bytes runs none of the caller's code and cannot throw, so nothing sees the cell empty meanwhile.
+bool clj_volatile_append_take(clj_value vol, const char *bytes, size_t n, clj_value *out) {
+	clj_volatile *v = clj_to_ptr(vol);
+	clj_value     cur = v->value.v;
+	if (!clj_is_string(cur) || clj_opt_off(CLJ_NO_OPT_GROW) || !clj_is_unique_unshared(cur)) return false;
+	clj_slot_store(&v->h, &v->value, CLJ_NIL);
+	clj_value r = clj_string_append(cur, bytes, n);
 	clj_slot_store(&v->h, &v->value, r);
 	CLJ_STAT(CLJ_STAT_TAKEN_OUT);
 	DEBUG_TAKEN_OUT();

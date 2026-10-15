@@ -84,6 +84,8 @@ static const clj_intrinsic table[] = {
 	C2("dissoc", clj_dissoc2, clj_dissoc_owned, true),
 	C2("disj", clj_disj2, clj_disj_owned, true),
 	C2("with-meta", clj_with_meta2, clj_with_meta, false),
+	// Not folded: x's text may be a deftype's, the caller's code.
+	C2("str", clj_str2, clj_str_owned, false),
 	I2("contains?", clj_contains_p, true),
 	// Not pure: an array is mutable, so a call on the same arguments need not answer the same.
 	I2("aget", clj_aget, false),

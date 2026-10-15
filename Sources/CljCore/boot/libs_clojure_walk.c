@@ -87,7 +87,7 @@ static clj_compiled_fn CLJC_FN_clojure_core_partial_a2;
 
 #ifndef CLJ_CLOSED
 static clj_ctree XG[1] = {
-	{{0xea2330a04f87759fULL, 0x9a52cec872b5dc0eULL}, NULL, NULL},
+	{{0xd0825f81d7cfbdbbULL, 0x6ebb7bcccc69886eULL}, NULL, NULL},
 };
 #endif
 
@@ -2538,7 +2538,7 @@ F2: ;
 	goto N2;
 	}
 	clj_c_stub_init(&S[0], K[4], 5, 1);
-	clj_c_stub_inlined(&S[1], K[5], 866, 1, &S[0]);
+	clj_c_stub_inlined(&S[1], K[5], 867, 1, &S[0]);
 	clj_c_stub_init(&S[2], CLJ_NIL, 12, 35);
 	r = top_3();
 	if (r == CLJ_THROWN) goto F2;

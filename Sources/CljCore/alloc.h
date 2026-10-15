@@ -13,6 +13,9 @@ void clj_dealloc_cell(clj_header *h);
 
 // Whether an object of size bytes fits the cell: the same pool class. A system-allocated cell has no recorded size.
 bool clj_cell_fits(const clj_header *h, size_t size);
+// The bytes the object's cell holds, at least the size it was allocated or reallocated with: what an object that
+// grows in place (a string's append, string.c) may fill before it reallocates.
+size_t clj_cell_capacity(const clj_header *h);
 // The cell of an object that died at rc 1, its children gone or kept by the caller, as a new object of type: the
 // death and the birth at one address for the live counts and the census, no allocation counted. poison: the body is
 // the constructor's to write in full (debug builds).

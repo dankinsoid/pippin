@@ -5,6 +5,7 @@
 
 #include "clj/reduce.h"
 #include "clj/seq.h"
+#include "alloc.h"
 #include "clj/string.h"
 #include "ice_internal.h"
 
@@ -137,6 +138,28 @@ clj_value clj_string_new(const char *bytes, size_t len) {
 	s->bytes[len] = '\0';
 	if (ascii) s->h.flags |= CLJ_STRING_ASCII;
 	if (tail) tail_init(tail_of(s));
+	return clj_from_ptr(s);
+}
+
+// Grows by half again, so n appends of a byte copy the string a bounded number of times over.
+clj_value clj_string_append(clj_value v, const char *bytes, size_t n) {
+	clj_string *s = clj_string_of(v);
+	if (!n) return v;
+	size_t len = (size_t)s->len + n;
+	if (len > UINT32_MAX) clj_fatal("string longer than 4 GiB");
+	bool   ascii = (s->h.flags & CLJ_STRING_ASCII) && all_ascii(bytes, n), tail = !ascii && len > CLJ_STRING_CRUMB_BYTES;
+	size_t need = string_size(len, tail);
+	if (need > clj_cell_capacity(&s->h)) s = clj_realloc(s, need + need / 2);
+	memcpy(s->bytes + s->len, bytes, n);
+	s->len = (uint32_t)len;
+	s->bytes[len] = '\0';
+	atomic_store_explicit(&s->hash, 0, memory_order_relaxed);
+	if (!ascii) s->h.flags &= ~CLJ_STRING_ASCII;
+	if (tail) {
+		string_tail *t = tail_of(s);
+		atomic_store_explicit(&t->hint, 0, memory_order_relaxed);
+		atomic_store_explicit(&t->count, 0, memory_order_relaxed);
+	}
 	return clj_from_ptr(s);
 }
 

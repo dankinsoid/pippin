@@ -594,9 +594,10 @@
 (defmacro vswap!
   "Sets the value of the volatile to (apply f current-value args) and returns it."
   [vol f & args]
-  ;; (vswap! v conj x) is the transducers' buffer: vswap-take* conj's a vector the volatile alone holds in place.
-  ;; Only with x a symbol or a literal, whose evaluation cannot touch the volatile the deref reads after it.
-  (if (and (contains? '#{conj clojure.core/conj} f) (= 1 (count args))
+  ;; (vswap! v conj x) is the transducers' buffer: vswap-take* conj's a vector the volatile alone holds in place,
+  ;; and (vswap! v str x) a string builder's, appended in place. Only with x a symbol or a literal, whose evaluation
+  ;; cannot touch the volatile the deref reads after it.
+  (if (and (contains? '#{conj clojure.core/conj str clojure.core/str} f) (= 1 (count args))
            (let [x (first args)] (or (symbol? x) (keyword? x) (number? x) (string? x) (nil? x))))
     `(vswap-take* ~vol ~f ~(first args))
     `(vreset! ~vol (~f (deref ~vol) ~@args))))

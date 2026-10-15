@@ -4,6 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#if defined(__APPLE__)
+#include <malloc/malloc.h>
+#endif
 
 #include "alloc.h"
 #include "stats_internal.h"
@@ -320,6 +323,15 @@ void *clj_alloc_uninit(const clj_type *type, size_t size) {
 bool clj_cell_fits(const clj_header *h, size_t size) {
 	if ((h->flags & CLJ_FLAG_LARGE) || size > MAX_SMALL) return false;
 	return slab_of((void *)h)->cls == size_class(size);
+}
+
+size_t clj_cell_capacity(const clj_header *h) {
+	if (!(h->flags & CLJ_FLAG_LARGE)) return slab_of((void *)h)->cell;
+#if defined(__APPLE__)
+	return malloc_size(h);
+#else
+#error "clj_cell_capacity: the usable size of a malloc'd block (docs/portability.md)"
+#endif
 }
 
 void clj_cell_reborn(clj_header *h, const clj_type *type, size_t size, bool poison) {

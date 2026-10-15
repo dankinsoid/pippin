@@ -93,7 +93,7 @@ extension CoreTests.StringTests {
 		clj_release(s)
 	}
 
-	// The index hint (NOTES "Strings"): walks forward and back, steps of one and of a crumb, jumps; shared or not.
+	// The index hint must answer as the scan in any order of access, on a shared string too.
 	@Test(arguments: [false, true]) func hintAgreesWithAScan(shared: Bool) {
 		clj_init()
 		let text = "é" + String(repeating: "aé日😀", count: 80) + "z"
@@ -124,6 +124,30 @@ extension CoreTests.StringTests {
 		}
 		#expect(clj_string_offset(s, n) == Int(clj_string_len(s)))
 		clj_release(s)
+	}
+
+	// An in-place append must read as a fresh string, and never reach a holder of the old one.
+	@Test func appendInPlaceIsAFreshString() throws {
+		clj_init()
+		#expect(try printed(#"(reduce str "" (range 12))"#) == #""01234567891011""#)
+		#expect(try printed(#"(reduce str "" [1 {:a 1} [2] 'x :k nil \é])"#) == #""1{:a 1}[2]x:ké""#)
+		#expect(try printed(#"(let [v (volatile! "")] (dotimes [i 3] (vswap! v str i \é nil "ü")) @v)"#) == #""0éü1éü2éü""#)
+		let walk = """
+		(let [v (volatile! "")]
+		  (loop [i 0 ok true]
+		    (if (< i 300)
+		      (let [c (if (zero? (mod i 3)) \\é (char (+ 97 (mod i 26))))]
+		        (vswap! v str c)
+		        (let [s @v fresh (apply str (seq s))]
+		          (recur (inc i) (and ok (= (count s) (inc i)) (= c (nth s i)) (= (hash s) (hash fresh)) (= s fresh)
+		                              (= (subs s (quot i 2)) (subs fresh (quot i 2)))))))
+		      [ok (count @v)])))
+		"""
+		#expect(try printed(walk) == "[true 300]")
+		#expect(try printed(#"(let [v (volatile! (str "ab" 1)) keep @v] (vswap! v str "c") [keep @v])"#) == #"["ab1" "ab1c"]"#)
+		#expect(try printed(#"(let [a (str "ab" 1) b (str a "c")] [a b (str b b)])"#) == #"["ab1" "ab1c" "ab1cab1c"]"#)
+		#expect(try printed(#"(let [s (apply str (repeat 70 "é"))] [(count (reduce str s ["a" \ü 1])) (nth (reduce str s ["a" \ü 1]) 71)])"#) == #"[73 \ü]"#)
+		#expect(try printed(#"(let [v (volatile! "x")] (vswap! v str {:a 1}) (vswap! v str [1 "é"]) @v)"#) == #""x{:a 1}[1 \"é\"]""#)
 	}
 
 	@Test func integersPrintThemselves() throws {

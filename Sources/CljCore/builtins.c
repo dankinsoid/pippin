@@ -22,6 +22,7 @@
 #include "clj/seq.h"
 #include "clj/sorted.h"
 #include "coro_internal.h"
+#include "ice_internal.h"
 #include "proto_internal.h"
 #include "stats_internal.h"
 #include "profile_internal.h"
@@ -1187,6 +1188,29 @@ static bool put_text(buf *b, clj_value s) {
 	return true;
 }
 
+static size_t char_utf8(uint32_t cp, char u[4]) {
+	if (cp < 0x80) {
+		u[0] = (char)cp;
+		return 1;
+	}
+	if (cp < 0x800) {
+		u[0] = (char)(0xC0 | (cp >> 6));
+		u[1] = (char)(0x80 | (cp & 0x3F));
+		return 2;
+	}
+	if (cp < 0x10000) {
+		u[0] = (char)(0xE0 | (cp >> 12));
+		u[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+		u[2] = (char)(0x80 | (cp & 0x3F));
+		return 3;
+	}
+	u[0] = (char)(0xF0 | (cp >> 18));
+	u[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+	u[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+	u[3] = (char)(0x80 | (cp & 0x3F));
+	return 4;
+}
+
 // Clojure `str`: strings raw, nil empty, everything else as pr-str (a char as its text).
 static bool put_str(buf *b, clj_value v) {
 	if (clj_is_nil(v)) return true;
@@ -1213,29 +1237,8 @@ static bool put_str(buf *b, clj_value v) {
 		return true;
 	}
 	if (clj_is_char(v)) {
-		uint32_t cp = clj_char_val(v);
-		char     u[4];
-		size_t   n;
-		if (cp < 0x80) {
-			u[0] = (char)cp;
-			n = 1;
-		} else if (cp < 0x800) {
-			u[0] = (char)(0xC0 | (cp >> 6));
-			u[1] = (char)(0x80 | (cp & 0x3F));
-			n = 2;
-		} else if (cp < 0x10000) {
-			u[0] = (char)(0xE0 | (cp >> 12));
-			u[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
-			u[2] = (char)(0x80 | (cp & 0x3F));
-			n = 3;
-		} else {
-			u[0] = (char)(0xF0 | (cp >> 18));
-			u[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
-			u[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
-			u[3] = (char)(0x80 | (cp & 0x3F));
-			n = 4;
-		}
-		buf_put(b, u, n);
+		char u[4];
+		buf_put(b, u, char_utf8(clj_char_val(v), u));
 		return true;
 	}
 	if (clj_is_uuid(v)) {
@@ -1295,6 +1298,46 @@ static clj_value b_str(const clj_value *args, size_t n) {
 }
 
 clj_value clj_str_value(clj_value v) { return b_str(&v, 1); }
+
+clj_value clj_str2(clj_value a, clj_value b) {
+	clj_value in[2] = {a, b};
+	return b_str(in, 2);
+}
+
+// @ai-generated(solo)
+// x's text where making it runs none of the caller's code: a string's bytes, nil, a char, an integer.
+static bool inert_text(clj_value x, clj_str_buf *sb, char tmp[24], clj_str *out) {
+	if (clj_is_string(x)) *out = clj_string_borrow(x, sb);
+	else if (clj_is_nil(x)) *out = (clj_str){tmp, 0};
+	else if (clj_is_char(x)) *out = (clj_str){tmp, char_utf8(clj_char_val(x), tmp)};
+	else if (clj_is_fixnum(x) || clj_is_long(x)) *out = (clj_str){tmp, clj_int64_decimal(clj_is_fixnum(x) ? clj_fixnum_val(x) : clj_long_val(x), tmp)};
+	else return false;
+	return true;
+}
+
+// @ai-generated(solo)
+// (str s x) with s at +1. A unique unshared string is the caller's alone, so x's text, whatever code making it runs,
+// goes onto its end in place (string.c clj_string_append); anything else is the copy (str s x) makes.
+clj_value clj_str_owned(clj_value s, clj_value x) {
+	if (clj_is_string(s) && s != x && !clj_opt_off(CLJ_NO_OPT_GROW) && clj_is_unique_unshared(s)) {
+		clj_str_buf sb;
+		char        tmp[24];
+		clj_str     t;
+		if (inert_text(x, &sb, tmp, &t)) return clj_string_append(s, t.bytes, t.len);
+		buf text = {0};
+		if (!put_str(&text, x)) {
+			free(text.data);
+			clj_release(s);
+			return CLJ_THROWN;
+		}
+		clj_value r = clj_string_append(s, text.data, text.len);
+		free(text.data);
+		return r;
+	}
+	clj_value r = clj_str2(s, x);
+	clj_release(s);
+	return r;
+}
 
 // clojure.string/join: one buffer over the walk; (str sb sep x) per element copied the prefix each time.
 // @ai-generated(solo)
@@ -1448,6 +1491,12 @@ static clj_value b_vswap_take(const clj_value *args, size_t n) {
 		const clj_intrinsic *op = clj_intrinsic_consuming(f, 2);
 		clj_value            r;
 		if (op && op->consume.f2 == clj_conj && clj_volatile_conj_take(vol, x, &r)) return r;
+		if (op && op->consume.f2 == clj_str_owned) {
+			clj_str_buf sb;
+			char        tmp[24];
+			clj_str     t;
+			if (inert_text(x, &sb, tmp, &t) && clj_volatile_append_take(vol, t.bytes, t.len, &r)) return r;
+		}
 	}
 	clj_value cur = b_deref(&vol, 1);
 	if (cur == CLJ_THROWN) return cur;

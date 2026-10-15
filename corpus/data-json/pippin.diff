@@ -1,6 +1,6 @@
 --- upstream/data.json/clojure/data/json.clj
 +++ corpus/data-json/src/clojure/data/json.clj
-@@ -11,86 +11,93 @@
+@@ -11,86 +11,94 @@
    See http://www.json.org/"}
    clojure.data.json
    (:refer-clojure :exclude (read))
@@ -8,7 +8,7 @@
 -  (:import (java.io PrintWriter PushbackReader StringWriter
 -                    Writer StringReader EOFException)))
 +  ;; pippin: no clojure.pprint or java.io here: read, write and pprint go; read-str and write-str stay.
-+  (:require [clojure.string :as str]))
++  )
  
  ;; CUSTOM PUSHBACK READER
  
@@ -111,18 +111,19 @@
 +  (->StringPBR s (long-array 1) (count s)))
  
 -;;; JSON READER
-+;; pippin: no StringBuilder: parts in a volatile vector, which (vswap! v conj x) grows in place, joined at the end.
++;; pippin: no StringBuilder: a string in a volatile, which (vswap! v str x) appends to in place while the volatile
++;; alone holds it.
 +(defn- string-builder
-+  ([] (volatile! []))
-+  ([s] (volatile! [s])))
++  ([] (volatile! ""))
++  ([s] (volatile! s)))
  
 -(set! *warn-on-reflection* true)
 +(defn- append [sb x]
-+  (vswap! sb conj x)
++  (vswap! sb str x)
 +  sb)
  
 +(defn- builder-str [sb]
-+  (str/join @sb))
++  @sb)
 +
 +;; pippin: no JVM exception classes: Exception. and EOFException. are ex-info.
 +(defn- json-error [msg]
@@ -141,7 +142,7 @@
          :else (str x)))
  
  (defn- default-value-fn [k v] v)
-@@ -116,25 +123,25 @@
+@@ -116,25 +124,25 @@
       ~@(when (odd? (count clauses))
           [(last clauses)])))
  
@@ -176,7 +177,7 @@
      (codepoint-case c
        (\" \\ \/) (char c)
        \b \backspace
-@@ -144,41 +151,41 @@
+@@ -144,41 +152,41 @@
        \t \tab
        \u (read-hex-char stream))))
  
@@ -236,7 +237,7 @@
              (recur (unchecked-inc-int i))))))))
  
  (defn- read-integer [^String string]
-@@ -193,152 +200,152 @@
+@@ -193,152 +201,152 @@
      (bigdec string)
      (Double/valueOf string)))
  
@@ -433,7 +434,7 @@
    ;; Handles all array values after the first.
    (loop [result (transient [])]
      (let [r (conj! result (-read stream true nil options))]
-@@ -348,7 +355,7 @@
+@@ -348,7 +356,7 @@
          -1 (throw (eof-array-exception))
          (throw (invalid-array-exception))))))
  
@@ -442,7 +443,7 @@
    ;; Expects to be called with the head of the stream AFTER the
    ;; opening bracket.
    ;; Only handles array value.
-@@ -357,25 +364,25 @@
+@@ -357,25 +365,25 @@
        \] []
        \, (throw (invalid-array-exception))
        -1 (throw (eof-array-exception))
@@ -473,7 +474,7 @@
    (let [c (int (next-token stream))]
      (if (= c (codepoint \"))
        (let [key (read-quoted-string stream)]
-@@ -386,7 +393,7 @@
+@@ -386,7 +394,7 @@
          nil
          (invalid-key-exception c)))))
  
@@ -482,7 +483,7 @@
    ;; Expects to be called with the head of the stream AFTER the
    ;; opening bracket.
    (let [key-fn (get options :key-fn)
-@@ -405,45 +412,45 @@
+@@ -405,45 +413,45 @@
              \, (recur r)
              \} (persistent! r)
              -1 (throw (eof-object-exception))
@@ -545,7 +546,7 @@
  
          ;; Read JSON objects
          \{ (read-object stream options)
-@@ -453,22 +460,22 @@
+@@ -453,22 +461,22 @@
  
          (if (neg? c) ;; Handle end-of-stream
            (if eof-error?
@@ -574,7 +575,7 @@
          val)
        val)))
  
-@@ -482,70 +489,16 @@
+@@ -482,70 +490,16 @@
    "Pass as :extra-data-fn to `read` or `read-str` to throw if data is found
    after the first object and return the remaining data in ex-data :remaining."
    [val rdr]
@@ -648,7 +649,7 @@
  
  (defn read-str
    "Reads one JSON value from input String. Options are the same as for
-@@ -564,17 +517,17 @@
+@@ -564,17 +518,17 @@
    (-write [object out options]
      "Print object to Appendable out as JSON"))
  
@@ -672,7 +673,7 @@
  
  (def ^{:tag "[S"} codepoint-decoder
    (let [shorts (short-array 128)]
-@@ -593,63 +546,63 @@
+@@ -593,63 +547,63 @@
            (aset shorts i (short 0)))))
      shorts))
  
@@ -762,7 +763,7 @@
      (when (and indent (seq m))
        (write-indent out opts))
      (loop [x m, have-printed-kv false]
-@@ -659,17 +612,17 @@
+@@ -659,17 +613,17 @@
                out-value (value-fn k v)
                nxt (next x)]
            (when-not (string? out-key)
@@ -784,7 +785,7 @@
                (-write out-value out opts)
                (when (seq nxt)
                  (recur nxt true)))
-@@ -677,13 +630,13 @@
+@@ -677,13 +631,13 @@
                (recur nxt have-printed-kv))))))
      (when (and indent (seq m))
        (write-indent out options)))
@@ -801,7 +802,7 @@
      (when (and indent (seq s))
        (write-indent out opts))
      (loop [x s]
-@@ -692,227 +645,109 @@
+@@ -692,227 +646,109 @@
                nxt (next x)]
            (-write fst out opts)
            (when (seq nxt)
@@ -1075,7 +1076,7 @@
  ;; DEPRECATED APIs from 0.1.x
  
  (defn read-json
-@@ -928,25 +763,16 @@
+@@ -928,25 +764,16 @@
     (read-json input keywordize? true nil))
    ([input keywordize? eof-error? eof-value]
     (let [key-fn (if keywordize? keyword identity)]
@@ -1103,7 +1104,7 @@
  (defn json-str
    "DEPRECATED; replaced by 'write-str'.
  
-@@ -957,25 +783,3 @@
+@@ -957,25 +784,3 @@
          to turn of \\uXXXX escapes of Unicode characters."
    [x & options]
    (apply write-str x options))

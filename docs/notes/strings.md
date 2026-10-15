@@ -11,8 +11,8 @@
   past the end clamps there, so an empty needle answers the length, as `String.indexOf` does. What differed from the JVM outside the BMP is the row of
   docs/jvm-differences.md; `jvm-hash` walks UTF-16 units (`utf16_next`) and agrees with the JVM's `hash` on
   astral strings, which fuzz/regressions/strings-unicode.clj checks against the oracle.
-- **ASCII is a header bit, `CLJ_STRING_ASCII` (bit 10)**, set by the constructor's 8-bytes-at-a-time scan and never
-  cleared: an index is the byte offset, `count` is `len`, `subs`/`nth`/`index-of` are O(1) plus the copy. A header
+- **ASCII is a header bit, `CLJ_STRING_ASCII` (bit 10)**, set by the constructor's 8-bytes-at-a-time scan and
+  cleared only by an in-place append of a non-ASCII byte (the string builder, below): an index is the byte offset, `count` is `len`, `subs`/`nth`/`index-of` are O(1) plus the copy. A header
   bit rather than a body field: the body has no spare word (`hash` and `len` fill it to 24 bytes), and one more
   would grow every string for a bit. A string is a leaf object (no `each_child`, no
   drop), so the bit never has to survive into rc.c's dead link, which keeps only `LARGE`, `META` and `SHAPE`.
@@ -87,11 +87,16 @@
   immutable bytes, so a stale hint is a valid start like a crumb. Two threads walking one string overwrite each
   other's hint and fall back to the crumbs. The tail grew by the word and is 8-aligned; ASCII strings and non-ASCII
   ones of at most 64 bytes carry none and take no branch for it. `CLJ_NO_OPT=hint` scans from the crumb.
-- [ ] **No string builder.** `StringBuilder`, `StringWriter` and `goog.string.StringBuffer` have no counterpart: a
-  ported library collects parts in `(vswap! v conj x)`, which grows the vector in place, and joins them at the end
-  (corpus/data-json's `string-builder`, core's own `StringWriter`). The join walks the vector through a seq, one
-  `vector-seq` cell per part: 471.6k of the json workload's 901.8k allocations an iteration are `join`'s, and the
-  port's `builder-str` is 10 % of the closed iteration inclusive (run 38728053580, bench/RESULTS.md "JSON"). A C builder (an appendable byte buffer with an ASCII bit, `.append` reached as an
-  instance send or as functions) is the fix; ClojureScript has one, so it is inside the §3 bound. Trigger: a
-  library's appends or its join in a profile's top items, or the cheaper half first: `str-join*` over a vector by
-  index.
+- **The string builder is the string, appended in place** (builtins.c `clj_str_owned`, string.c
+  `clj_string_append`). `(str s x)` of two arguments is an intrinsic whose consuming form takes `s` at +1, as `conj`
+  takes its vector; a unique unshared `s` gets `x`'s text onto its end in its own cell, which grows by half again
+  when full (`clj_cell_capacity`: the pool cell's size, or `malloc_size` of a large block, docs/portability.md), so
+  n appends copy O(n) bytes rather than O(n²). Every site that owns its accumulator takes it: a last-use local,
+  compiled or interpreted, an owned parameter (`(fn [s i] (str s i))` under a reduce), `(reduce str "" xs)` through
+  the reducer's consuming call, and `(vswap! v str x)`, which the macro sends to `vswap-take*` as it does `conj`:
+  the string leaves the cell for the append and goes back, for an `x` whose text runs none of the caller's code (a
+  string, nil, a char, an integer); any other `x` derefs and resets. The append clears the ASCII bit when its bytes
+  are not ASCII, zeroes the hash cache and resets the tail's count and hint, so the string reads as a fresh one. No
+  `StringBuilder`: Java's API is not the target (design §8), and the Clojure idiom is the builder (design §4
+  «Строки»). The first append to a literal or a shared string copies it, as `str` always did. clojure.data.json's
+  port builds its output and its slow strings this way (`(vswap! sb str x)`). `CLJ_NO_OPT=grow` copies every time.

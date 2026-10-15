@@ -20,8 +20,8 @@ JVM's, checked with = on every run); what behaves otherwise, or not at all, is n
   differ only outside the BMP. readChars and unreadChars move the position without a char[] buffer, and
   read-quoted-string scans its 64-char window in place and takes the string with subs, where upstream copies it
   into a char[] and makes a String of it.
-- StringBuilder and StringWriter are a volatile vector of parts joined with clojure.string/join (string-builder,
-  append, builder-str), as core's own print-method writer; .append of a range is subs.
+- StringBuilder and StringWriter are a string in a volatile, which (vswap! v str x) appends to in place while the
+  volatile alone holds it (string-builder, append, builder-str; NOTES "Strings"); .append of a range is subs.
 - Exception. and EOFException. are ex-info with the same message (json-error); (catch NumberFormatException ...)
   is unchanged. Long/valueOf, Double/valueOf, Integer/parseInt, Integer/toHexString and Math/min are this runtime's
   statics (docs/jvm-differences.md).

@@ -87,6 +87,9 @@ clj_value clj_alength(clj_value arr);
 clj_value clj_assoc_owned(clj_value coll, clj_value key, clj_value val);
 clj_value clj_dissoc_owned(clj_value coll, clj_value key);
 clj_value clj_disj_owned(clj_value coll, clj_value key);
+// (str a b), and its consuming form: a unique string a grows in place (clj_string_append).
+clj_value clj_str2(clj_value a, clj_value b);
+clj_value clj_str_owned(clj_value s, clj_value x);
 
 // ---- the table
 

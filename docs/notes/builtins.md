@@ -63,7 +63,8 @@
   so one transducer application (one `(xf rf)`) belongs to one thread. Trigger: a transducer
   shared across threads; Clojure's contract is the same.
 - [~] **`(vswap! v conj x)` conj's a vector only the volatile holds in place** (core.clj `vswap!`, builtins.c
-  `vswap-take*`, coll.c `clj_volatile_conj_take`): the macro expands to `vswap-take*` when f is the symbol `conj`
+  `vswap-take*`, coll.c `clj_volatile_conj_take`; `(vswap! v str x)` appends to a string the same way,
+  `clj_volatile_append_take`, NOTES "Strings"): the macro expands to `vswap-take*` when f is the symbol `conj` or `str`
   and x a symbol or a literal, whose evaluation cannot touch the volatile, so the deref after it reads what
   Clojure's deref before it would. At run time, with f the boot `conj` and the cell's vector unique and unshared,
   the vector leaves the cell (nil stored) for the consuming conj and the result goes back: a vector's conj runs

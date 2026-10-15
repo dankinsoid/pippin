@@ -12,7 +12,7 @@
   clojure.data.json
   (:refer-clojure :exclude (read))
   ;; pippin: no clojure.pprint or java.io here: read, write and pprint go; read-str and write-str stay.
-  (:require [clojure.string :as str]))
+  )
 
 ;; CUSTOM PUSHBACK READER
 
@@ -74,17 +74,18 @@
   [^String s]
   (->StringPBR s (long-array 1) (count s)))
 
-;; pippin: no StringBuilder: parts in a volatile vector, which (vswap! v conj x) grows in place, joined at the end.
+;; pippin: no StringBuilder: a string in a volatile, which (vswap! v str x) appends to in place while the volatile
+;; alone holds it.
 (defn- string-builder
-  ([] (volatile! []))
-  ([s] (volatile! [s])))
+  ([] (volatile! ""))
+  ([s] (volatile! s)))
 
 (defn- append [sb x]
-  (vswap! sb conj x)
+  (vswap! sb str x)
   sb)
 
 (defn- builder-str [sb]
-  (str/join @sb))
+  @sb)
 
 ;; pippin: no JVM exception classes: Exception. and EOFException. are ex-info.
 (defn- json-error [msg]
