@@ -88,7 +88,8 @@
   other's hint and fall back to the crumbs. The tail grew by the word and is 8-aligned; ASCII strings and non-ASCII
   ones of at most 64 bytes carry none and take no branch for it. `CLJ_NO_OPT=hint` scans from the crumb. Measured
   (bench/RESULTS.md "JSON's string gap"): json closed 0.80× its base, dev 0.83×, `clj_string_offset_slow` from
-  21.3 % of the closed profile to 4.1 %; `clj_string_char_at` over every index in order 67 → 7.5 ns.
+  21.3 % of the closed profile to 4.1 %; `clj_string_char_at` over every index in order 74 → 9.7 ns, at random
+  indexes 117 → 118 and on ASCII unchanged.
 - **The string builder is the string, appended in place** (builtins.c `clj_str_owned`, string.c
   `clj_string_append`). `(str s x)` of two arguments is an intrinsic whose consuming form takes `s` at +1, as `conj`
   takes its vector; a unique unshared `s` gets `x`'s text onto its end in its own cell, which grows by half again

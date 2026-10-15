@@ -3322,7 +3322,7 @@ head / base, the median over the pairs with the sign test's interval.
 
 - **json against the references** (run 38741095205, the full `make corpus-bench` with every workload, main on the same
   runner): closed 229.4 → 156.5 ms, so 9.9× → 6.7× the JVM's data.json (23.2 ms on this runner; 12.4× in the
-  "JVM" section's run, on another), 6.6× → 4.5× bb's, 7.5× → 5.1× Swift's Codable, 12.2× → 8.3× Dart's, 5.4× → 3.7×
+  "JSON" section's run, on another), 6.6× → 4.5× bb's, 7.5× → 5.1× Swift's Codable, 12.2× → 8.3× Dart's, 5.4× → 3.7×
   Node's `JSON`; Hermes is 2.6× slower than we are now.
 - **The hint** took `clj_string_offset_slow` from 21.3 % of the closed profile to 4.1 %, and nothing else moved: the
   counters are equal. What is left of it (5.0 % in the full run) is `subs` of a string just read: its start lies
