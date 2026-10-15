@@ -387,7 +387,7 @@ file. 133 open, 117 partly done.
 ### [Type descriptor (object.h, coll.c, seq.c)](notes/type-descriptor.md)
 
 - [~] `deftype`/`reify` implement core interfaces through slot trampolines. — trigger: the first user vector type
-- [ ] No mutable fields. — Trigger: hashing a datom or a BTSet, or the position's array, in a profile.
+- [ ] No mutable fields. — Trigger: hashing a datom or a BTSet in a profile, or a library whose mutable field is state rather than a cache.
 - [ ] No Reversible slot. — Trigger: a program that `rseq`s a datascript index or another user sorted collection.
 - [~] Protocol dispatch is cached per call site — Trigger for a megamorphic cutoff: a site cycling through more than four receivers in a profile.
 - [ ] No protocol inheritance. — Trigger: a library whose protocol extends another.

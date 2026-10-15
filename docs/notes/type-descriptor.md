@@ -64,10 +64,12 @@
   in the same body must see the store (a field the analyzer reads and stores through, not a local), `field*`
   stops being pure to the facts across that store, and a store into a published instance takes the collector's
   barrier (`clj_cc_note_store`, as an atom's does). datascript's Datom and persistent-sorted-set's BTSet cache
-  their hash in one, which their port computes on every call instead (corpus/datascript/SOURCE). clojure.data.json's
-  StringPBR keeps its read position in one, state rather than a cache: its port holds it in a one-slot long array,
-  an `aget` and an `aset` per character read (corpus/data-json/SOURCE). Trigger: hashing a datom or a BTSet, or the
-  position's array, in a profile.
+  their hash in one, which their port computes on every call instead (corpus/datascript/SOURCE). Trigger: hashing
+  a datom or a BTSet in a profile, or a library whose mutable field is state rather than a cache. Fired twice:
+  clojure.data.json's StringPBR keeps its read position in one, which its port holds in a one-slot long array, an
+  `aget` and an `aset` per character read (corpus/data-json/SOURCE); and datascript's transient sorted set, whose
+  port drops the transient protocols, transient being the persistent operations here. Open until it is decided
+  to build them, `set!` only inside the type's own methods (design §4 «Роли конструкций»).
 - [ ] **No Reversible slot.** `rseq` takes vectors and sorted collections; a deftype cannot answer it, where
   `clojure.lang.Reversible` lets one on the JVM. persistent-sorted-set's port reverses its slices through a
   protocol of its own, so `(rseq (datoms ...))` in a program does not work. Trigger: a program that `rseq`s a
