@@ -61,7 +61,7 @@ def cmd(refs, w, once):
 def section(b, refs, add, fmt, median_of):
 	add("## Idiomatic Dart")
 	add("")
-	add("The nine data workloads hand-ported to Dart as a Flutter developer writes them (`bench/workloads/dart`; the "
+	add("The data workloads hand-ported to Dart as a Flutter developer writes them (`bench/workloads/dart`; the "
 	    "rules and each port's judgment calls: docs/notes/benchmarks.md, \"Hand-ported references\"), one executable "
 	    "per workload from `dart compile exe`, what a Flutter release build ships, built before the workloads, outside "
 	    "every time. Warm is our policy (one iteration, then >= 3 and >= 2 s, at most 30), *1st* the first iteration "

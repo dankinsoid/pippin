@@ -1,0 +1,43 @@
+clojure.data.json — JSON parser and generator in pure Clojure (Stuart Sierra and contributors), ported to this
+runtime for make corpus-bench (docs/notes/benchmarks.md, "Corpus workloads")
+
+Repository: https://github.com/clojure/data.json
+Version:    2.5.2, the Maven Central jar org/clojure/data.json/2.5.2/data.json-2.5.2.jar (sha1
+            76b861b2dcb06e2b59a008303bea53d1d15c1a53, its pom's scm tag v2.5.2)
+License:    Eclipse Public License 1.0 (LICENSE)
+
+File taken, from the jar: clojure/data/json.clj -> src/clojure/data/json.clj
+
+What is ported, and why. data.json's reader and writer are Clojure over java.io and java.lang: a definterface
+stream with a mutable position, char[] windows, StringBuilder, StringWriter, JVM exceptions and protocol extensions
+to JVM classes. Every change is a `pippin:` comment at its place, and pippin.diff is the whole diff against the
+jar's file. read-str and write-str behave as upstream on every input the workload gives them (its result is the
+JVM's, checked with = on every run); what behaves otherwise, or not at all, is named below.
+
+- InternalPBR is a protocol (definterface is refused, design §8), its call sites functions in place of method
+  calls. StringPBR keeps its position in a one-slot long array (no mutable fields, NOTES "Type descriptor"), reads
+  a char with nth and counts the string with count: indexes are code points here, UTF-16 units on the JVM, which
+  differ only outside the BMP. readChars and unreadChars move the position without a char[] buffer, and
+  read-quoted-string scans its 64-char window in place and takes the string with subs, where upstream copies it
+  into a char[] and makes a String of it.
+- StringBuilder and StringWriter are a volatile vector of parts joined with clojure.string/join (string-builder,
+  append, builder-str), as core's own print-method writer; .append of a range is subs.
+- Exception. and EOFException. are ex-info with the same message (json-error); (catch NumberFormatException ...)
+  is unchanged. Long/valueOf, Double/valueOf, Integer/parseInt, Integer/toHexString and Math/min are this runtime's
+  statics (docs/jvm-differences.md).
+- The JSONWriter extensions: Boolean, Long for every integer box, Double, the ratio, bigint and decimal types taken
+  from values, UUID, Keyword and Symbol for clojure.lang.Named, String for CharSequence, IPersistentMap for
+  java.util.Map and IPersistentCollection for java.util.Collection (a map is found as a map first), Object.
+  Float, the atomics, java.time.Instant, java.util.Date and java.sql.Date go with their writers and the
+  :date-formatter and :sql-date-converter options: an #inst is written by :default-write-fn. write-generic asks
+  for the array type where upstream asks (class x) .isArray (class is refused, design §8). instance? of
+  clojure.lang.Named in default-write-key-fn is keyword? or symbol?.
+- Not carried: read and write (a java.io.Reader and Writer), ReaderPBR, pprint (clojure.pprint), write-json,
+  print-json and pprint-json; read-json takes a String only; on-extra-throw-remaining takes the stream's rest as a
+  string, which is what toReader returns here. The two (set! *warn-on-reflection* true) forms go (design §8).
+
+What differs from upstream: a \u escape of a surrogate half throws, since (char n) of one does (a char is a
+Unicode scalar here), so a character outside the BMP must arrive unescaped; and with :escape-unicode such a
+character is written as one \u escape of five or six hex digits, which is not JSON. The workload's text is BMP
+only. There is no manifest.edn: this directory is not a corpus library with a suite of its own, and
+bench/workloads/data-json/manifest.edn is its root for corpus-bench's clj-facts.

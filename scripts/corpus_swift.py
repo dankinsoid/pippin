@@ -67,7 +67,7 @@ def verdict(root, w, printed):
 def section(b, refs, add, fmt, median_of):
 	add("## Idiomatic Swift")
 	add("")
-	add("The nine data workloads hand-ported to Swift as an iOS developer writes them (`bench/workloads/swift`; the "
+	add("The data workloads hand-ported to Swift as an iOS developer writes them (`bench/workloads/swift`; the "
 	    "rules and each port's judgment calls: docs/notes/benchmarks.md, \"Hand-ported references\"), one binary per "
 	    "workload from `swiftc %s`, built before the workloads, outside every time. Warm is our policy (one iteration, "
 	    "then >= 3 and >= 2 s), *1st* the first iteration of a fresh process and *cold* that process start to exit. "

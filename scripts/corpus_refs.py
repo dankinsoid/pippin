@@ -258,7 +258,10 @@ def clj_section(b, refs, add, fmt, median_of):
 	    "async-broadcast return the channel of their result where the JVM blocks on it with `<!!`, which one thread "
 	    "lacks; their work is the .clj file's. The rest compile unchanged. datascript runs datascript 1.8.1 and "
 	    "persistent-sorted-set 0.3.2 from their jars on the JVM and ClojureScript, and their port to this runtime "
-	    "here (`corpus/datascript/SOURCE`).")
+	    "here (`corpus/datascript/SOURCE`). json parses and writes with clojure.data.json 2.5.2: the jar on the JVM, "
+	    "bb's built-in, the port here (`corpus/data-json/SOURCE`); data.json is JVM-only, so ClojureScript's "
+	    "`workloads.json-host` is what an app there writes instead, `JSON.parse` with `js->clj` and `clj->js` with "
+	    "`JSON.stringify`.")
 	add("")
 	# `=` holds across a JS number's long/double ambiguity, so the printed result is compared to the JVM's too.
 	diffs = []

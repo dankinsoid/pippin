@@ -18,17 +18,19 @@ import time
 import corpus_refs
 
 WORKLOADS = ["medley", "combinatorics", "dependency", "nested-update", "group-freq", "pipelines", "strings",
-             "render", "suite-data", "async-pipeline", "async-libs", "async-broadcast", "datascript"]
+             "render", "suite-data", "async-pipeline", "async-libs", "async-broadcast", "datascript", "json"]
 LOAD_PATH = ["bench/workloads/src", "corpus/medley/src", "corpus/math-combinatorics/src", "corpus/dependency/src",
-             "corpus/parallel-async/src", "corpus/turbine/src", "corpus/datascript/src"]
-# Ours only (not corpus_refs.PORTS, the other-language references): datascript ported here would shadow the jars, whose
-# persistent-sorted-set is Java, on the JVM's classpath.
-OURS_ONLY = ["corpus/datascript/src"]
+             "corpus/parallel-async/src", "corpus/turbine/src", "corpus/datascript/src", "corpus/data-json/src"]
+# Ours only (not corpus_refs.PORTS, the other-language references): the ports here would shadow the jars on the JVM's
+# classpath (datascript's persistent-sorted-set is Java there) and bb's built-in clojure.data.json.
+OURS_ONLY = ["corpus/datascript/src", "corpus/data-json/src"]
 DATASCRIPT_DEPS = 'datascript/datascript {:mvn/version "1.8.1"} persistent-sorted-set/persistent-sorted-set {:mvn/version "0.3.2"}'
+DATA_JSON_DEPS = 'org.clojure/data.json {:mvn/version "2.5.2"}'
 FEATURES = "clj"
 # The Clojure the fuzzer and make api-diff pin, and the core.async make api-diff diffs ours against.
 JVM_DEPS = ('{:paths [' + " ".join('"%s"' % p for p in LOAD_PATH if p not in OURS_ONLY) + '] :deps{org.clojure/clojure '
-            '{:mvn/version "1.12.6"} org.clojure/core.async {:mvn/version "1.6.681"} ' + DATASCRIPT_DEPS + '}}')
+            '{:mvn/version "1.12.6"} org.clojure/core.async {:mvn/version "1.6.681"} ' + DATASCRIPT_DEPS + ' ' +
+            DATA_JSON_DEPS + '}}')
 # A run past this is a hang: sampled into the logs, killed, and an error of the report. The slowest workload,
 # datascript, takes about 30 s interpreted.
 RUN_TIMEOUT = 240
@@ -129,7 +131,7 @@ class Bench:
 		self.head = Side("head", ROOT, "")
 		self.base = None
 		self.sides = [self.head]
-		self.refs = corpus_refs.Refs(self, args.refs, ROOT, LOAD_PATH, parse, log)
+		self.refs = corpus_refs.Refs(self, args.refs, ROOT, [p for p in LOAD_PATH if p not in OURS_ONLY], parse, log)
 		os.makedirs(self.logs, exist_ok=True)
 
 	def keep(self, name, text):
@@ -464,9 +466,11 @@ class Bench:
 		sh(["swift", "build", "--scratch-path", os.path.join(ROOT, ".build/release"), "-c", "release", "--product",
 		    "clj-facts"], env=self.env, timeout=3600)
 		report = os.path.join(self.out, "facts-coverage.md")
-		# corpus/datascript has no manifest of its own (no test suite to run): its root for this report is apart.
+		# corpus/datascript and corpus/data-json have no manifest of their own (no test suite to run): their roots for
+		# this report are apart.
 		p, _ = sh([os.path.join(ROOT, ".build/release/release/clj-facts"), ".", report,
-		           os.path.join(self.out, "facts-cost.md"), "bench/workloads/datascript", "bench/workloads"],
+		           os.path.join(self.out, "facts-cost.md"), "bench/workloads/datascript", "bench/workloads/data-json",
+		           "bench/workloads"],
 		          env=self.env, timeout=3600, check=False)
 		self.keep("facts.txt", p.stdout + p.stderr)
 		if p.returncode != 0:

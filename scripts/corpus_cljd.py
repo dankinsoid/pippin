@@ -220,7 +220,8 @@ def section(b, refs, add, fmt, median_of):
 	add("## ClojureDart")
 	add("")
 	add("The workloads' sources compiled by ClojureDart %s to Dart (docs/notes/benchmarks.md, \"ClojureDart\"; the "
-	    "corpus libraries patched where they keep host code, suite-data sorting a vector): *aot* is `dart compile exe`, "
+	    "corpus libraries patched where they keep host code, suite-data sorting a vector, json's `workloads.json-host` "
+	    "dart:convert's jsonDecode and jsonEncode with a conversion, data.json being JVM-only): *aot* is `dart compile exe`, "
 	    "what a Flutter release build ships, timed with ours and Hermes's policy (one iteration, then >= 3 and >= 2 s, "
 	    "at most 30); *jit* the Dart VM from `dart compile kernel`, as a Flutter debug build runs, with the JVM's (>= 5 "
 	    "iterations and 5 s of warm-up, then >= 5 and >= 3 s). *1st* is the first iteration of a fresh process and "

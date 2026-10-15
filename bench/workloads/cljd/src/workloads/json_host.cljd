@@ -1,0 +1,27 @@
+;; @ai-generated(solo)
+;; ClojureDart's workloads.json-host (bench/workloads/src/workloads/json_host.clj): clojure.data.json is JVM-only,
+;; and what a ClojureDart app writes instead is dart:convert with a conversion from and to Clojure data.
+(ns workloads.json-host
+  (:require ["dart:convert" :as convert]))
+
+(defn- ->clj [x]
+  (cond
+    (dart/is? x Map) (persistent! (reduce (fn [m ^MapEntry e] (assoc! m (keyword (.-key e)) (->clj (.-value e))))
+                                          (transient {}) (.-entries ^Map x)))
+    (dart/is? x List) (into [] (map ->clj) x)
+    :else x))
+
+;; jsonEncode takes Dart maps with String keys, lists and scalars: Clojure's maps are Dart maps keyed by keywords.
+(defn- ->dart [x]
+  (cond
+    (map? x) (let [m (Map)]
+               (doseq [[k v] x]
+                 (. m "[]=" (if (keyword? k) (name k) k) (->dart v)))
+               m)
+    (keyword? x) (name x)
+    (sequential? x) (.toList (map ->dart x))
+    :else x))
+
+(defn parse [text] (->clj (convert/jsonDecode text)))
+
+(defn emit [x] (convert/jsonEncode (->dart x)))
