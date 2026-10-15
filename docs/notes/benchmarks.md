@@ -25,12 +25,14 @@
   cross-thread free, cost of `clj_share` on a large graph, forcing one shared lazy seq from many
   threads (the CAS claim path).
 
-- **Corpus workloads (`make corpus-bench`; `bench/workloads`, `scripts/corpus-bench.py`, `clj-corpus-bench`).** Thirteen
+- **Corpus workloads (`make corpus-bench`; `bench/workloads`, `scripts/corpus-bench.py`, `clj-corpus-bench`).** Fourteen
   programs over the corpus libraries and plain data work, one source for JVM Clojure 1.12.6 with core.async 1.6.681
-  (`bench/workloads/jvm.clj`) and for this runtime. datascript's library is the one exception: the JVM (and
-  ClojureScript) run Datascript 1.8.1 and persistent-sorted-set 0.3.2 from their jars, this runtime their port in
-  `corpus/datascript`, which is on our load path only (`PORTED`: on the JVM's classpath it would shadow the jars),
-  and clj-facts takes the port as a root of its own, `bench/workloads/datascript`, ahead of the workloads.Each file's header states its input, its work and its output, and
+  (`bench/workloads/jvm.clj`) and for this runtime. Two libraries are the exception: the JVM (and ClojureScript)
+  run Datascript 1.8.1 and persistent-sorted-set 0.3.2 from their jars, this runtime their port in
+  `corpus/datascript`; json's clojure.data.json 2.5.2 is the jar on the JVM, bb's built-in copy, and the port in
+  `corpus/data-json` here. Both ports are on our load path only (`OURS_ONLY`: on the JVM's classpath they would
+  shadow the jars, on bb's the built-in), and clj-facts takes each as a root of its own, `bench/workloads/datascript`
+  and `bench/workloads/data-json`, ahead of the workloads. Each file's header states its input, its work and its output, and
   its `expected` is what `run` returns on the JVM, checked with `=` in every runtime (`hash` is ours by design, so no
   workload returns one): the spec a port to another language starts from. A run past 240 s is sampled into the logs
   and killed, the workload's remaining runs skipped, so a hang fails the target and names itself; the whole target
@@ -109,8 +111,8 @@
   is the default; a comma list narrows it (`CORPUS_BENCH_ARGS=--refs=jvm`), and `--skip-jvm` drops `jvm`. The report's
   "References" table has each one's warm, 1st and cold, `closed/bb`, `interp/bb`, `closed/node`, `closed/hermes`
   (ours over theirs), its `=` verdict against `expected`, and below it every printed result that differs from the JVM's.
-  - **bb** runs `bench/workloads/jvm.clj` and the sources unchanged (`bb -cp <the load path>`), core.async included:
-    all twelve it runs return `expected`. datascript is n/a there (`BB_NA`): its Datom, Entity and LRU are deftypes
+  - **bb** runs `bench/workloads/jvm.clj` and the sources unchanged (`bb -cp <the load path>`, the ports left out),
+    core.async and its built-in clojure.data.json included: all thirteen it runs return `expected`. datascript is n/a there (`BB_NA`): its Datom, Entity and LRU are deftypes
     over `clojure.lang` interfaces, which babashka's deftype does not take (protocols, `Object` and whole map types
     only), and on the JVM its index is Java.
   - **ClojureScript** is `cljs.build.api` 1.12.145 (`bench/workloads/cljs/build.clj`), `:advanced`, `:language-out
@@ -119,7 +121,9 @@
     `bench/workloads/cljs/src` holds: `workloads.util`, whose generator multiplies with `Math/imul` (the double
     product passes 2^53 and loses the low bits the mask keeps; the states are the JVM's), and async-pipeline and
     async-broadcast, whose `run` returns the channel of the result where the JVM blocks with `<!!`, which one thread
-    has not; the harness (`bench/harness.cljs`, jvm.clj's lines) times such a run to the delivery. async-libs is n/a:
+    has not; and `workloads.json-host`: clojure.data.json is JVM-only, so json parses and writes as a ClojureScript
+    app does without it, `JSON.parse` with `js->clj :keywordize-keys` and `clj->js` with `JSON.stringify`. The
+    harness (`bench/harness.cljs`, jvm.clj's lines) times a channel's run to the delivery. async-libs is n/a:
     turbine runs its routes on threads. The bundle wraps itself in `.call(globalThis)` (Closure's `goog.global` is
     `this`, module.exports under Node) and reads Node's argv through `globalThis.process`: the browser target defines
     its own `process` for `NODE_ENV`.
@@ -151,8 +155,11 @@
     Dart project, an entry namespace and a `bin/` file per workload, in one `cljd.build compile`; then each entry is
     one executable and one kernel file. The harness (`bench/workloads/cljd/src/bench/harness.cljd`) prints jvm.clj's
     lines from a `Stopwatch`; the AOT takes our policy (one iteration, then >= 3 and >= 2 s, at most 30), the JIT
-    jvm.clj's. The nine data workloads compile unchanged but one sort in suite-data; the three async ones are n/a:
-    ClojureDart has no core.async (its concurrency is Dart's Futures and Streams).
+    jvm.clj's. The data workloads compile unchanged but one sort in suite-data and json's `workloads.json-host`
+    (`bench/workloads/cljd/src`): clojure.data.json is JVM-only, so it is dart:convert's `jsonDecode` with the Dart
+    maps and lists converted to Clojure's, keys keywordized, and `jsonEncode` of the state converted back to Dart
+    maps keyed by strings (ClojureDart's own maps are Dart maps, but keyed by keywords, which `jsonEncode` refuses).
+    The three async ones are n/a: ClojureDart has no core.async (its concurrency is Dart's Futures and Streams).
   - The corpus libraries compile from a patched copy (`corpus_cljd.PATCHES`): a `:cljd` arm put first in a reader
     conditional, or a form replaced, each anchored on its exact text so an upstream change fails the build. What a
     workload calls keeps its algorithm. The language gaps they record: ClojureDart reads only `:cljd` and `:default`,
@@ -174,7 +181,7 @@
     `GITLIBS` and its analyzer helper's pub packages to `PUB_CACHE`, all under `~/.cache/corpus-bench-refs`. The
     helper is a `dart pub add analyzer` in the project, so a cold cache needs pub.dev.
 - **Hand-ported references (`swift`, `dart`): the fairness contract.** Beside the references that run the workloads'
-  own sources, the nine data workloads are hand-ported to the languages iPhone apps are written in, to answer how
+  own sources, the ten data workloads (the nine and json) are hand-ported to the languages iPhone apps are written in, to answer how
   much a program loses against what a native developer of that platform writes. Every port keeps to:
   - the same algorithm, inputs and output: the same deterministic generator with its integer arithmetic matched
     exactly (wrapping where the JVM wraps), and the printed result compared with the workload's `expected` literal,
@@ -231,6 +238,12 @@
       `record?`/`satisfies?` a dynamic `is any Shape` on the boxed value, the multimethod an enum switch; the sorted
       map a `Dictionary` whose keys are sorted once at the end (the standard library has no sorted map); flatten a
       recursive enum walk.
+    - json: the response is `Data`, as URLSession hands it over, made once per process as the source's text is;
+      `JSONDecoder` decodes it into `Decodable` wire structs that declare only the keys the app reads (Codable's way
+      of dropping the rest), mapped into model structs with `String`-backed enums, optionals encoded only when
+      present (`encodeIfPresent`, the source's absent keys); `JSONEncoder` with `.withoutEscapingSlashes` (the
+      source writes `/` unescaped). The written length is counted over the encoded bytes that start a character,
+      Clojure's `count` of the string, without decoding it.
   - **dart** (`scripts/corpus_dart.py`, `bench/workloads/dart`): one executable per workload from `dart compile exe`
     (what a Flutter release build ships), built from a copy of the package before the workloads and outside every
     time; the harness and the EDN printer in `lib/`, the port in `bin/<name>.dart`, Dart 3 (sealed classes, records,
@@ -273,6 +286,9 @@
       set/index groups the 300 figures by kind into identity sets (all distinct, so the count is the same); the
       sorted map a `SplayTreeMap`; postwalk a typed copy with each figure's fields incremented; flatten a recursive
       `sync*` generator.
+    - json: the response is a `String`, as an http response's body is, made once per process; `jsonDecode` into
+      `Map<String, dynamic>` read by hand-written `fromJson` constructors (no code generation), enums by
+      `values.byName`, `toJson` maps written with collection-`if` for the optional parts, `jsonEncode` back.
 - [ ] **Where the compiled program's time goes, ranked** (three `corpus-bench` runs, bench/RESULTS.md "Corpus
   workloads"; the shares are self time of the closed build on the nine data workloads, the counters per iteration).
   The program's own compiled code is 0.7–4.5 % of the samples and the compiled core 3–11 %; the rest is the runtime

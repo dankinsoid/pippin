@@ -46,6 +46,18 @@
   `clojure.edn/read-string`; the port drops the first and reads with `read-string`. Both are JVM Clojure
   namespaces ClojureScript carries as well. Trigger: a library whose path calls `clojure.data/diff` or reads EDN
   it did not write.
+- **clojure.data.json 2.5.2 is in as a port, for `make corpus-bench` only** (`corpus/data-json`, its `SOURCE` and
+  `pippin.diff`; the workload `bench/workloads/src/workloads/json.clj` through `workloads.json-host`), with no
+  manifest for the same reason as datascript's. The JVM runs its jar and bb its built-in copy. Its reader and writer
+  are Clojure over java.io and java.lang, so the port touches most of the file but none of its algorithm: the
+  definterface stream is a protocol (design §8), its mutable position a one-slot long array ("Type descriptor"),
+  the char[] window read in place with `nth` and taken with `subs`, StringBuilder and StringWriter a volatile vector
+  of parts joined at the end (NOTES "Strings", the string builder entry), JVM exceptions `ex-info`, its extensions
+  to JVM classes this runtime's types and core interfaces, read, write and pprint (java.io, clojure.pprint) left
+  out. It found five statics missing, added (`docs/jvm-differences.md`): `Long/valueOf` of a string,
+  `Double/valueOf`, `Integer/parseInt`, `Integer/toHexString` and `Math/min`. Not carried: a `\u` escape of a
+  surrogate half, which `(char n)` refuses since a char is a scalar here, so an escaped character outside the BMP
+  throws on read.
 - **What a library of §10's class actually looks like**: one namespace over `clojure.core` (plus
   `clojure.string`/`set`/`walk`), no `deftype` over a host interface, no JVM static. `math-combinatorics` is
   the one taken — it loads whole, no top-level form lost, and passes 17 of its 18 deftests. It wanted

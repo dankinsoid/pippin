@@ -76,3 +76,18 @@
 - [ ] **The ASCII scan reads every new string's bytes once more**: `clj_string_new` is 5 % of the strings workload
   (bench/RESULTS.md, "Strings"). A builder that knows its parts' bits (`str`, `join`, `subs` of an ASCII string)
   could pass the answer in. Trigger: `clj_string_new` above the copy itself in a profile.
+- [ ] **A loop of `nth` over a long non-ASCII string pays the crumb scan on every read.** Each index decodes up to 63
+  code points from the nearest crumb, so a reader walking a string by index, as clojure.data.json's `StringPBR` does
+  with `charAt` (`nth` here), spends ~32 decodes a character where the JVM's `charAt` is one load: in the json
+  workload `clj_string_offset_slow` is 21 % of the closed build's samples, the largest single item (bench/RESULTS.md
+  "JSON"). What would close it: a last-read `(index, byte offset)` hint beside the crumbs, so the next index scans
+  from there (one 64-bit store, racy but self-validating as the crumbs are), or a string cursor the reader keeps.
+  Trigger: the next profile where it leads, or a decision to make json's parse a target.
+- [ ] **No string builder.** `StringBuilder`, `StringWriter` and `goog.string.StringBuffer` have no counterpart: a
+  ported library collects parts in `(vswap! v conj x)`, which grows the vector in place, and joins them at the end
+  (corpus/data-json's `string-builder`, core's own `StringWriter`). The join walks the vector through a seq, one
+  `vector-seq` cell per part: 471.6k of the json workload's 901.8k allocations an iteration are `join`'s
+  (bench/RESULTS.md "JSON"). A C builder (an appendable byte buffer with an ASCII bit, `.append` reached as an
+  instance send or as functions) is the fix; ClojureScript has one, so it is inside the §3 bound. Trigger: a
+  library's appends or its join in a profile's top items, or the cheaper half first: `str-join*` over a vector by
+  index.
