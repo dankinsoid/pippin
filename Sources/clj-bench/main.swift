@@ -1064,6 +1064,52 @@ if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "async" {
 	exit(0)
 }
 
+// CLJ_BENCH_ONLY=strings: a string read by index and built by appends (NOTES "Strings"), for bench-ab against a base.
+// @ai-generated(solo)
+func stringsBench() {
+	func make(_ text: String) -> clj_value {
+		Array(text.utf8).withUnsafeBufferPointer { buf in buf.withMemoryRebound(to: CChar.self) { clj_string_new($0.baseAddress, $0.count) } }
+	}
+	let wide = make(String(repeating: "Привет, мир — héllo wörld. ", count: 40_000))
+	let ascii = make(String(repeating: "Hello, world - hello world. ", count: 40_000))
+	clj_share(wide)
+	func walk(_ s: clj_value, _ idx: [Int]) -> UInt64 {
+		var acc: UInt64 = 0
+		var cp: UInt32 = 0
+		for i in idx { if clj_string_char_at(s, i, &cp) { acc &+= UInt64(cp) } }
+		return acc
+	}
+	var rows: [(String, Double)] = []
+	for (name, s) in [("non-ASCII, shared", wide), ("ASCII", ascii)] {
+		let n = clj_string_count(s)
+		let seq = Array(0..<n)
+		let rnd = randomKeys(n, below: n, seed: 7)
+		let near = (0..<n).map { i in max(0, min(n - 1, rnd[i] / 64 * 64 + 32)) }
+		rows.append(("C: clj_string_char_at, every index in order, \(name)", measure(ops: n) { walk(s, seq) }))
+		rows.append(("C: clj_string_char_at, random indexes, \(name)", measure(ops: n) { walk(s, rnd) }))
+		rows.append(("C: clj_string_char_at, random mid-crumb indexes, \(name)", measure(ops: n) { walk(s, near) }))
+	}
+	let n = 5_000
+	let nthFn = cljEval("(fn [s] (let [n (count s)] (loop [i 0 acc 0] (if (< i n) (recur (inc i) (+ acc (int (nth s i)))) acc))))")
+	let reduceFn = cljEval("(fn [n] (count (reduce str \"\" (range n))))")
+	let vswapFn = cljEval("(fn [n] (let [v (volatile! \"\")] (dotimes [i n] (vswap! v str \\é)) (count @v)))")
+	rows.append(("(nth s i) in a loop, non-ASCII, per char", measure(ops: Int(clj_string_count(wide))) { cljCall(nthFn, wide) }))
+	rows.append(("(nth s i) in a loop, ASCII, per char", measure(ops: Int(clj_string_count(ascii))) { cljCall(nthFn, ascii) }))
+	rows.append(("(reduce str \"\" (range n)), per append", measure(ops: n) { cljCall(reduceFn, clj_fixnum(n)) }))
+	rows.append(("(vswap! v str \\é) n times, per append", measure(ops: n) { cljCall(vswapFn, clj_fixnum(n)) }))
+	print("| scenario | ns |")
+	print("|---|---:|")
+	for r in rows { print("| \(r.0) | \(fmt(r.1)) |") }
+	print("\nns per op, medians of \(reps) runs; n = \(n) appends, \(clj_string_count(wide)) code points read")
+	for v in [wide, ascii, nthFn, reduceFn, vswapFn] { clj_release(v) }
+}
+
+if ProcessInfo.processInfo.environment["CLJ_BENCH_ONLY"] == "strings" {
+	clj_init()
+	stringsBench()
+	exit(0)
+}
+
 func page_size_kb() -> Int { Int(sysconf(_SC_PAGESIZE)) / 1024 }
 
 // Tuples against tries in one binary (bench/RESULTS.md, "Tuples"): CLJ_BENCH_ONLY=tuples, and the end of the full run.
