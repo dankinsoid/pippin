@@ -45,6 +45,9 @@
   time with `VAR=1` in the environment (a switch the runtime or `clj-corpus-bench` reads, `CLJ_BENCH_NO_LAZY_INLINE`
   the first), into an "Interpreter A/B" table: the stats runs below are compiled code, so this is the only place an
   interpreter-side change shows in the counters.
+  `--base-sources` runs the base on its own workload sources and ports (its tree's load path, for its compiles and
+  runs) instead of this tree's: what times a change to a port or a workload against the commit before it, where
+  the head's sources on the base's runtime would time neither.
   What each number is:
   - **A change is timed with `--base=<ref>`, never by two runs.** Two dispatches land on two runners and the
     runner moves every time column by more than a change does (JVM warm medley 31.9 against 63.7 ms in one pair;

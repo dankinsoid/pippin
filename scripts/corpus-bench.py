@@ -134,6 +134,12 @@ class Bench:
 		self.refs = corpus_refs.Refs(self, args.refs, ROOT, [p for p in LOAD_PATH if p not in OURS_ONLY], parse, log)
 		os.makedirs(self.logs, exist_ok=True)
 
+	def lp_of(self, side):
+		"""The load path a side runs: the head's sources, or with --base-sources the base's own."""
+		if side is self.head or not self.args.base_sources:
+			return self.lp
+		return [a for p in LOAD_PATH for a in ("--load-path", os.path.join(side.root, p))]
+
 	def keep(self, name, text):
 		with open(os.path.join(self.logs, name), "w") as f:
 			f.write(text)
@@ -212,7 +218,7 @@ class Bench:
 		return subprocess.CompletedProcess(cmd, proc.returncode, out, err), (time.monotonic() - t0) * 1000
 
 	def ours(self, tag, workload, binary, extra=(), env=None, side=None):
-		cmd = [binary] + self.lp + ["--features", FEATURES, "--min-iterations", "3", "--min-seconds", "2"] + list(extra) + \
+		cmd = [binary] + self.lp_of(side or self.head) + ["--features", FEATURES, "--min-iterations", "3", "--min-seconds", "2"] + list(extra) + \
 		      ["workloads." + workload]
 		e = dict(self.env)
 		# The units are compiled against this root's headers, which must be the binary's own.
@@ -253,7 +259,7 @@ class Bench:
 		d = os.path.join(self.out, "units", workload, side.prefix + "dev")
 		shutil.rmtree(d, ignore_errors=True)
 		os.makedirs(d)
-		p, _ = sh([side.compile, "--lenient", "--allow-refused"] + self.lp + ["--features", FEATURES, "--ns",
+		p, _ = sh([side.compile, "--lenient", "--allow-refused"] + self.lp_of(side) + ["--features", FEATURES, "--ns",
 		          "workloads." + workload, "--out", d], env=self.env, timeout=RUN_TIMEOUT, check=False)
 		self.keep("%s.%scompile-dev.txt" % (workload, side.prefix), p.stderr)
 		if p.returncode not in (0, 2):
@@ -266,7 +272,7 @@ class Bench:
 		boot = os.path.join(self.out, "units", workload, side.prefix + "closed")
 		shutil.rmtree(boot, ignore_errors=True)
 		os.makedirs(boot)
-		p, ms = sh([side.compile, "--core", "--closed", "--stats", "--lenient", "--allow-refused"] + self.lp +
+		p, ms = sh([side.compile, "--core", "--closed", "--stats", "--lenient", "--allow-refused"] + self.lp_of(side) +
 		           ["--features", FEATURES, "--ns", "workloads." + workload, "--out", boot],
 		           env=self.env, timeout=RUN_TIMEOUT, check=False)
 		self.keep("%s.%scompile-closed.txt" % (workload, side.prefix), p.stderr)
@@ -663,13 +669,14 @@ def ab_section(b, add):
 	add("## Same runner: head %s against base %s %s" % (head.rev[:10], b.args.base, base.rev[:10]))
 	add("")
 	full = median_interval(list(range(b.args.reps)))[2] if b.args.reps > 1 else None
-	add("Both trees built and run in this job, the head's workload sources on both; %d repetitions, each running every "
+	add("Both trees built and run in this job, %s; %d repetitions, each running every "
 	    "mode on both sides back to back, the base first in even repetitions and the head first in odd ones. A cell "
 	    "is the median over the pairs of head / base, each side's number the run's fastest iteration, and in brackets "
 	    "the sign test's interval for that median (%s coverage with every pair present; the pair count follows when "
 	    "one is missing). `*` marks an interval without 1.000: a change, or the %s chance a cell of an A/A run takes. "
 	    "*geomean* is over the workloads with every pair present." % (
-		    b.args.reps, "%.0f %%" % (100 * full) if full else "no", "%.0f %%" % (100 * (1 - full)) if full else "full"))
+		    "each side its own workload sources and ports (--base-sources)" if b.args.base_sources
+		    else "the head's workload sources on both", b.args.reps, "%.0f %%" % (100 * full) if full else "no", "%.0f %%" % (100 * (1 - full)) if full else "full"))
 	add("")
 	add("| workload | " + " | ".join(TIMED_LABEL[m] for m in TIMED) + " |")
 	add("|---|" + "---:|" * len(TIMED))
@@ -1029,6 +1036,8 @@ def main():
 	ap.add_argument("--skip-facts", action="store_true")
 	ap.add_argument("--interp-ab", metavar="VAR", help="also time and count the interpreter with VAR=1 in its environment")
 	ap.add_argument("--base", help="a ref built and timed beside this tree on the same runner, alternated")
+	ap.add_argument("--base-sources", action="store_true",
+	                help="the base runs its own workload sources and ports, not this tree's: a port's change timed")
 	ap.add_argument("--reps", type=int, help="timed runs per mode and side (default 8 with --base, else 1)")
 	args = ap.parse_args()
 	args.only = [w for w in args.only.split(",") if w]
