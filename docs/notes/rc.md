@@ -292,7 +292,7 @@
   flags every black cyclic Tarjan component it builds. A nonzero release files an unshared object only with
   `ONCYCLE`; the inline `clj_release`/`clj_drop_value` test it instead of `REACH_LOCAL` (debug builds test both, for
   the audit). An immutable owner is never checked: it is edited only while unique from an owned root down. The shared
-  rule is unchanged (atoms, channels, promises, coroutines are born shared). `CLJ_NO_OPT=store-check` (bit 18) gives
+  rule is unchanged (atoms, channels, promises, coroutines are born shared). `CLJ_NO_OPT=store-check` (bit 20) gives
   `ONCYCLE` at the birth of an array or volatile, so it equals `REACH_LOCAL`: the old rule. Debug builds audit one
   nonzero release in 16 of a `REACH_LOCAL` object without `ONCYCLE` (every one in the store-check tests): the old
   rule's graph from it, up to 1024 nodes, without freeing; a cyclic component with neither every member flagged nor
