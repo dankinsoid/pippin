@@ -694,6 +694,15 @@
   with the int range check of their operands. As native calls, data.json's `(unchecked-inc i)` kept its loops' index boxed.
   Whatever the facts: `nth` takes a string's arm after a vector's, and `int`/`long` of a char answer its code point
   inline (`clj_c_nth2`, `clj_c_int`), since a reader's `(int (nth s i))` sees a string its facts do not always know.
+- **Measured: field hints, known-type arms, protocol inlining, field views** (bench/RESULTS.md, "JSON's reader loop").
+  Same-runner corpus-bench against main (run 38772255440): json closed 0.644 [0.642–0.646] (114.6 → 74.7 ms, 6.2× →
+  4.0× the JVM's data.json), dev 0.819, interp 0.973; the closed geomean of the fourteen workloads 0.962, every other
+  closed cell within ±3.3 %. Each piece against the same head with its kill switch set for the base, json closed:
+  `fields` (facts and views) 0.762, `known` 0.851, `proto-inline` 0.941. json's shared RC ops −90.7 % (the views),
+  `c_invoke` −52 % (the unchecked intrinsics and the typed arms). Cost (x86_64 dev host, the fourteen workloads'
+  closed units, clang `-O2` CPU): 169.7 → 169.1 s, C −1.2 %, clj-compile +4 %. Not reached: of -read's thirteen
+  readChar sites six fit the frame's growth budget, and read-number's frame (110 slots) is past the 64 a copy may
+  grow one to — when a reader's profile shows those calls, a budget that counts what a protocol copy saves.
 - **Measured: field cells, `field*`/`new*` in place, implementor arms, the two-way cache** (the three entries above
   and "Type descriptor", field reads). Same-runner corpus-bench against main: datascript alone with 8 pairs (run
   38584003614) closed 0.903 [0.847–0.957], dev 0.939 [0.805–1.297], interp 0.989; the full bench (38583997797)

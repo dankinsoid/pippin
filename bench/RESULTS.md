@@ -3341,3 +3341,50 @@ head / base, the median over the pairs with the sign test's interval.
   order 74.1 → 9.7; at random indexes 117.0 → 118.1, at random mid-crumb ones 120.2 → 114.7; the same three on an
   ASCII string 4.6 → 4.5, 5.5 → 5.0, 4.8 → 5.0. Interpreted `(nth s i)` in a loop 120.8 → 78.6 non-ASCII, 62.1 → 62.1
   ASCII. Appending, per append over 5000: `(reduce str "" (range n))` 667.8 → 50.0, `(vswap! v str \é)` 525.5 → 84.8.
+
+## JSON's reader loop: field hints, known types, protocol inlining — 84f9ab7, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+Three pieces against the per-character loop of the data.json port (NOTES "Facts", field hints and known types;
+NOTES "Compiler", protocol inlining, field views, known-type arms): a `deftype` field's hint is checked at
+construction and is the field's fact in the method bodies, a let slot reading a deftype's field through a borrowed
+receiver borrows it; `nth`/`count` of a string, `aget`/`aset` of a known array kind and the unchecked ops (now
+intrinsics) take their typed arms; a protocol call whose protocol has one implementor runs the implementor's body
+in place under its arm's guard. The port hints its position array `^longs`. Run 38772255440 is the full `make
+corpus-bench` against origin/main on one runner, every workload's result the JVM's; the shares are three runs of
+json, strings and datascript against the same commit (48d3ec1, the head without its last generic arm) with one kill
+switch set for the base (`--base-no-opt`, 8 pairs each). Cells are head / base, the median over the pairs with the
+sign test's interval.
+
+| run | interp | core+interp | dev | closed |
+|---|---:|---:|---:|---:|
+| all three, 84f9ab7 vs main (38772255440) | 0.973 [0.966–0.979]* | 0.966 [0.957–0.968]* | 0.819 [0.815–0.842]* | 0.644 [0.642–0.646]* |
+| field facts and views: vs `CLJ_NO_OPT=fields` (38771964486) | 1.017 [0.998–1.049] | 0.974 [0.957–0.996]* | 0.913 [0.902–0.923]* | 0.762 [0.746–0.773]* |
+| known-type arms, unchecked unboxing: vs `known` (38771971351) | 0.965 [0.871–1.006] | 0.985 [0.832–1.073] | 0.913 [0.871–1.003] | 0.851 [0.823–0.873]* |
+| protocol inlining: vs `proto-inline` (38771977783) | 0.993 [0.961–1.063] | 0.997 [0.993–1.005] | 1.012 [1.006–1.052]* | 0.941 [0.863–0.950]* |
+
+- **json against the references** (run 38772255440): closed 114.6 → 74.7 ms, so 6.2× → 4.0× the JVM's data.json
+  (18.56 ms on this runner; 6.7× in "JSON's string gap"), 2.50× bb's, 2.51× Swift's Codable, 4.36× Dart's, 2.11×
+  Node's `JSON`; ClojureDart's AOT is 1.24× slower than we are (closed/cljd-aot 0.81×), Hermes 5.4×.
+- **Each piece's share**, each measured with the other two on, so they overlap: the field facts and the views 24 %
+  of closed (103.8 → 78.9 ms, fastest iterations), the known-type arms and the unchecked unboxing 15 % (96.8 →
+  81.5), the protocol inlining 6 % (82.3 → 78.1). The views are the RC column: shared RC ops 2.09M → 194.0k an
+  iteration (−90.7 %), plain −21.7 %, the reader's string and position array no longer retained and released a
+  character; the arms and the intrinsics are the generic-call column, `c_invoke` 2.42M → 1.16M (−52 %). The
+  inlining moves no counter but the plain RC ops (+8 % with it off: the call's argument and result), and leaves
+  readChar's frame from 4.7 % self of the closed profile on main (run 38759117666) to 1.8 % inclusive: the calls left
+  are its sites past a frame's budgets: read-number's frame has 110 slots, past the 64 a copy may grow one to, and
+  -read's thirteen sites exhaust its growth after six.
+- **What is left** (closed, sampled): parsing 57 %, writing 36 %. The string index walk is the largest item —
+  `clj_string_offset_slow` 6.3 % and `clj_string_char_at` 3.4 % self, a non-ASCII payload where the JVM loads a
+  UTF-16 unit; then `read_quoted_string`'s own loop 6.3 %, the port's StringBuilder (`b_vswap_take` and
+  `clj_volatile_append_take`, 12 % inclusive: `append` is a call a character in `slow-write-string`), and the
+  writer's `-write` site, a protocol dispatch over every value kind whose two-way cache misses (`clj_c_proto_miss`
+  sits under the whole writer).
+- **Elsewhere** (run 38772255440): closed geomean over the fourteen workloads 0.962, json aside every closed cell
+  within ±3.3 %. Starred: nested-update closed 1.033 [1.008–1.052] and dev 1.026 with every counter equal to main's,
+  suite-data closed 0.980 (shared RC −11 %: core's deftype fields as views), async-broadcast closed 1.011,
+  async-libs 1.019–1.030 outside closed, async-pipeline core+interp 1.201 (its range is 2× on the runner);
+  datascript's closed 1.010 [0.997–1.022] over its 2 pairs, plain RC −2 %.
+- **Compile cost** (x86_64 dev host, i9-9980HK; `clj-compile --core --closed` of each of the fourteen workloads,
+  then clang `-O2 -DCLJ_CLOSED` of every unit it writes, CPU seconds, one pass, main 1644c09 → 9f654a0): clang
+  169.7 → 169.1 s, C 39.69 → 39.21 MB (−1.2 %), clj-compile 6.68 → 6.95 s (+4 %); json's own units 13.70 → 13.70 s.
