@@ -377,7 +377,7 @@ file. 133 open, 117 partly done.
 - [ ] No UTF-16 view yet. — Trigger: the first bridge API that passes an index across.
 - [ ] Small strings in the value (tag `100`) — Trigger: the census share of strings of at most 7 bytes (8–11 for the packed encodings).
 - [ ] The ASCII scan reads every new string's bytes once more — Trigger: `clj_string_new` above the copy itself in a profile.
-- [ ] A loop of `nth` over a long non-ASCII string pays the crumb scan on every read. — Trigger: the next profile where it leads, or a decision to make json's parse a target.
+- [ ] A loop of `nth` over a long non-ASCII string pays the crumb scan on every read. — Trigger: a decision to make json's parse a target, or a second workload whose profile it leads.
 - [ ] No string builder. — Trigger: a library's appends or its join in a profile's top items, or the cheaper half first: `str-join*` over a vector by index.
 
 ### [Symbol / keyword (Sources/CljCore/symbol.c, keyword.c)](notes/symbol-keyword.md)

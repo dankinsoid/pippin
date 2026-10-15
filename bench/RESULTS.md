@@ -3253,3 +3253,54 @@ cells whose interval excludes 1 — combinatorics interp 1.009, dependency inter
 - **Profile, datascript closed**: the cycle collector's frames are 12.1 % of busy samples (17.5 % in run 38549012720):
   `clj_cc_local_unfiled` 4.5 %, `visit_child` 2.4 %; `release_reaches_zero` 4.1 % and `clj_coro_current` 2.3 % are the
   release path that reaches the check.
+
+## JSON — 0c034f3, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+The fourteenth corpus workload, `json` (docs/notes/benchmarks.md, "Corpus workloads"): a feed response of 800 posts,
+0.9 MB of JSON generated once per process, parsed with keyword keys, coerced into the app's model, filtered, scored
+and sorted, and written back. Run 38728053580 is `make corpus-bench` for this tree alone (`CORPUS_BENCH_BASE=`: main
+has none of the statics the port reads with), every workload green and json's result the same everywhere; 1
+repetition. ms per iteration, ratios ours over theirs.
+
+| | JVM warm / 1st / cold | interp | core+interp | dev | closed | closed/JVM |
+|---|---:|---:|---:|---:|---:|---:|
+| json | 14.7 / 91 / 913 | 439.8 | 390.3 | 272.6 | 181.6 | 12.4× |
+
+| reference | warm / 1st / cold | closed/it |
+|---|---:|---:|
+| bb (built-in clojure.data.json) | 27.8 / 24 / 70 | 6.53× |
+| cljs-node (`JSON.parse`, `js->clj`, `clj->js`, `JSON.stringify`) | 30.5 / 68 / 128 | 5.96× |
+| cljs-hermes (the same) | 334.0 / 348 / 460 | 0.54× |
+| swift (Codable, `JSONDecoder`/`JSONEncoder`) | 23.9 / 37 / 41 | 7.60× |
+| dart (`jsonDecode`/`jsonEncode`, fromJson/toJson) | 13.8 / 22 / 40 | 13.14× |
+| cljd-aot (dart:convert with a conversion) | 74.5 / 96 / 114 | 2.44× |
+| cljd-jit (the same) | 105.8 / 461 / 567 | 1.72× |
+
+- **What is compared.** The JVM, bb and we run clojure.data.json 2.5.2, a parser written in Clojure: the JVM its jar,
+  bb its built-in copy, we the port in `corpus/data-json`. Node, Hermes, ClojureDart, Swift and Dart parse and write
+  with the platform's native JSON (V8's and Hermes's `JSON`, dart:convert, Foundation's `JSONDecoder`), what an app
+  on each writes; data.json is JVM-only. So closed/node, closed/swift and closed/dart are a library written in
+  Clojure against native parsers, and the JVM and bb columns are the like-for-like ones.
+- **Where we stand.** Closed is 12.4× the JVM's data.json, against 0.8–2.2× on the other data workloads of the same
+  run and 5.0× on datascript; 6.5× bb's interpreted data.json; 7.6× Swift's Codable and 13× Dart; 6× Node; twice as
+  fast as Hermes. Swift is 1.6× the JVM here, Dart 0.94×; ClojureDart's AOT is 5.4× idiomatic Dart, the cost of
+  converting to Clojure's data. Run 38727836813 (json only, another runner) gave closed 231.9 against JVM 34.6 (6.7×),
+  Swift 44.2 (5.3×), Dart 23.4 (9.9×): the ratio to the JVM moves with the runner by 1.9×, the ones to the native ports
+  by under 1.5×.
+- **Where the time goes** (closed, sampled; inclusive shares from the call tree): parsing 69 % (about 125 ms),
+  writing 28 % (51 ms), the model and the transform 2.5 % (4.6 ms). By self time `clj_string_offset_slow` is 21.3 %,
+  the largest item: the payload is a non-ASCII string past 64 bytes, so each `nth` of the port's reader scans up to 63
+  code points from the nearest crumb, ~32 decodes a character where the JVM's `charAt` is one load (NOTES "Strings",
+  the `nth` entry). `clj_string_char_at` 2.3 %, `clj_nth` 1.7 % and `int_cast` 2.1 % (`(int c)` per character) are the
+  same path; then the port's reader functions (`read_quoted_string` 3.5 %, `StringPBR`'s readChar 3.2 %,
+  `read_number` 1.8 %), RC (`clj_release` 2.7 %, `release_reaches_zero` 2.6 %) and `clj_c_field_at` 2.6 %.
+- **The port's part of the gap.** Upstream's `read-quoted-string` copies a 64-char window into a `char[]` with
+  `getChars` and makes the string with `String(char[], off, len)`, two memcpys; with neither here the port scans the
+  window in place through `charAt` (`nth`) and takes it with `subs`, so every character of every string pays the
+  crumb scan above: `read_quoted_string` is 42 % of the iteration inclusive. The writer's `write-string` and
+  `slow-write-string` index their strings the same way. The other substitutions cost less: StringBuilder as a vector
+  of parts joined at the end is `builder_str` 10 % inclusive and 471.6k of the 901.8k allocations an iteration
+  (`join`'s `vector-seq` cells; NOTES "Strings", the string builder entry); the position in a one-slot long array is
+  an `aget`/`aset` per character (NOTES "Type descriptor", mutable fields).
+- **Per iteration** (closed stats): 4.97M plain and 2.16M shared RC ops, 901.8k allocations (vector-seq 495k, vector
+  101k, string 97k, list 69k, map 55k), 2.43M compiled generic calls.
