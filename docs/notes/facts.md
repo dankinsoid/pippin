@@ -28,7 +28,8 @@
 - **The lattice.** A type fact is a set of 27 kinds — nil, bool, fixnum, boxed long, bigint, ratio, decimal,
   double, char, string, keyword, symbol, seq, vector, map, set, sorted-map, sorted-set, record, array, fn,
   var, atom, uuid, inst, regex, host — plus an optional singleton (the constant itself), an array element
-  kind and a record/host descriptor. ⊤ is every bit, ⊥ none; `join` is `|`, `meet` is `&`. Sorted maps and
+  kind and a record/host descriptor, the last two kept beside a nil (`array|nil` of longs: a hinted field). ⊤ is
+  every bit, ⊥ none; `join` is `|`, `meet` is `&`. Sorted maps and
   sets are separate bits so that the false branch of `(map? x)` may subtract exactly what `map?` answers
   true for. A set of more than four members widens to ⊤ (design §3, "полиморфизм ≤4 shape'ов"), the six
   numeric kinds counting as one member — the design's ladder is int/double/number/⊤, so `(+ a b)` must be
@@ -241,6 +242,26 @@
   no such lookup — its 69 `(:k m)` sites are 58 on locals (parameters, constrained by requirement only, and
   `(:k m)` requires nothing) and 11 below derefs and other calls — so the report's record row stays 0 → 0 for
   want of a site, not of a mechanism.
+- **Field hints reach the method bodies** (`type_methods`, `field_fact`, `hint_fact`; `CLJ_NO_OPT=fields`). With a
+  store, `(def T (deftype* 'T '[fields] P {:m (fn [this ...] ...)} ...))` whose var holds the type this very call made
+  (its fields vector is the call's constant) walks each method-map fn with the first parameter at host (or record)
+  with the type as its descriptor, unless a recur of the arity passes another receiver. `(field* x i)` over a
+  receiver with a descriptor answers the hint of field i: `long` fixnum|long, `int`/`short`/`byte` fixnum, `double`
+  and `float` double, `boolean`, `char`, `String`/`Keyword`/`Symbol` that kind or nil, an array tag an array of that
+  kind or nil. Sound because every construction admits only what the hint allows (docs/notes/type-descriptor.md,
+  the hint check), and the method fns are reachable only through the type's dispatch. A protocol call inlined under
+  its guard refines the receiver slot to the implementor type in the then branch (`refine`, the guard's case), so
+  the copied body's field reads take the same facts (docs/notes/compiler.md, protocol inlining).
+- [ ] **An unhinted field's fact from its construction sites.** `pos` of clojure.data.json's StringPBR is
+  `(long-array 1)` at its one construction; with every `new*` of a type visible (a closed set, the constructor var
+  only called) the join of what they pass would be the field's fact without a hint. Not done: the sites are other
+  forms' trees, so it is a closed-world pass over the set before the emit, the caller join's machinery for fields.
+  The data.json port hints its field `^longs` instead, as upstream hints it `^long`. Trigger: a hot unhinted field
+  in a profile of a library that cannot be given the hint.
+- **Known types answer for nth, get and aget** (`known_result`; `CLJ_NO_OPT=known`): `nth`/`get` over a string (or
+  nil) answer a char (nil past the end for `get`, nil over nil, the not-found argument joined in), `aget` over an array
+  of a known kind its element's kind. The unchecked ops are arithmetic signatures (`unchecked-add` as `+`), their
+  `-int` forms fixnum.
 - **Effects, as far as they fall out.** Seven bits, `alloc`, `throw`, `io`, `atom` (atom-write), `park`, `opaque`
   and `state`, joined up the walk: a vector, map, set or fn literal allocates; `throw` throws; a `def` is
   everything (registration); a read of a dynamic var is `state` (with a store: what the read answers depends on who

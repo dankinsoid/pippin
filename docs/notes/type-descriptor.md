@@ -58,6 +58,18 @@
   `CollReduce`'s extension to `IReduceInit` does on the JVM) and otherwise through `clj_seq_iter`; `into`
   and `vec` take that slot too, as the JVM's `into` reduces its source, so a reify of `IReduceInit` alone
   pours into a collection.
+- **A field's hint is checked at construction** (proto.c `clj_field_hint_of`, `clj_field_admit`; `clj_user_type.hints`,
+  NULL for a type with no hinted field). A primitive tag (`long int short byte double float boolean char`) casts the
+  value as the JVM unboxes a constructor argument — `(->T 2.9)` with `^long x` holds 2, `(->T "a")` throws the cast's
+  own message, `^boolean` takes truthiness; a class tag (`String`, `Keyword`, `Symbol`, with or without their package)
+  or an array tag (`longs`, `ints`, `shorts`, `bytes`, `doubles`, `floats`, `booleans`, `chars`, `objects`) admits that
+  class and nil and throws "keyword cannot be cast to String: field s of ns.T" otherwise; any other tag is ignored.
+  Every way a value reaches a field goes through it: `new*` (`clj_instance_new`, the compiled in-place `clj_c_new`
+  calls it for a hinted type), `clj_record_new`, a record's `assoc` and `conj` of a basis key, and `map->R`, where a
+  basis key the map lacks is nil and a primitive hint refuses it as the JVM's `create` does. On the JVM a class hint
+  is unchecked until a use through it; here the facts read it in the method bodies (docs/notes/facts.md, field
+  hints), so a wrong one fails where it is made rather than silently (docs/jvm-differences.md). The check runs under
+  every kill switch: it is the language, not an optimization.
 - [ ] **No mutable fields.** Design §4 «Роли конструкций» has `^:unsynchronized-mutable`/`^:volatile-mutable`
   fields assigned by `set!` inside the type's own methods; here such a `set!` is "Cannot assign to non-mutable",
   because a method body's field is a `let` local over `field*`, bound once. What it takes: a read after a `set!`

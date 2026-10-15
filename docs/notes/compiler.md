@@ -652,6 +652,47 @@
   is the builtin's own call and its own error. The checks are the builtin's, so `this` needs no type fact. Both
   modes; `CLJ_NO_OPT=dispatch` writes the plain call. core.c has 168 such sites (the agents' and the refs'
   `field*` reads, every core deftype's constructor). Fixtures `instances.clj`, `instances-rebind.clj`.
+- [~] **A protocol's one implementation inlined at the call** (optimizer.c `try_proto_inline`, `single_implementor`;
+  eval.c `eval_root_is`; compiler.c `emit_proto_guard`; `CLJ_NO_OPT=proto-inline`). A call `(m r a...)` of a protocol
+  method whose protocol has exactly one implementor — no builtin, no `Object`, one live deftype or record, not a
+  reify — whose impl is a closure without an environment, a fixed arity of at most `INLINE_PROTO_MAX` (64) nodes
+  with no fn inside, no recur to the arity and no call of a parameter, and whose receiver is a local read, becomes
+  `(let [t a'...] (if ROOT_IS[m, impl, r] (let [p t...] INLINE[impl, body']) (m r t...)))`: the arguments that are no
+  local or constant are bound first, so the guard follows every argument, as the call's dispatch does; a parameter
+  the body reads only as a local is the argument's read in the copy. The guard (`root_is.proto`, `recv`, `type`)
+  holds while the var's root is a protocol method whose impl for the value in slot r is the closure the body came
+  from: the interpreter asks the tables (`clj_protocol_method_impl`, a lookup per call), a closed unit writes the
+  implementor's arm — `pt == the type's var's root` and the arm's epoch cell, filled by comparing the impl's
+  dispatcher with the compiled body's (`clj_c_arm_fill`) — so another receiver, an `extend` after the compile or a
+  redefinition runs the call (`Fixtures/compiler/proto-inline.clj`). The then branch refines r to the implementor
+  type, which gives the copy the field hints' facts. The 64-node bound is twice a fn's: a deftype method binds every
+  field it names before its work (data.json's readChar is past 32), and the call it saves is a dispatch on top of a
+  frame. The pass does not look at effects, unlike a fn's copy (whose guard reads the root before the arguments):
+  here the body runs where the call would have run it, after them. A copy that renumbers slots carries the call,
+  not a nested protocol copy, whose receiver slot could be substituted away. **Not done**, each with its trigger: a
+  dev unit writes the call alone (its guard would need the tree's digest as a fn's copy has) — when a dev profile
+  shows a protocol dispatch; a receiver that is no local, two or more implementors (an arm per implementor with its
+  own copy) — when a profile shows such a site; an implementor's body past 64 nodes stays a call.
+- **Field views: a deftype's field borrowed through a borrowed receiver** (compiler.c `field_views`, `in_view`;
+  compiled_internal.h `clj_c_field_view`; `CLJ_NO_OPT=fields`). Closed only: a promoted let slot every binding of
+  which is `(field* r i)`, r a borrowed parameter whose fact is host — a deftype method's `this`, or the receiver an
+  inlined protocol body reads — holds the field at +0: the caller holds r for the whole call and a deftype's fields
+  never change, so the read takes no retain and the slot no release (the slot is in `f->borrowed`, declared nil,
+  assigned by its let). A record owns its field reads, since a unique record is updated in place by `assoc`. A
+  receiver that is no instance, or an index past its fields, is the builtin's throw (`clj_b_field_star`), the only
+  other answer it has. data.json's reader read its string and position array with a retain and a release a
+  character, the string a shared object and its count atomic.
+- **Known types pick their arms; the unchecked ops are intrinsics** (compiler.c `known_cname`, `fact_of_kind`,
+  `fact_array_kind`; compiled_internal.h `clj_c_string_nth2`, `clj_c_string_count`, `clj_c_char_int`, `clj_c_aget_k`,
+  `clj_c_aset_k`, `clj_c_unchecked_*`; `CLJ_NO_OPT=known`). An intrinsic whose first argument's fact is a string (or
+  nil) writes `nth` and `count` as the string's arm — a byte when the string is ASCII, else `clj_string_char_at`,
+  which walks from the index hint (docs/notes/strings.md) —, `int`/`long` of a char as its code point, and
+  `aget`/`aset` of an array of a known kind as a load or store of that kind (the i64 and f64 stores of a value they
+  hold as is); each arm tests what the fact says and calls the generic function otherwise, so a wrong fact costs a
+  call, never an answer. `unchecked-add`, `-subtract`, `-inc`, `-dec` and their `-int` forms are intrinsics
+  (intrinsics.c, the builtins forwarding to the same functions) rather than native calls through `clj_c_invoke`,
+  with the unboxed and tag-checked forms of `+`, which wrap instead of throwing, and the `-int` forms int64-valued
+  with the int range check of their operands. As native calls, data.json's `(unchecked-inc i)` kept its loops' index boxed.
 - **Measured: field cells, `field*`/`new*` in place, implementor arms, the two-way cache** (the three entries above
   and "Type descriptor", field reads). Same-runner corpus-bench against main: datascript alone with 8 pairs (run
   38584003614) closed 0.903 [0.847–0.957], dev 0.939 [0.805–1.297], interp 0.989; the full bench (38583997797)
