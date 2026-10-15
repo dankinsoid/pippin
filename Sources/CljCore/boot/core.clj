@@ -598,7 +598,7 @@
   ;; and (vswap! v str x) a string builder's, appended in place. Only with x a symbol or a literal, whose evaluation
   ;; cannot touch the volatile the deref reads after it.
   (if (and (contains? '#{conj clojure.core/conj str clojure.core/str} f) (= 1 (count args))
-           (let [x (first args)] (or (symbol? x) (keyword? x) (number? x) (string? x) (nil? x))))
+           (let [x (first args)] (or (symbol? x) (keyword? x) (number? x) (string? x) (char? x) (nil? x))))
     `(vswap-take* ~vol ~f ~(first args))
     `(vreset! ~vol (~f (deref ~vol) ~@args))))
 
