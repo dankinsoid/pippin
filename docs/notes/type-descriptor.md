@@ -102,8 +102,13 @@
   bench/RESULTS.md, "Mutable fields": json level with the array cell it replaced, its plain RC −7 % closed). **Not done**, each with its trigger: `(set! (.-f this) v)` inside a method is
   "Invalid assignment target" — a library that writes its field so; a dev unit boxes every read and store of a raw
   field — a dev profile with one in it; the owner is the instance's maker, so a REPL eval (each a coroutine of its own)
-  cannot set! a field of an instance an earlier eval made, and a hash cache another thread fills fails in dev — a user
-  who meets it, the fix then being an owner that moves with a hand-over; a dead coroutine's address reused by a new one
+  cannot set! a field of an instance an earlier eval made, and a hash cache another thread fills fails in dev, both
+  legal sequential uses the JVM accepts. Kept as is for now (user, 2026-10-16) — trigger: a user or a corpus library
+  who meets it. Weighed: the carrier thread as owner (a coroutine moves between carriers, so the REPL case stays);
+  `SHARED` as the test (a `def` shares the instance, so the REPL case stays); the preferred fix, a dev-only overlap
+  detector — a method with `set!` CASes a writer word from 0 to its thread on entry and clears it on exit, a second
+  thread finding it set is a real race, sequential use never fails, closed builds pay nothing; or no check, as the
+  JVM, leaving races to test-tsan. A dead coroutine's address reused by a new one
   passes the check (silence, not a false error); datascript closed 1.030 [1.020–1.040] against main over 2 pairs, its
   port's share 1.027 [0.989–1.108] over 8 with no counter but MB moved (run 38919426472, 38906775993): whether BTSet
   born a reference type (its `_hash` is unhinted, nil or a long), the owner word or noise — a datascript profile with
