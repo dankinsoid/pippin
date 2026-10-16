@@ -188,8 +188,7 @@
   (datom-tx [d] (if (pos? tx) tx (- tx)))
   (datom-added [d] (pos? tx))
   (datom-get-idx [_] idx)
-  ;; pippin: no mutable fields (NOTES "Type descriptor"); serialize, which is not here, is the only caller.
-  (datom-set-idx [_ value] (throw (ex-info "datom-set-idx needs a mutable field" {})))
+  (datom-set-idx [_ value] (set! idx (int value)))
 
   #?@(:cljs
       [IHash
@@ -218,12 +217,17 @@
          (pr-sequential-writer writer pr-writer
            "#datascript/Datom [" " " "]"
            opts [(.-e d) (.-a d) (.-v d) (datom-tx d) (datom-added d)]))]
-      ;; pippin: hasheq is hashCode's hash-datom without the _hash cache, a mutable field; no Object (toString,
-      ;; hashCode), no empty slot, and Indexed and Associative cannot be implemented by a deftype here, so
-      ;; nth, find, contains? and assoc of a datom are not (NOTES "Type descriptor").
+      ;; pippin: hasheq is hashCode, its hash-datom cached in _hash; no Object (toString, hashCode), no empty
+      ;; slot, and Indexed and Associative cannot be implemented by a deftype here, so nth, find, contains? and
+      ;; assoc of a datom are not (NOTES "Type descriptor").
       :clj
       [clojure.lang.IHashEq
-       (hasheq [d] (hash-datom d))
+       (hasheq [d]
+         (if (zero? _hash)
+           (let [h (int (hash-datom d))]
+             (set! _hash h)
+             h)
+           _hash))
 
        clojure.lang.Seqable
        (seq [d] (seq-datom d))

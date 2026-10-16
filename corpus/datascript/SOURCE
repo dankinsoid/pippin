@@ -30,18 +30,20 @@ what behaves otherwise, or not at all, is named below.
 - persistent_sorted_set.clj is the ClojureScript implementation (B+ tree of arrays, branching 32 where the Java one
   takes 512) with its cljs protocols spelled as the JVM interfaces this runtime's deftype implements (ISeqable ->
   Seqable seq, IReduce -> IReduceInit reduce, ILookup -> valAt ...); js/Math constants as longs, Math.floor of a
-  division as a floor quot, .slice as aslice. Not carried: the chunked seq (Chunk: no chunked seqs here), toString
-  and the printer, -clone, -empty, -disjoin and the transient protocols (transient is persistent here), and the
-  BTSet's _hash cache (a mutable field). rseq of a slice goes through a protocol of the file's own: a deftype has no
-  Reversible slot.
+  division as a floor quot, .slice as aslice, cljs's ^:mutable _hash as ^:unsynchronized-mutable, its caching-hash
+  macro spelled out. Not carried: the chunked seq (Chunk: no chunked seqs here), toString and the printer, -clone,
+  -empty, -disjoin and the transient protocols: a deftype has no slot behind IEditableCollection or
+  ITransientCollection, and transient, conj! and persistent! are the persistent operations here, so a transient of a
+  BTSet is the set and conj! reaches its conj, which is all the cljs methods do. rseq of a slice goes through a
+  protocol of the file's own: a deftype has no Reversible slot.
 - arrays.cljc: object-array, aget/aset/alength, loops for System/arraycopy and Arrays/copyOf, sort for
   Arrays/parallelSort, the array type for .getClass/.isArray.
 - db.cljc: no clojure.data (DB's Diff and EqualityPartition go); defrecord-updatable keeps the protocols only, since
   a record here takes protocols only: DB and FilteredDB hash, compare, count and empty as records do, not as
   datascript overrides (the datom set's hash, its count); Datom keeps IHashEq, Seqable, IPersistentCollection
-  (equiv, count, cons) and ILookup, and loses Object (toString, hashCode: hasheq is hash-datom, uncached), empty,
-  Indexed and Associative (nth, find, contains? and assoc of a datom do not work here); datom-set-idx throws (no
-  mutable field; only serialize calls it); AutoTempid loses Object toString; defcomp makes a fn, as for cljs,
+  (equiv, count, cons) and ILookup, and loses Object (toString, hashCode: hasheq is hashCode's hash-datom cached in
+  _hash), empty, Indexed and Associative (nth, find, contains? and assoc of a datom do not work here); AutoTempid
+  loses Object toString; defcomp makes a fn, as for cljs,
   where the JVM reifies java.util.Comparator; .compareTo and .equals are compare and =, class is type,
   Util/hashCombine and Util/hasheq are hash-combine and hash; patch-tag drops cljs's boolean and number tags.
 - impl/entity.cljc: Entity keeps IHashEq, Seqable, IPersistentCollection (equiv, count, cons), ILookup and IFn,
@@ -56,7 +58,7 @@ Load failures left (the harness loads leniently; the workload reaches none of th
 dedupe-interfaces (IllegalArgumentException., unused by the ported defrecord-updatable), and the four top-level
 (set! *warn-on-reflection* ...) and (set! *unchecked-math* ...) forms.
 
-The language gaps behind the port are NOTES entries: "Type descriptor" (mutable fields, Indexed and Associative on a
-deftype, a Reversible slot, Object methods), "Records" (a record's own hash, = and count), "Corpus" (clojure.data,
+The language gaps behind the port are NOTES entries: "Type descriptor" (Indexed and Associative on a deftype, the
+transient interfaces, a Reversible slot, Object methods), "Records" (a record's own hash, = and count), "Corpus" (clojure.data,
 clojure.edn). There is no manifest.edn: this directory is not a corpus library with a suite of its own, and
 bench/workloads/datascript/manifest.edn is its root for corpus-bench's clj-facts.

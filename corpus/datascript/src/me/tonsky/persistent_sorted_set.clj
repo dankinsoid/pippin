@@ -426,17 +426,23 @@
 (defprotocol IReversible
   (-rseq [this]))
 
-;; pippin: the cljs protocols by their JVM interface names. Not here: toString and the printer (no slot),
-;; -clone, -empty and -disjoin (no slot for empty or disj), the transient protocols (transient, conj! and
-;; persistent! are the persistent operations here), and the _hash cache, which needs a mutable field
-;; (NOTES "Type descriptor"): hasheq hashes the elements on every call.
-(deftype BTSet [root shift cnt comparator meta _hash]
+;; pippin: the cljs protocols by their JVM interface names, cljs's ^:mutable as ^:unsynchronized-mutable. Not here:
+;; toString and the printer (no slot), -clone, -empty and -disjoin (no slot for empty or disj), and the transient
+;; protocols (no slots behind IEditableCollection and ITransientCollection; transient, conj! and persistent! are the
+;; persistent operations here, so they reach BTSet's conj as the cljs methods would).
+(deftype BTSet [root shift cnt comparator meta ^:unsynchronized-mutable _hash]
   IObj
   (meta [_] meta)
   (withMeta [_ new-meta] (BTSet. root shift cnt comparator new-meta _hash))
 
+  ;; pippin: cljs.core's caching-hash macro, spelled out.
   IHashEq
-  (hasheq [this] (hash-unordered-coll this))
+  (hasheq [this]
+    (if-not (nil? _hash)
+      _hash
+      (let [h (hash-unordered-coll this)]
+        (set! _hash h)
+        h)))
 
   IPersistentCollection
   (equiv [this other]

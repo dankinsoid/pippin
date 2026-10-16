@@ -153,37 +153,27 @@
  
  #?(:clj
     (defn- make-record-updatable-cljs [name fields & impls]
-@@ -187,7 +188,8 @@
-   (datom-tx [d] (if (pos? tx) tx (- tx)))
-   (datom-added [d] (pos? tx))
-   (datom-get-idx [_] idx)
--  (datom-set-idx [_ value] (set! idx (int value)))
-+  ;; pippin: no mutable fields (NOTES "Type descriptor"); serialize, which is not here, is the only caller.
-+  (datom-set-idx [_ value] (throw (ex-info "datom-set-idx needs a mutable field" {})))
- 
-   #?@(:cljs
-       [IHash
-@@ -216,40 +218,24 @@
+@@ -216,40 +217,29 @@
           (pr-sequential-writer writer pr-writer
             "#datascript/Datom [" " " "]"
             opts [(.-e d) (.-a d) (.-v d) (datom-tx d) (datom-added d)]))]
-+      ;; pippin: hasheq is hashCode's hash-datom without the _hash cache, a mutable field; no Object (toString,
-+      ;; hashCode), no empty slot, and Indexed and Associative cannot be implemented by a deftype here, so
-+      ;; nth, find, contains? and assoc of a datom are not (NOTES "Type descriptor").
++      ;; pippin: hasheq is hashCode, its hash-datom cached in _hash; no Object (toString, hashCode), no empty
++      ;; slot, and Indexed and Associative cannot be implemented by a deftype here, so nth, find, contains? and
++      ;; assoc of a datom are not (NOTES "Type descriptor").
        :clj
 -      [Object
 -       (hashCode [d]
--         (if (zero? _hash)
--           (let [h (int (hash-datom d))]
--             (set! _hash h)
--             h)
--           _hash))
++      [clojure.lang.IHashEq
++       (hasheq [d]
+          (if (zero? _hash)
+            (let [h (int (hash-datom d))]
+              (set! _hash h)
+              h)
+            _hash))
 -       (toString [d] (pr-str d))
 -
 -       clojure.lang.IHashEq
 -       (hasheq [d] (.hashCode d))
-+      [clojure.lang.IHashEq
-+       (hasheq [d] (hash-datom d))
  
         clojure.lang.Seqable
         (seq [d] (seq-datom d))
@@ -210,7 +200,7 @@
  
  #?(:cljs (goog/exportSymbol "datascript.db.Datom" Datom))
  
-@@ -306,7 +292,7 @@
+@@ -306,7 +296,7 @@
       2 (.-v d)
       3 (datom-tx d)
       4 (datom-added d)
@@ -219,7 +209,7 @@
          :cljs (throw (js/Error. (str "Datom/-nth: Index out of bounds: " i))))))
    ([^Datom d ^long i not-found]
     (case i
-@@ -324,7 +310,7 @@
+@@ -324,7 +314,7 @@
      :v     (datom (.-e d) (.-a d) v       (datom-tx d) (datom-added d))
      :tx    (datom (.-e d) (.-a d) (.-v d) v            (datom-added d))
      :added (datom (.-e d) (.-a d) (.-v d) (datom-tx d) v)
@@ -228,7 +218,7 @@
  
  ;; printing and reading
  ;; #datomic/DB {:schema <map>, :datoms <vector of [e a v tx]>}
-@@ -381,7 +367,8 @@
+@@ -381,7 +371,8 @@
  (defn class-identical?
    #?(:clj  {:inline (fn [x y] `(identical? (class ~x) (class ~y)))})
    [x y]
@@ -238,7 +228,7 @@
       :cljs (identical? (type x) (type y))))
  
  #?(:clj
-@@ -390,7 +377,8 @@
+@@ -390,7 +381,8 @@
        (fn [x]
          `(let [^Object x# ~x]
             (if (nil? x#) x# (.getName (. x# (getClass))))))}
@@ -248,7 +238,7 @@
  
  (defn class-compare
    ^long [x y]
-@@ -406,7 +394,8 @@
+@@ -406,7 +398,8 @@
  (defn ihash
    {:inline (fn [x] `(. clojure.lang.Util (hasheq ~x)))}
    ^long [x]
@@ -258,7 +248,7 @@
       :cljs (hash x)))
  
  #?(:clj  (declare value-compare)
-@@ -450,8 +439,11 @@
+@@ -450,8 +443,11 @@
      (cond
        (= x y) 0
        (and (sequential? x) (sequential? y)) (seq-compare x y)
@@ -272,7 +262,7 @@
            :cljs [(satisfies? IComparable x) (-compare x y)])
        (not (class-identical? x y)) (class-compare x y)
        #?@(:cljs [(or (number? x) (string? x) (array? x) (true? x) (false? x)) (garray/defaultCompare x y)])
-@@ -481,21 +473,9 @@
+@@ -481,21 +477,9 @@
     (defmacro defcomp [sym [arg1 arg2] & body]
       (let [a1 (with-meta arg1 {})
             a2 (with-meta arg2 {})]
@@ -297,7 +287,7 @@
  
  (defcomp cmp-datoms-eavt ^long [^Datom d1, ^Datom d2]
    (combine-cmp
-@@ -531,8 +511,9 @@
+@@ -531,8 +515,9 @@
       (if (keyword? a1)
         (-compare a1 a2)
         (garray/defaultCompare a1 a2))
@@ -308,7 +298,7 @@
  
  (defcomp cmp-datoms-eav-quick ^long [^Datom d1, ^Datom d2]
    (combine-cmp
-@@ -667,11 +648,12 @@
+@@ -667,11 +652,12 @@
      (update :avet persistent!)))
  
  #?(:clj
@@ -323,7 +313,7 @@
         (nil? v)     (fn [x] (nil? x))
         :else        (fn [x] (= v x)))))
  
-@@ -784,23 +766,15 @@
+@@ -784,23 +770,15 @@
        (resolve-datom db nil attr start nil e0 tx0)
        (resolve-datom db nil attr end nil emax txmax)))
                  
@@ -353,7 +343,7 @@
       :cljs
       (and (satisfies? ISearch x)
         (satisfies? IIndexAccess x)
-@@ -1195,7 +1169,8 @@
+@@ -1195,7 +1173,8 @@
  (defn find-datom [db index c0 c1 c2 c3]
    (validate-indexed db index c0 c1 c2 c3)
    (let [set     (get db index)
@@ -363,7 +353,7 @@
          from    (components->pattern db index c0 c1 c2 c3 e0 tx0)
          to      (components->pattern db index c0 c1 c2 c3 emax txmax)
          datom   (some-> set seq (set/seek from) first)]
-@@ -1378,10 +1353,9 @@
+@@ -1378,10 +1357,9 @@
        [IPrintWithWriter
         (-pr-writer [d writer opts]
           (pr-sequential-writer writer pr-writer "#datascript/AutoTempid [" " " "]" opts [id]))]
@@ -376,7 +366,7 @@
  
  #?(:clj
     (defmethod print-method AutoTempid [^AutoTempid id, ^java.io.Writer w]
-@@ -1458,10 +1432,11 @@
+@@ -1458,10 +1436,11 @@
  #?(:clj
     (defn- ^Boolean tx-id?
       [e]
@@ -839,7 +829,7 @@
         
          ;; ok as is
          :else
-@@ -404,88 +421,55 @@
+@@ -404,88 +421,61 @@
  
  (def ^:private ^:const uninitialized-hash nil)
  
@@ -866,17 +856,23 @@
 +(defprotocol IReversible
 +  (-rseq [this]))
 +
-+;; pippin: the cljs protocols by their JVM interface names. Not here: toString and the printer (no slot),
-+;; -clone, -empty and -disjoin (no slot for empty or disj), the transient protocols (transient, conj! and
-+;; persistent! are the persistent operations here), and the _hash cache, which needs a mutable field
-+;; (NOTES "Type descriptor"): hasheq hashes the elements on every call.
-+(deftype BTSet [root shift cnt comparator meta _hash]
++;; pippin: the cljs protocols by their JVM interface names, cljs's ^:mutable as ^:unsynchronized-mutable. Not here:
++;; toString and the printer (no slot), -clone, -empty and -disjoin (no slot for empty or disj), and the transient
++;; protocols (no slots behind IEditableCollection and ITransientCollection; transient, conj! and persistent! are the
++;; persistent operations here, so they reach BTSet's conj as the cljs methods would).
++(deftype BTSet [root shift cnt comparator meta ^:unsynchronized-mutable _hash]
 +  IObj
 +  (meta [_] meta)
 +  (withMeta [_ new-meta] (BTSet. root shift cnt comparator new-meta _hash))
 +
++  ;; pippin: cljs.core's caching-hash macro, spelled out.
 +  IHashEq
-+  (hasheq [this] (hash-unordered-coll this))
++  (hasheq [this]
++    (if-not (nil? _hash)
++      _hash
++      (let [h (hash-unordered-coll this)]
++        (set! _hash h)
++        h)))
 +
 +  IPersistentCollection
 +  (equiv [this other]
@@ -964,7 +960,7 @@
  (defn- keys-for [set path]
    (loop [level (.-shift set)
           node  (.-root set)]
-@@ -599,40 +583,7 @@
+@@ -599,40 +589,7 @@
            right (next-path set rpath)]
        (iter set left right))))
  
@@ -1006,7 +1002,7 @@
  
  (defprotocol IIter
    (-copy [this left right]))
-@@ -644,28 +595,24 @@
+@@ -644,28 +601,24 @@
  
  (declare -seek* -rseek*)
  
@@ -1044,7 +1040,7 @@
      (when keys
        (if (< (inc idx) (arrays/alength keys))
          ;; can use cached array to move forward
-@@ -676,35 +623,8 @@
+@@ -676,35 +629,8 @@
            (when (path-lt left' right)
              (-copy this left' right))))))
  
@@ -1082,7 +1078,7 @@
      (loop [left left
             keys keys
             idx  idx
-@@ -736,53 +656,42 @@
+@@ -736,53 +662,42 @@
    ISeek
    (-seek [this key]
      (-seek this key (.-comparator set)))
@@ -1150,7 +1146,7 @@
      (when keys
        (if (> idx 0)
          ;; can use cached array to advance
-@@ -805,25 +714,18 @@
+@@ -805,25 +720,18 @@
    (-seek [this key cmp]
      (cond
        (nil? key)
@@ -1180,7 +1176,7 @@
  
  (defn riter [set left right]
    (ReverseIter. set left right (keys-for set right) (path-get right 0)))
-@@ -938,14 +840,14 @@
+@@ -938,14 +846,14 @@
          (let [rest (- len pos)]
            (cond
              (<= rest max-len)
@@ -1198,7 +1194,7 @@
                  (recur (+ pos piece-len)))))))
      (to-array (persistent! acc))))
  
-@@ -1046,11 +948,11 @@
+@@ -1046,11 +954,11 @@
     `(rslice set from to)` returns backwards iterator for all Xs where from <= X <= to.
     Optionally pass in comparator that will override the one that set uses. Supports efficient [[clojure.core/rseq]]."
    ([set key]

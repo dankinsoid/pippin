@@ -38,9 +38,10 @@
   `manifest.edn`: a manifest would make it a corpus library whose suite the gates run, and its suite is not
   ported. It found three gaps, fixed: `(.-field x)` on a deftype or record (NOTES "Type descriptor"), the `new`
   special form ("Analyzer and evaluator") and the core interfaces under their `clojure.lang.` names, besides the
-  statics `Integer/compare` and `Math/sqrt` (`docs/jvm-differences.md`). The rest are open entries the port works
-  around: mutable fields, `Indexed`/`Associative` and a Reversible slot on a deftype ("Type descriptor"), a
-  record's own hash and count ("Records"), and the two namespaces of the next item.
+  statics `Integer/compare` and `Math/sqrt` (`docs/jvm-differences.md`), and later mutable fields, with which its
+  Datom and BTSet cache their hashes and Datom sets its idx as upstream ("Type descriptor"). The rest are open entries
+  the port works around: `Indexed`/`Associative`, the transient interfaces and a Reversible slot on a deftype ("Type
+  descriptor"), a record's own hash and count ("Records"), and the two namespaces of the next item.
 - [ ] **No `clojure.data` and no `clojure.edn`.** datascript's db requires `clojure.data` only to extend its
   `Diff` and `EqualityPartition` protocols to DB, and its query reads rules given as a string with
   `clojure.edn/read-string`; the port drops the first and reads with `read-string`. Both are JVM Clojure
