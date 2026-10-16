@@ -99,7 +99,7 @@ _Static_assert(sizeof(clj_slot) == sizeof(clj_value), "a slot is the bare word")
 // A reference type that took an edge since a local walk last saw it.
 #define CLJ_FLAG_DIRTY       ((uint32_t)1 << 13)
 #define CLJ_FLAG_CC_LOCAL    (CLJ_FLAG_ACYCLIC | CLJ_FLAG_GUARDED | CLJ_FLAG_DIRTY)
-// A reference type a heap object took an edge to; never cleared, implied by SHARED (design §7, «Проверка цикла в момент записи»).
+// A reference type with REACH_LOCAL a heap object took an edge to; never cleared, implied by SHARED (design §7).
 #define CLJ_FLAG_HEAPREF     ((uint32_t)1 << 14)
 // -DCLJ_STATS only: retained at least once, so its count passed 1 (the allocation census, stats.c).
 #define CLJ_FLAG_RETAINED    ((uint32_t)1 << 16)
@@ -344,7 +344,9 @@ extern _Atomic uint64_t clj_debug_rc_counters[3];
 // gets none: the collector never enters it. Only a new bit is written, into an unshared or a shared unique owner, so
 // the plain write races with no reader; an ex-info's trace, stored after publication, brings none.
 // The new edge voids the owner's acyclic mark or dirties a reference type (design §7, «Метка «ацикличен»»).
-// A reference type takes HEAPREF at its first edge from the heap: a store into it can close a cycle only after one.
+// The REACH_LOCAL child's branch is the only one longer than main's: the in-place path is hot (bench/RESULTS.md).
+// A reference type takes HEAPREF there, at its first edge from the heap: a store into it closes a cycle only after
+// one, and one without REACH_LOCAL is on no cycle a local collection could free.
 static inline void clj_reach_from(clj_header *owner, uint32_t flags, clj_value v) {
 	if (!clj_is_ptr(v)) return;
 	clj_header *c = clj_header_of(v);
@@ -358,26 +360,26 @@ static inline void clj_reach_from(clj_header *owner, uint32_t flags, clj_value v
 				owner->flags = (flags | CLJ_FLAG_DIRTY) & ~CLJ_FLAG_GUARDED;
 			}
 			uint32_t f = c->flags;
-			if ((f & (CLJ_FLAG_MUTABLE | CLJ_FLAG_HEAPREF | CLJ_FLAG_SHARED)) == CLJ_FLAG_MUTABLE) c->flags = f | CLJ_FLAG_HEAPREF;
-			// After the guard hit, so a mark the walk would skip is void. An immutable owner is edited only while
-			// unique from an owned root down, and a path back to it would make that root shared (design §7).
-			if (__builtin_expect((f & (CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_SHARED)) == CLJ_FLAG_REACH_LOCAL, 0) &&
-			    ((flags & CLJ_FLAG_HEAPREF) || c == owner))
-				clj_cc_store_check(owner, c);
+			if (__builtin_expect((f & (CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_SHARED)) == CLJ_FLAG_REACH_LOCAL, 0)) {
+				if ((f & (CLJ_FLAG_MUTABLE | CLJ_FLAG_HEAPREF)) == CLJ_FLAG_MUTABLE) c->flags = f | CLJ_FLAG_HEAPREF;
+				// After the guard hit, so a mark the walk would skip is void. An immutable owner is edited only while
+				// unique from an owned root down, and a path back to it would make that root shared (design §7).
+				if ((flags & CLJ_FLAG_HEAPREF) || c == owner) clj_cc_store_check(owner, c);
+			}
 			return;
 		}
 		flags &= ~CLJ_FLAG_ACYCLIC;
 		owner->flags = flags;
 	}
 	uint32_t f = c->flags;
-	if (__builtin_expect((f & (CLJ_FLAG_MUTABLE | CLJ_FLAG_HEAPREF | CLJ_FLAG_SHARED)) == CLJ_FLAG_MUTABLE, 0))
-		c->flags = f | CLJ_FLAG_HEAPREF;
-	uint32_t add = (f & (CLJ_FLAG_REACH | CLJ_FLAG_LAZY)) |
-	               ((f & (CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_SHARED)) == CLJ_FLAG_REACH_LOCAL ? CLJ_FLAG_REACH_LOCAL : 0);
+	uint32_t add = f & (CLJ_FLAG_REACH | CLJ_FLAG_LAZY);
+	if (__builtin_expect((f & (CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_SHARED)) == CLJ_FLAG_REACH_LOCAL, 0)) {
+		if ((f & (CLJ_FLAG_MUTABLE | CLJ_FLAG_HEAPREF)) == CLJ_FLAG_MUTABLE) c->flags = f | CLJ_FLAG_HEAPREF;
+		add |= CLJ_FLAG_REACH_LOCAL | clj_cc_kill_oncycle;
+	}
 	if (!(add & ~flags)) return;
 	CLJ_ASSERT(!(flags & CLJ_FLAG_SHARED) || atomic_load_explicit(&owner->rc, memory_order_relaxed) == 1,
 	           "reach bits into a published owner another reference can read");
-	if (add & ~flags & CLJ_FLAG_REACH_LOCAL) add |= clj_cc_kill_oncycle;
 	owner->flags |= add;
 }
 
