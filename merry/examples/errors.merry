@@ -13,8 +13,8 @@
 (defn nested-placeholder [xs]
   (-> xs (map (fn [x] (+ x $)))))
 
-(defn three-way [a b c]
-  (and a b c))
+(defn mixed-chain [x]
+  (<= 0 x "10"))
 
 (defn not-a-bool [xs]
   (if (first xs) 1 0))

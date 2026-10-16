@@ -20,7 +20,10 @@
     coupon? (- 5)))
 
 (defn in-range? [lo hi x]
-  (and (<= lo x) (<= x hi)))
+  (<= lo x hi))
+
+(defn valid-order? [qty max-qty paid?]
+  (and (pos? qty) (<= qty max-qty) paid?))
 
 (defn positive-or-log [x]
   (or (pos? x) (do (println "not positive:" x) false)))
@@ -42,7 +45,7 @@
 (defn -main {:eff #{Console}} []
   (println (sum-of-squares [1 2 3]) (clamp 0 10 42) (percent 3 4))
   (println (first-even-square [1 3 4 5]) (first-even-square [1 3]))
-  (println (discount 100 true false) (in-range? 1 5 3) (grade 80))
+  (println (discount 100 true false) (in-range? 1 5 3) (valid-order? 2 10 true) (grade 80))
   (positive-or-log -1)
   (when (in-range? 1 5 3) (println "in range"))
   (println (twice inc 5) (total-of {:total 7 :id 1}) (factorial 20)))

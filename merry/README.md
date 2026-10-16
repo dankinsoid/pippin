@@ -29,7 +29,9 @@ notation of `static.clj`:
 - A declared row on `defn` (`{:eff #{Console}}`) is closed; an effect outside it is an error that
   names the chain of calls behind it.
 - `:thunk` parameters: the call site wraps the argument (`merry/thunk` in `--explain`), `@` runs it.
-  `and`, `or`, `when`, `when-not` are functions in `resources/merry/prelude.merry`.
+  A variadic `& xs :- [:vector [:thunk T]]` wraps every extra argument, so `and` and `or` keep any
+  arity; they, `when` and `when-not` are functions in `resources/merry/prelude.merry`.
+- Comparisons and `=` stay variadic, as in Clojure: `(<= lo x hi)`.
 - `->`, `->>`, `some->`, `some->>`, `cond->`, `cond->>` with `$` as a direct argument of a step; the
   threaded value is evaluated once. `cond` with `_` as its default.
 - `[:maybe T]` only from a literal `(if c x nil)`, from builtins such as `first`, and through
@@ -40,5 +42,5 @@ notation of `static.clj`:
 ## Not yet
 
 Patterns, `match`/`case` and destructuring; `deftype`; `defeffect`, handlers and `Fail`; givens (so
-`+` and `count` are monomorphic); modes and the in-place/copy report; variadic `:thunk` parameters
-(`and` takes two arguments); sets, strings as collections, doubles in arithmetic.
+`+` and `count` are monomorphic); modes and the in-place/copy report; sets, strings as collections,
+doubles in arithmetic.

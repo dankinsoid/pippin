@@ -18,12 +18,12 @@
    'dec {:type '[:=> [:int] :int] :impl #(Math/decrementExact (long %))}
    'max {:type '[:=> [:int & :int] :int] :impl max}
    'min {:type '[:=> [:int & :int] :int] :impl min}
-   '= {:type '[:=> [a a] :bool] :impl =}
-   'not= {:type '[:=> [a a] :bool] :impl not=}
-   '< {:type '[:=> [:int :int] :bool] :impl <}
-   '> {:type '[:=> [:int :int] :bool] :impl >}
-   '<= {:type '[:=> [:int :int] :bool] :impl <=}
-   '>= {:type '[:=> [:int :int] :bool] :impl >=}
+   '= {:type '[:=> [a & a] :bool] :impl =}
+   'not= {:type '[:=> [a & a] :bool] :impl not=}
+   '< {:type '[:=> [:int & :int] :bool] :impl <}
+   '> {:type '[:=> [:int & :int] :bool] :impl >}
+   '<= {:type '[:=> [:int & :int] :bool] :impl <=}
+   '>= {:type '[:=> [:int & :int] :bool] :impl >=}
    'zero? {:type '[:=> [:int] :bool] :impl zero?}
    'pos? {:type '[:=> [:int] :bool] :impl pos?}
    'neg? {:type '[:=> [:int] :bool] :impl neg?}
@@ -36,6 +36,7 @@
    'print {:type '[:=> [& :any] :nil {:eff #{Console}}] :impl print}
    'count {:type '[:=> [[:vector a]] :int] :impl count}
    'conj {:type '[:=> [[:vector a] a] [:vector a]] :impl conj}
+   'nth {:type '[:=> [[:vector a] :int] a] :impl nth}
    'first {:type '[:=> [[:vector a]] [:maybe a]] :impl first}
    'rest {:type '[:=> [[:vector a]] [:vector a]] :impl #(vec (rest %))}
    'map {:type '[:=> [[:=> [a] b {:eff e}] [:vector a]] [:vector b] {:eff e}] :impl mapv}
