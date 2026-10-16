@@ -645,19 +645,82 @@ static inline clj_value clj_c_proto_ic_call(clj_cproto_ic *ic, clj_value method,
 // (field* x i) with a constant i: b_field's checks, then the slot; anything else throws through the builtin.
 static inline clj_value clj_c_field_at(clj_value fn, const clj_value *args, uint32_t i) {
 	clj_value x = args[0];
-	if (CLJC_NATIVE_IS(fn, clj_b_field_star) && clj_is_instance(x) && i < ((const clj_user_type *)clj_type_of(x))->nfields) {
-		return clj_retain(((const clj_instance *)clj_to_ptr(x))->fields[i].v);
+	if (CLJC_NATIVE_IS(fn, clj_b_field_star) && clj_is_instance(x)) {
+		const clj_user_type *ut = (const clj_user_type *)clj_type_of(x);
+		if (i < ut->nfields && !clj_user_type_field_mutable(ut, i)) return clj_retain(((const clj_instance *)clj_to_ptr(x))->fields[i].v);
 	}
 	return clj_c_invoke(fn, args, 2);
 }
 
-// (field* x i) at +0 for a let slot that borrows it (closed): x outlives the slot and a deftype's fields never change.
-// Not an instance or past its fields is the builtin's throw, the only other answer it has.
+// (field* x i) at +0 for a let slot that borrows it (closed): x outlives the slot and field* reads no mutable field.
+// Not an instance, past its fields or a mutable one is the builtin's throw, the only other answer it has.
 static inline clj_value clj_c_field_view(clj_value x, uint32_t i) {
-	if (clj_is_instance(x) && i < ((const clj_user_type *)clj_type_of(x))->nfields) return ((const clj_instance *)clj_to_ptr(x))->fields[i].v;
+	if (clj_is_instance(x)) {
+		const clj_user_type *ut = (const clj_user_type *)clj_type_of(x);
+		if (i < ut->nfields && !clj_user_type_field_mutable(ut, i)) return ((const clj_instance *)clj_to_ptr(x))->fields[i].v;
+	}
 	clj_value r = clj_b_field_star((const clj_value[]){x, clj_fixnum((intptr_t)i)}, 2);
 	if (r != CLJ_THROWN) clj_fatal("field*: a value from a receiver that is no instance or has no such field");
 	return r;
+}
+
+// ---- a raw mutable field unboxed (closed): the arm checks what the facts said, else the builtin's read or store.
+
+// The instance x whose field i is a raw one of kind hint, else NULL.
+static inline clj_instance *clj_c_raw_field(clj_value x, uint32_t i, clj_field_hint hint) {
+	if (!clj_is_instance(x)) return NULL;
+	const clj_user_type *ut = (const clj_user_type *)clj_type_of(x);
+	if (i >= ut->nfields || !ut->muts || !(ut->muts[i] & CLJ_FIELD_RAW) || ut->hints[i] != hint) return NULL;
+	return clj_to_ptr(x);
+}
+
+static inline uint64_t clj_c_raw_load(const clj_instance *o, uint32_t i) {
+	const clj_user_type *ut = (const clj_user_type *)o->h.type;
+	if (ut->muts[i] & CLJ_FIELD_VOLATILE) return clj_slot_bits(&o->fields[i], memory_order_seq_cst);
+	return clj_slot_bits(&o->fields[i], memory_order_relaxed);
+}
+
+static inline void clj_c_raw_store(clj_instance *o, uint32_t i, uint64_t bits) {
+	const clj_user_type *ut = (const clj_user_type *)o->h.type;
+	if (ut->muts[i] & CLJ_FIELD_VOLATILE) clj_slot_set_bits(&o->fields[i], bits, memory_order_seq_cst);
+	else clj_slot_set_bits(&o->fields[i], bits, memory_order_relaxed);
+}
+
+// The other arms, in compiled.c: false with the exception pending.
+bool clj_c_mfield_slow(clj_value x, uint32_t i, bool dbl, void *out);
+bool clj_c_set_mfield_slow(clj_value x, uint32_t i, bool dbl, void *v);
+
+static inline bool clj_c_mfield_i64(clj_value x, uint32_t i, int64_t *out) {
+	clj_instance *o = clj_c_raw_field(x, i, CLJ_HINT_LONG);
+	if (__builtin_expect(o == NULL, 0)) return clj_c_mfield_slow(x, i, false, out);
+	*out = (int64_t)clj_c_raw_load(o, i);
+	return true;
+}
+
+static inline bool clj_c_mfield_f64(clj_value x, uint32_t i, double *out) {
+	clj_instance *o = clj_c_raw_field(x, i, CLJ_HINT_DOUBLE);
+	if (!o) o = clj_c_raw_field(x, i, CLJ_HINT_FLOAT);
+	if (__builtin_expect(o == NULL, 0)) return clj_c_mfield_slow(x, i, true, out);
+	uint64_t bits = clj_c_raw_load(o, i);
+	memcpy(out, &bits, sizeof *out);
+	return true;
+}
+
+static inline bool clj_c_set_mfield_i64(clj_value x, uint32_t i, int64_t v) {
+	clj_instance *o = clj_c_raw_field(x, i, CLJ_HINT_LONG);
+	if (__builtin_expect(o == NULL, 0)) return clj_c_set_mfield_slow(x, i, false, &v);
+	clj_c_raw_store(o, i, (uint64_t)v);
+	return true;
+}
+
+// *v becomes the stored value: a ^float field's store is the builtin's, which rounds and range-checks it.
+static inline bool clj_c_set_mfield_f64(clj_value x, uint32_t i, double *v) {
+	clj_instance *o = clj_c_raw_field(x, i, CLJ_HINT_DOUBLE);
+	if (__builtin_expect(o == NULL, 0)) return clj_c_set_mfield_slow(x, i, true, v);
+	uint64_t bits;
+	memcpy(&bits, v, sizeof bits);
+	clj_c_raw_store(o, i, bits);
+	return true;
 }
 
 // (new* T args...) of a deftype: the instance built in place, its hints checked; a record, a wrong count or a non-type through the builtin.

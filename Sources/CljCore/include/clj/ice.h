@@ -65,7 +65,8 @@ enum {
 	CLJ_NO_OPT_FIELDS     = 1u << 21, // a deftype field's hint as its fact in the method bodies, the receiver of a method its type
 	CLJ_NO_OPT_KNOWN      = 1u << 22, // nth, count, int, aget and the unchecked ops specialized on the facts of their arguments
 	CLJ_NO_OPT_PROTO_INLINE = 1u << 23, // a protocol method's single implementation inlined at the call under its arm's guard
-	CLJ_NO_OPT_ALL        = (1u << 24) - 1,
+	CLJ_NO_OPT_RAW_FIELDS = 1u << 24, // a raw mutable field's read and set! unboxed in a closed unit
+	CLJ_NO_OPT_ALL        = (1u << 25) - 1,
 };
 // "1"/"all", ""/"0", or a comma list of the names above; UINT32_MAX for an unknown word.
 uint32_t clj_no_opt_parse(const char *spec);

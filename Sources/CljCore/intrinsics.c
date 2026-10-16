@@ -8,6 +8,7 @@
 #include "clj/ice.h"
 #include "clj/intrinsics.h"
 #include "clj/ns.h"
+#include "clj/proto.h"
 #include "clj/string.h"
 #include "clj/symbol.h"
 #include "clj/var.h"
@@ -99,6 +100,9 @@ static const clj_intrinsic table[] = {
 	I2("aget", clj_aget, false),
 	I3("aset", clj_aset, false),
 	I1("alength", clj_alength, false),
+	// A deftype's mutable field (design §4 «Роли конструкций»): set! inside the type's methods, not pure for the same reason.
+	I2("mutable-field*", clj_mutable_field, false),
+	I3("set-field!*", clj_set_field, false),
 };
 
 enum { N = sizeof table / sizeof *table };

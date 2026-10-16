@@ -400,6 +400,8 @@ clj_value clj_record_type_new(clj_value name, clj_value fields, const clj_value 
 		                     CLJ_STR(clj_symbol_name(clj_protocol_of(impls[i])->name.v)).bytes);
 	}
 	if (!clj_is_vector(fields)) return clj_throw_msg("defrecord fields must be a vector, got: %s", clj_type_name(fields));
+	// a record is a value: assoc and = read its basis as data (design §4 «Роли конструкций»)
+	if (clj_fields_mutable(fields)) return clj_throw_msg("defrecord fields cannot be mutable: %s", clj_is_symbol(name) ? CLJ_STR(clj_symbol_name(name)).bytes : "?");
 	uint32_t         n = clj_vector_count(fields);
 	clj_record_type *rt = clj_alloc(&clj_type_type, sizeof *rt + (size_t)n * sizeof(clj_value));
 	for (uint32_t i = 0; i < n; i++) {

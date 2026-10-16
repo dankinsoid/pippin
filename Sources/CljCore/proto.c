@@ -30,6 +30,8 @@
 #include "clj/symbol.h"
 #include "clj/var.h"
 #include "clj/vector.h"
+#include "cc_internal.h"
+#include "coro_internal.h"
 
 // ---- snapshots
 
@@ -316,11 +318,14 @@ int64_t clj_instance_field_index(clj_value obj, clj_value selector) {
 	return sel[0] == '-' && !ut->reified ? field_named(ut, sel + 1, clj_string_len(selector) - 1) : -1;
 }
 
+static clj_value mutable_read(clj_instance *o, uint32_t i);
+
 clj_value clj_instance_send(clj_value target, clj_value selector, const clj_value *args, uint32_t nargs) {
 	const char          *sel = CLJ_STR(selector).bytes;
 	const clj_user_type *ut = (const clj_user_type *)clj_type_of(target);
 	if (nargs == 0) {
 		int64_t i = clj_instance_field_index(target, selector);
+		if (i >= 0 && clj_user_type_field_mutable(ut, (uint32_t)i)) return mutable_read(clj_to_ptr(target), (uint32_t)i);
 		if (i >= 0) return clj_retain(clj_instance_field(target, (uint32_t)i));
 	}
 	clj_value f = method_named(&ut->t, sel, strcspn(sel, ":"));
@@ -681,7 +686,9 @@ clj_value clj_proto_extends(clj_value proto, clj_value type) {
 static void instance_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_instance        *o = self;
 	const clj_user_type *ut = (const clj_user_type *)o->h.type;
-	for (uint32_t i = 0; i < ut->nfields; i++) visit(o->fields[i].v, ctx);
+	for (uint32_t i = 0; i < ut->nfields; i++) {
+		if (!ut->muts || !(ut->muts[i] & CLJ_FIELD_RAW)) visit(o->fields[i].v, ctx);
+	}
 	visit(clj_from_ptr((void *)ut), ctx);
 }
 
@@ -706,6 +713,7 @@ static void type_finalize(void *self) {
 	users_remove(self);
 	free(((clj_user_type *)self)->t.user_protos);
 	free(((clj_user_type *)self)->hints);
+	free(((clj_user_type *)self)->muts);
 	clj_epoch_bump();
 }
 
@@ -1065,6 +1073,59 @@ static uint8_t *field_hints(clj_value fields) {
 	return hints;
 }
 
+static clj_value kw_unsync, kw_volatile;
+
+static bool meta_flag(clj_value m, clj_value kw) { return clj_is_map(m) && clj_truthy(clj_map_get(m, kw, CLJ_NIL)); }
+
+// The CLJ_FIELD_* bits a field's meta and hint give it, 0 for an immutable field; CLJ_THROWN for both marks.
+static clj_value field_mut_of(clj_value field, uint8_t hint) {
+	clj_value m = clj_meta(field);
+	if (m == CLJ_THROWN) return CLJ_THROWN;
+	bool unsync = meta_flag(m, kw_unsync), vol = meta_flag(m, kw_volatile);
+	clj_release(m);
+	if (unsync && vol) return clj_throw_msg("Field %s is both ^:unsynchronized-mutable and ^:volatile-mutable", CLJ_STR(clj_symbol_name(field)).bytes);
+	if (!unsync && !vol) return clj_fixnum(0);
+	uint8_t bits = unsync ? CLJ_FIELD_UNSYNC : CLJ_FIELD_VOLATILE;
+	switch ((clj_field_hint)hint) {
+	case CLJ_HINT_LONG:
+	case CLJ_HINT_DOUBLE:
+	case CLJ_HINT_FLOAT: bits |= CLJ_FIELD_RAW; break;
+	// what these admit is an immediate, so a store is no edge
+	case CLJ_HINT_INT:
+	case CLJ_HINT_SHORT:
+	case CLJ_HINT_BYTE:
+	case CLJ_HINT_BOOLEAN:
+	case CLJ_HINT_CHAR: break;
+	default: bits |= CLJ_FIELD_HEAP; break;
+	}
+	return clj_fixnum(bits);
+}
+
+// ut->muts, owned and heap_mut from the field symbols; false with the exception pending.
+static bool field_muts(clj_user_type *ut, clj_value fields) {
+	for (uint32_t i = 0; i < ut->nfields; i++) {
+		clj_value bits = field_mut_of(clj_vector_nth(fields, i), ut->hints ? ut->hints[i] : CLJ_HINT_NONE);
+		if (bits == CLJ_THROWN) return false;
+		uint8_t b = (uint8_t)clj_fixnum_val(bits);
+		if (!b) continue;
+		if (!ut->muts && !(ut->muts = calloc(ut->nfields, 1))) clj_fatal("out of memory");
+		ut->muts[i] = b;
+		if (b & CLJ_FIELD_UNSYNC) ut->owned = true;
+		if (b & CLJ_FIELD_HEAP) ut->heap_mut = true;
+	}
+	return true;
+}
+
+bool clj_fields_mutable(clj_value fields) {
+	for (uint32_t i = 0; clj_is_vector(fields) && i < clj_vector_count(fields); i++) {
+		clj_value m = clj_meta(clj_vector_nth(fields, i));
+		bool      mut = m != CLJ_THROWN && (meta_flag(m, kw_unsync) || meta_flag(m, kw_volatile));
+		if (m != CLJ_THROWN) clj_release(m);
+		if (mut) return true;
+	}
+	return false;
+}
+
 static clj_value refuse_field(const clj_user_type *ut, uint32_t i, clj_value v, const char *hint) {
 	clj_value f = clj_vector_nth(ut->fields.v, i);
 	return clj_throw_msg("%s cannot be cast to %s: field %s of %s", clj_type_name(v), hint, CLJ_STR(clj_symbol_name(f)).bytes, ut->t.name);
@@ -1117,6 +1178,11 @@ clj_value clj_user_type_init(clj_user_type *ut, clj_value name, clj_value fields
 	clj_slot_init(&ut->t.h, &ut->fields, clj_retain(fields));
 	ut->nfields = clj_vector_count(fields);
 	ut->hints = field_hints(fields);
+	if (!field_muts(ut, fields)) {
+		clj_release(clj_from_ptr(ut));
+		return CLJ_THROWN;
+	}
+	ut->t.mutable_children = ut->muts != NULL;
 	ut->reified = false;
 	ut->t.name = clj_string_heap_bytes(ut->name.v);
 	ut->t.each_child = instance_each_child;
@@ -1169,7 +1235,133 @@ clj_value clj_instance_new(clj_value type, const clj_value *fields, size_t n) {
 
 clj_value clj_instance_field(clj_value obj, uint32_t i) {
 	CLJ_ASSERT(clj_is_instance(obj) && i < ((const clj_user_type *)clj_type_of(obj))->nfields, "instance field out of range");
+	CLJ_ASSERT(!clj_user_type_field_mutable((const clj_user_type *)clj_type_of(obj), i), "a plain read of a mutable field");
 	return ((clj_instance *)clj_to_ptr(obj))->fields[i].v;
+}
+
+// ---- mutable fields (design §4 «Роли конструкций и ссылочные типы»)
+
+static uint64_t raw_bits(clj_field_hint hint, clj_value admitted) {
+	if (hint == CLJ_HINT_LONG) {
+		int64_t x = 0;
+		if (!clj_int64_of(admitted, &x)) clj_ice("proto/raw-long", NULL, "a ^long field admitted a %s", clj_type_name(admitted));
+		return (uint64_t)x;
+	}
+	if (!clj_is_double(admitted)) clj_ice("proto/raw-double", NULL, "a ^double field admitted a %s", clj_type_name(admitted));
+	double   d = clj_double_val(admitted);
+	uint64_t bits;
+	memcpy(&bits, &d, sizeof bits);
+	return bits;
+}
+
+static clj_value raw_value(clj_field_hint hint, uint64_t bits) {
+	if (hint == CLJ_HINT_LONG) return clj_long_new((int64_t)bits);
+	double d;
+	memcpy(&d, &bits, sizeof d);
+	return clj_double_new(d);
+}
+
+// The execution an instance's ^:unsynchronized-mutable fields belong to: the one that made it.
+static uintptr_t owner_here(void) { return (uintptr_t)clj_coro_current(); }
+
+clj_value clj_instance_make_mutable(const clj_user_type *ut, const clj_value *fields, size_t n) {
+	clj_instance *o = clj_alloc(&ut->t, sizeof *o + (n + (ut->owned ? 1 : 0)) * sizeof *o->fields);
+	// before the slots: a MUTABLE owner takes no reach bits from its children, so it is born with them (object.h)
+	if (ut->heap_mut) o->h.flags |= CLJ_FLAG_MUTABLE | CLJ_FLAG_REACH | clj_cc_born_local();
+	for (size_t i = 0; i < n; i++) {
+		if (ut->muts[i] & CLJ_FIELD_RAW) clj_slot_set_bits(&o->fields[i], raw_bits((clj_field_hint)ut->hints[i], fields[i]), memory_order_relaxed);
+		else clj_slot_init(&o->h, &o->fields[i], clj_retain(fields[i]));
+	}
+	if (ut->owned) clj_slot_set_bits(&o->fields[n], owner_here(), memory_order_relaxed);
+	clj_retain(clj_from_ptr((void *)ut));
+	return clj_from_ptr(o);
+}
+
+// The instance x and its mutable field i, or false with the throw pending.
+static bool mutable_at(clj_value x, clj_value i, const char *op, clj_instance **o, uint32_t *k) {
+	if (!clj_is_instance(x)) {
+		clj_throw_msg("%s expects a deftype instance, got: %s", op, clj_type_name(x));
+		return false;
+	}
+	const clj_user_type *ut = (const clj_user_type *)clj_type_of(x);
+	if (!clj_is_fixnum(i) || clj_fixnum_val(i) < 0 || (uintptr_t)clj_fixnum_val(i) >= ut->nfields) {
+		clj_throw_msg("%s index out of range", op);
+		return false;
+	}
+	*k = (uint32_t)clj_fixnum_val(i);
+	if (!clj_user_type_field_mutable(ut, *k)) {
+		clj_throw_msg("%s: field %s of %s is not mutable", op, CLJ_STR(clj_symbol_name(clj_vector_nth(ut->fields.v, *k))).bytes, ut->t.name);
+		return false;
+	}
+	*o = clj_to_ptr(x);
+	return true;
+}
+
+static memory_order field_order(uint8_t m) { return (m & CLJ_FIELD_VOLATILE) ? memory_order_seq_cst : memory_order_relaxed; }
+
+// A writer releases a published slot's old value after every window closed, as an atom's commit does.
+static clj_value mutable_read(clj_instance *o, uint32_t i) {
+	const clj_user_type *ut = (const clj_user_type *)o->h.type;
+	uint8_t              m = ut->muts[i];
+	memory_order         order = field_order(m);
+	if (m & CLJ_FIELD_RAW) return raw_value((clj_field_hint)ut->hints[i], clj_slot_bits(&o->fields[i], order));
+	const clj_atomic_slot *slot = (const clj_atomic_slot *)&o->fields[i];
+	if (!(o->h.flags & CLJ_FLAG_SHARED)) return clj_retain(clj_slot_load(slot, order));
+	clj_value v = clj_slot_load(slot, order);
+	if (!clj_is_ptr(v)) return v;
+	clj_proto_reader *r = clj_proto_window_open_inline();
+	v = clj_retain(clj_slot_load(slot, order));
+	clj_proto_window_close_inline(r);
+	return v;
+}
+
+static clj_value field_name_msg(const clj_user_type *ut, uint32_t i) { return clj_symbol_name(clj_vector_nth(ut->fields.v, i)); }
+
+static clj_value mutable_write(clj_instance *o, uint32_t i, clj_value v, bool check) {
+	const clj_user_type *ut = (const clj_user_type *)o->h.type;
+	uint8_t              m = ut->muts[i];
+	bool                 shared = (o->h.flags & CLJ_FLAG_SHARED) != 0;
+	if (check && (m & CLJ_FIELD_UNSYNC) && shared && clj_slot_bits(&o->fields[ut->nfields], memory_order_relaxed) != owner_here()) {
+		return clj_throw_msg("Field %s of %s is ^:unsynchronized-mutable and set! from an execution other than the one that made the "
+		                     "instance; ^:volatile-mutable is the field written from several",
+		                     CLJ_STR(field_name_msg(ut, i)).bytes, ut->t.name);
+	}
+	clj_value admitted = clj_field_admit(ut, i, v);
+	if (admitted == CLJ_THROWN) return CLJ_THROWN;
+	memory_order order = field_order(m);
+	if (m & CLJ_FIELD_RAW) {
+		clj_slot_set_bits(&o->fields[i], raw_bits((clj_field_hint)ut->hints[i], admitted), order);
+		return admitted;
+	}
+	if (!shared) {
+		clj_value old = o->fields[i].v;
+		clj_slot_store(&o->h, &o->fields[i], clj_retain(admitted));
+		clj_release(old);
+		return admitted;
+	}
+	// An exchange, so two writers racing on an unsynchronized field never release one old value twice.
+	clj_value old = clj_slot_exchange(&o->h, (clj_atomic_slot *)&o->fields[i], clj_retain(admitted), (m & CLJ_FIELD_VOLATILE) ? memory_order_seq_cst : memory_order_acq_rel);
+	if (clj_is_ptr(old)) clj_proto_wait_readers();
+	clj_release(old);
+	return admitted;
+}
+
+clj_value clj_mutable_field(clj_value x, clj_value i) {
+	clj_instance *o;
+	uint32_t      k;
+	return mutable_at(x, i, "mutable-field*", &o, &k) ? mutable_read(o, k) : CLJ_THROWN;
+}
+
+clj_value clj_set_field(clj_value x, clj_value i, clj_value v) {
+	clj_instance *o;
+	uint32_t      k;
+	return mutable_at(x, i, "set-field!*", &o, &k) ? mutable_write(o, k, v, true) : CLJ_THROWN;
+}
+
+CLJ_UNIT_ENTRY clj_value clj_set_field_closed(clj_value x, clj_value i, clj_value v) {
+	clj_instance *o;
+	uint32_t      k;
+	return mutable_at(x, i, "set-field!*", &o, &k) ? mutable_write(o, k, v, false) : CLJ_THROWN;
 }
 
 clj_value clj_catch_instance(clj_value var, clj_value ex) {
@@ -1217,7 +1409,18 @@ CLJ_UNIT_ENTRY clj_value clj_b_field_star(const clj_value *args, size_t n) {
 	if (!clj_is_instance(args[0])) return clj_throw_msg("field* expects a deftype instance, got: %s", clj_type_name(args[0]));
 	uint32_t nfields = ((const clj_user_type *)clj_type_of(args[0]))->nfields;
 	if (!clj_is_fixnum(args[1]) || clj_fixnum_val(args[1]) < 0 || (uintptr_t)clj_fixnum_val(args[1]) >= nfields) return clj_throw_msg("field* index out of range");
+	if (clj_user_type_field_mutable((const clj_user_type *)clj_type_of(args[0]), (uint32_t)clj_fixnum_val(args[1]))) return clj_throw_msg("field* of a mutable field: mutable-field* reads it");
 	return clj_retain(clj_instance_field(args[0], (uint32_t)clj_fixnum_val(args[1])));
+}
+
+static clj_value b_mutable_field(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_mutable_field(args[0], args[1]);
+}
+
+static clj_value b_set_field(const clj_value *args, size_t n) {
+	(void)n;
+	return clj_set_field(args[0], args[1], args[2]);
 }
 
 // A reify method: the impl closure sits in field idx of the instance it is called on.
@@ -1354,6 +1557,8 @@ static void bind_core(const char *name, clj_value val) {
 
 void clj_proto_install(void) {
 	kw_tag = clj_keyword_from_cstr("tag");
+	kw_unsync = clj_keyword_from_cstr("unsynchronized-mutable");
+	kw_volatile = clj_keyword_from_cstr("volatile-mutable");
 	static const struct {
 		const char   *name;
 		clj_native_fn fn;
@@ -1364,6 +1569,7 @@ void clj_proto_install(void) {
 		{"extend*", b_extend, 3, 3},           {"satisfies?", b_satisfies, 2, 2},             {"extends?", b_extends, 2, 2},
 		{"instance?", b_instance, 2, 2},       {"type", b_type, 1, 1},
 		{"protocol-epoch*", b_proto_epoch, 0, 0},
+		{"mutable-field*", b_mutable_field, 2, 2}, {"set-field!*", b_set_field, 3, 3},
 	};
 	clj_value core_name = clj_symbol_name(clj_ns_name(clj_ns_core()));
 	for (size_t i = 0; i < sizeof fns / sizeof *fns; i++) {

@@ -295,9 +295,39 @@ CLJ_UNIT_ENTRY clj_value clj_c_field_miss(_Atomic uint64_t *cell, clj_value x, c
 	if (clj_is_instance(x) && !clj_opt_off(CLJ_NO_OPT_DISPATCH)) {
 		uint64_t serial = ((const clj_user_type *)clj_type_of(x))->serial;
 		int64_t  i = clj_instance_field_index(x, selector);
-		if (i >= 0 && i <= 0xffff && serial < (uint64_t)1 << 48) atomic_store_explicit(cell, serial << 16 | (uint64_t)i, memory_order_relaxed);
+		// a mutable field's read is clj_instance_send's: a raw slot boxed, a published one's in a window
+		bool mut = i >= 0 && clj_user_type_field_mutable((const clj_user_type *)clj_type_of(x), (uint32_t)i);
+		if (i >= 0 && i <= 0xffff && !mut && serial < (uint64_t)1 << 48) atomic_store_explicit(cell, serial << 16 | (uint64_t)i, memory_order_relaxed);
 	}
 	return clj_objc_send(x, selector, &x, 0, false);
+}
+
+// A receiver or field the facts got wrong: the builtin's own answer or throw, then the kind the site holds it in.
+// @ai-generated(solo)
+CLJ_UNIT_ENTRY bool clj_c_mfield_slow(clj_value x, uint32_t i, bool dbl, void *out) {
+	clj_value v = clj_mutable_field(x, clj_fixnum((intptr_t)i));
+	if (v == CLJ_THROWN) return false;
+	int64_t n;
+	bool    ok = dbl ? clj_is_double(v) : clj_int64_of(v, &n);
+	if (ok && dbl) *(double *)out = clj_double_val(v);
+	else if (ok) *(int64_t *)out = n;
+	else clj_throw_msg("a mutable field the compiler read as a %s holds a %s", dbl ? "double" : "long", clj_type_name(v));
+	clj_release(v);
+	return ok;
+}
+
+// @ai-generated(solo)
+CLJ_UNIT_ENTRY bool clj_c_set_mfield_slow(clj_value x, uint32_t i, bool dbl, void *v) {
+	clj_value boxed = dbl ? clj_double_new(*(double *)v) : clj_long_new(*(int64_t *)v);
+	clj_value r = clj_set_field_closed(x, clj_fixnum((intptr_t)i), boxed);
+	clj_release(boxed);
+	if (r == CLJ_THROWN) return false;
+	// the stored value, which the hint may have cast
+	bool ok = dbl ? clj_is_double(r) : clj_int64_of(r, (int64_t *)v);
+	if (ok && dbl) *(double *)v = clj_double_val(r);
+	clj_release(r);
+	if (!ok) clj_throw_msg("a mutable field the compiler wrote as a %s took another kind", dbl ? "double" : "long");
+	return ok;
 }
 
 #if CLJ_DEBUG

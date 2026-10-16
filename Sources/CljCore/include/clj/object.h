@@ -470,6 +470,15 @@ static inline bool clj_slot_cas(clj_header *owner, clj_atomic_slot *slot, clj_va
 	return true;
 }
 
+// A slot of primitive bits, which each_child skips: a mutable ^long or ^double field (proto.h, CLJ_FIELD_RAW).
+static inline uint64_t clj_slot_bits(const clj_slot *slot, memory_order order) {
+	return atomic_load_explicit((const _Atomic uint64_t *)(const void *)&slot->v, order);
+}
+
+static inline void clj_slot_set_bits(clj_slot *slot, uint64_t bits, memory_order order) {
+	atomic_store_explicit((_Atomic uint64_t *)(void *)&slot->v, bits, order);
+}
+
 // A read-only view of a slot array as values, for an API that takes clj_value * (a frame's captures).
 static inline const clj_value *clj_slot_values(const clj_slot *slots) { return (const clj_value *)(const void *)slots; }
 

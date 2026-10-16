@@ -355,8 +355,8 @@
   mangle is `So…C` carries its `Class` and `clj_objc_send` takes it.
 - **Var meta carries `:file`** when `*file*` is bound (a load); the host's `eval` and the tests bind none.
 - **`set!` is a rewrite**, not a node: `(set! sym v)` becomes `(clojure.core/var-set (var sym) v)` in the
-  analyzer, so it serializes as an invoke. A local target is "Cannot assign to non-mutable"; deftype
-  fields are not assignable (no mutable fields).
+  analyzer, so it serializes as an invoke. A local target is "Cannot assign to non-mutable"; a deftype's
+  mutable field in its own method body is `(set-field!* this i v)` (NOTES "Type descriptor", mutable fields).
 - **Lenient loading** (`clj_load_set_lenient`) is the corpus harness's mode: a top-level form that fails to
   read or evaluate is recorded (`clj_load_take_failures`: `{:file :line :column :name :message}`) and
   skipped, so one missing function does not hide the rest of a library's gaps. Never on for a user.

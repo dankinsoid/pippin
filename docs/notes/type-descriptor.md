@@ -70,18 +70,43 @@
   is unchecked until a use through it; here the facts read it in the method bodies (docs/notes/facts.md, field
   hints), so a wrong one fails where it is made rather than silently (docs/jvm-differences.md). The check runs under
   every kill switch: it is the language, not an optimization.
-- [ ] **No mutable fields.** Design §4 «Роли конструкций» has `^:unsynchronized-mutable`/`^:volatile-mutable`
-  fields assigned by `set!` inside the type's own methods; here such a `set!` is "Cannot assign to non-mutable",
-  because a method body's field is a `let` local over `field*`, bound once. What it takes: a read after a `set!`
-  in the same body must see the store (a field the analyzer reads and stores through, not a local), `field*`
-  stops being pure to the facts across that store, and a store into a published instance takes the collector's
-  barrier (`clj_cc_note_store`, as an atom's does). datascript's Datom and persistent-sorted-set's BTSet cache
-  their hash in one, which their port computes on every call instead (corpus/datascript/SOURCE). Trigger: hashing
-  a datom or a BTSet in a profile, or a library whose mutable field is state rather than a cache. Fired twice:
-  clojure.data.json's StringPBR keeps its read position in one, which its port holds in a one-slot long array, an
-  `aget` and an `aset` per character read (corpus/data-json/SOURCE); and datascript's transient sorted set, whose
-  port drops the transient protocols, transient being the persistent operations here. Open until it is decided
-  to build them, `set!` only inside the type's own methods (design §4 «Роли конструкций»).
+- [~] **Mutable fields** (design §4 «Роли конструкций и ссылочные типы»; core.clj `field-wrap`, analyzer.c
+  `mutable-fields*`, `field_binding`, `snapshot_fields`; proto.c `clj_mutable_field`, `clj_set_field`,
+  `clj_instance_make_mutable`; compiler.c `mfield_kind`, `emit_raw_mfield`; compiled_internal.h `clj_c_mfield_*`).
+  A field marked `^:unsynchronized-mutable` or `^:volatile-mutable` (both is an error, a record's an error) is no local
+  in a method body: the wrap puts the body in `(mutable-fields* this [f i ...] ...)`, and the analyzer makes each read
+  of `f` the call `(mutable-field* this i)` over the receiver's slot and `(set! f v)` the call `(set-field!* this i v)`,
+  both intrinsics, so a read after a store sees it. A `fn*` form inside the body that names a field is analyzed as
+  `(let* [f f ...] (fn* ...))`: the fn holds the value it was made with and a `set!` in it is "Cannot assign to
+  non-mutable", as on the JVM. `field*` of a mutable field throws (the compiled `field*` and field view fall back to it),
+  so field views and the facts' purity of `field*` hold as they were; `(.-f x)` reads one through
+  `clj_instance_send`, and the compiled field cell never fills for it. Per type, `clj_user_type.muts` (`CLJ_FIELD_*`,
+  NULL without a mutable field): a mutable `^long`, `^double` or `^float` field is RAW, its slot the int64 or the
+  double's bits (`clj_slot_bits`), skipped by `instance_each_child`; a mutable `^int`, `^short`, `^byte`, `^boolean`
+  or `^char` field holds only immediates; any other mutable field is HEAP, and its type `heap_mut`: instances are born
+  `MUTABLE | REACH | REACH_LOCAL` as a volatile is, and a store is `clj_slot_store` with the cycle check (design §7).
+  A type with an unsynchronized field is `owned`: the word past its fields is the `clj_coro` that made the instance,
+  and `clj_set_field` (the builtin, so the interpreter and dev units) throws when another execution sets such a field
+  of a published instance; a closed unit calls `clj_set_field_closed`. A published instance's HEAP field is read in a
+  dispatch window and replaced by `clj_slot_exchange`, its old value released after `clj_proto_wait_readers` when it
+  was a pointer; volatile fields load and store `seq_cst`. `set!` admits through the hint as construction does
+  (`clj_field_admit`) and answers the stored value. Facts: `mutable-field*` answers the field hint's fact as `field*`
+  does, `set-field!*` the hint's or its value's; the read is a `state` effect, the store an `atom` one. Closed units
+  read and store a RAW field unboxed when the receiver's fact names the type (`clj_c_mfield_i64`/`_f64`,
+  `clj_c_set_mfield_i64`/`_f64`, a statement `set!` boxing nothing), each arm checking the type and falling back to
+  the builtin; `CLJ_NO_OPT=raw-fields` turns that off. Fixtures/compiler/mutable-fields.clj, MutableFieldTests,
+  StoreCheckTests.deftypeMutableFields. **Not done**, each with its trigger: `(set! (.-f this) v)` inside a method is
+  "Invalid assignment target" — a library that writes its field so; a dev unit boxes every read and store — a dev
+  profile with a mutable field in it; the owner is the instance's maker, so a REPL eval (each a coroutine of its own)
+  cannot set! a field of an instance an earlier eval made, and a hash cache another thread fills fails in dev — a user
+  who meets it, the fix then being an owner that moves with a hand-over; a dead coroutine's address reused by a new one
+  passes the check (silence, not a false error).
+- [ ] **No transient interfaces on a deftype.** `IEditableCollection`, `ITransientCollection` and `ITransientSet`
+  have no slots, so a deftype cannot declare `asTransient`, `conj!`, `persistent!` or `disjoin`; `transient` is the
+  identity outside a small map (NOTES "core.clj") and `conj!` is `conj`, which reaches the type's `cons`.
+  persistent-sorted-set's cljs BTSet declares them only to answer with itself and its `conj`, so its port behaves the
+  same without them (corpus/datascript/SOURCE); mutable fields were not what it lacked. Trigger: a deftype whose
+  transient is a different object with its own state (the Java PersistentSortedSet's `_edit`, a rrb-vector).
 - [ ] **No Reversible slot.** `rseq` takes vectors and sorted collections; a deftype cannot answer it, where
   `clojure.lang.Reversible` lets one on the JVM. persistent-sorted-set's port reverses its slices through a
   protocol of its own, so `(rseq (datoms ...))` in a program does not work. Trigger: a program that `rseq`s a

@@ -114,11 +114,22 @@ typedef enum {
 	CLJ_HINT_ARRAY, // longs, doubles, ...: CLJ_HINT_ARRAY + the clj_array_kind, an array of that kind or nil
 } clj_field_hint;
 
+// A deftype field's mutability (design §4 «Роли конструкций»): set! writes it inside the type's own methods only.
+enum {
+	CLJ_FIELD_UNSYNC = 1,   // ^:unsynchronized-mutable: written by the execution that made the instance (checked in dev)
+	CLJ_FIELD_VOLATILE = 2, // ^:volatile-mutable: seq_cst loads and stores, written from any execution
+	CLJ_FIELD_RAW = 4,  // ^long, ^double, ^float: the slot holds the bits, no value, so it is no edge
+	CLJ_FIELD_HEAP = 8, // may hold a heap value: the instance is a reference type, born MUTABLE
+};
+
 typedef struct {
 	clj_type  t;
 	clj_slot  name;   // string; t.name points into it
 	clj_slot  fields; // vector of symbols
 	uint8_t  *hints;  // clj_field_hint per field, NULL when no field is hinted; written at creation only
+	uint8_t  *muts;   // CLJ_FIELD_* per field, 0 for an immutable one; NULL when no field is mutable; creation only
+	bool      owned;  // an ^:unsynchronized-mutable field: the instance's word past its fields names its execution
+	bool      heap_mut; // a CLJ_FIELD_HEAP field: instances are born MUTABLE, REACH and REACH_LOCAL
 	uint32_t  nfields;
 	bool      reified; // its fields hold the method closures, named after the methods: no field to read
 	uint64_t  serial;  // from 1, never reused: a field-read cell keys on it, so a freed descriptor's address cannot alias
@@ -140,15 +151,25 @@ static inline bool clj_is_type(clj_value v) { return clj_is_ptr(v) && clj_header
 static inline bool clj_is_user_type(clj_value v) { return clj_is_type(v) && !(clj_header_of(v)->flags & CLJ_FLAG_IMMORTAL); }
 // n must equal the type's nfields; fields are retained, cast or checked by their hints.
 clj_value clj_instance_new(clj_value type, const clj_value *fields, size_t n);
+// Whether a field symbol of the vector carries ^:unsynchronized-mutable or ^:volatile-mutable.
+bool clj_fields_mutable(clj_value fields);
 // The hint a field symbol's :tag names, CLJ_HINT_NONE for a tag outside the vocabulary.
 clj_field_hint clj_field_hint_of(clj_value field);
 // Owned value field i of ut holds for v: v retained, a primitive hint's cast, or CLJ_THROWN for a value the hint refuses.
 clj_value clj_field_admit(const clj_user_type *ut, uint32_t i, clj_value v);
 static inline bool clj_is_instance(clj_value v) { return clj_is_ptr(v) && clj_is_user_type(clj_from_ptr((void *)clj_type_of(v))); }
-// Borrowed; aborts out of range.
+// Borrowed; aborts out of range or on a mutable field, whose slot only the mutable reads below may load.
 clj_value clj_instance_field(clj_value obj, uint32_t i);
 // The field `(.-name obj)` reads, as clj_instance_send finds it: selector is "-name"; -1 for no field (a method then).
 int64_t clj_instance_field_index(clj_value obj, clj_value selector);
+static inline bool clj_user_type_field_mutable(const clj_user_type *ut, uint32_t i) { return ut->muts && ut->muts[i]; }
+// (mutable-field* x i): the value of x's mutable field i, a raw one boxed. Throws on anything but a mutable field.
+clj_value clj_mutable_field(clj_value x, clj_value i);
+// (set-field!* x i v): v admitted by the hint as at construction, answered as set! does. Dev only: the owner check.
+clj_value clj_set_field(clj_value x, clj_value i, clj_value v);
+clj_value clj_set_field_closed(clj_value x, clj_value i, clj_value v);
+// clj_instance_make of a type with a mutable field: its birth flags, raw slots and owner word.
+clj_value clj_instance_make_mutable(const clj_user_type *ut, const clj_value *fields, size_t n);
 clj_value clj_is_instance_of(clj_value type, clj_value v);
 // The same through a var holding the descriptor, as a catch clause naming our type does (design §4).
 clj_value clj_catch_instance(clj_value var, clj_value ex);

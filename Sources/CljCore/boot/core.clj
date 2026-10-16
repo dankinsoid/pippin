@@ -2456,22 +2456,28 @@
                    acc))]
     `(do ~@(map (fn [g] `(extend-type ~(first g) ~p ~@(next g))) groups))))
 
-;; A positional slot per field, no (.-field x) access; a record keeps its basis in the same slots (NOTES.md).
+(defn- mutable-field? [f]
+  (let [m (meta f)]
+    (if (or (:unsynchronized-mutable m) (:volatile-mutable m)) true false)))
+
+;; A positional slot per field; a record keeps its basis in the same slots (NOTES.md).
 (defn- field-wrap
-  "The method wrap of deftype and defrecord: the fields a body names become locals over field*."
+  "The method wrap of deftype and defrecord: the fields a body names become locals over field*, the mutable ones
+  reads and stores through the receiver."
   [fields]
   (fn [params body]
     (let [this (first params)]
       (when-not (symbol? this)
         (throw (ex-info (str "deftype method params must start with this, got: " params) nil)))
-      (let [bindings (loop [i 0 acc []]
-                       (if (< i (count fields))
-                         (let [f (nth fields i)]
-                           (recur (inc i)
-                                  (if (and (form-uses? body f) (not-any? (fn [p] (= p f)) params))
-                                    (conj acc f `(field* ~this ~i))
-                                    acc)))
-                         acc))]
+      (let [named (fn [f] (and (form-uses? body f) (not-any? (fn [p] (= p f)) params)))
+            [bindings muts] (loop [i 0 acc [] muts []]
+                              (if (< i (count fields))
+                                (let [f (nth fields i)]
+                                  (recur (inc i)
+                                         (if (and (named f) (not (mutable-field? f))) (conj acc f `(field* ~this ~i)) acc)
+                                         (if (and (named f) (mutable-field? f)) (conj muts f i) muts)))
+                                [acc muts]))
+            body (if (seq muts) (list `(mutable-fields* ~this ~muts ~@body)) body)]
         (if (seq bindings) (list `(let ~bindings ~@body)) body)))))
 
 ;; Clojure's own message, which its ns_libs suite matches; unchecked, the constructor fn the expansion builds

@@ -90,6 +90,27 @@ extension CoreTests.CycleTests {
 		try dropped("(let [v (volatile! {})] (vswap! v assoc :on-click #(vswap! v update :n (fnil inc 0))) ((:on-click @v)) [(:on-click @v)])")
 	}
 
+	// A deftype with a mutable field holding a value is a reference type: its set! is a checked store (design §7).
+	@Test func deftypeMutableFields() throws {
+		try prepared()
+		_ = try eval("""
+		(defprotocol MfLink (mf-link! [n x]))
+		(deftype MfNode [^:unsynchronized-mutable next] MfLink (mf-link! [this x] (set! next x) this))
+		(deftype MfVNode [^:volatile-mutable next] MfLink (mf-link! [this x] (set! next x) this))
+		""")
+		for t in ["MfNode", "MfVNode"] {
+			try dropped("(let [n (\(t). nil)] (mf-link! n n) [n])")
+			for last in ["a", "b"] {
+				try dropped("(let [a (\(t). nil) b (\(t). nil)] (mf-link! a b) (mf-link! b a) [\(last)])")
+				try dropped("(let [a (\(t). nil) b (\(t). nil)] (mf-link! a [b]) (mf-link! b {:a a}) [\(last)])")
+			}
+			try dropped("(let [a (\(t). nil) v (volatile! nil)] (vreset! v a) (mf-link! a v) [v])")
+		}
+		// a primitive field holds no edge: the type is no reference type, and its stores close nothing
+		_ = try eval("(deftype MfCount [^:unsynchronized-mutable ^long n ^:unsynchronized-mutable ^int h] MfLink (mf-link! [this x] (set! n x) (set! h 1) this))")
+		try dropped("(let [c (MfCount. 0 0)] (mf-link! c 5) [c])", cycles: 0)
+	}
+
 	@Test func transients() throws {
 		try prepared()
 		for last in ["t", "v"] {

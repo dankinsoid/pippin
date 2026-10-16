@@ -1,0 +1,7 @@
+2 4 [4 14] 14 14 [14 15] 2
+field* of a mutable field: mutable-field* reads it 15
+[1.5 0.75 [0.5 1.0 1.5]] true 1.5 [0.5 1.0 1.5]
+true true :x true
+b 2 9223372036854775807 [b 9223372036854775807] keyword cannot be cast to a number keyword cannot be cast to String: field s of fixture.mutable-fields.Named
+[:computed 4] [:cached 4] 4
+h é nil 1 éllo 5 nil

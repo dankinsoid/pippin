@@ -248,8 +248,10 @@
   with the type as its descriptor, unless a recur of the arity passes another receiver. `(field* x i)` over a
   receiver with a descriptor answers the hint of field i: `long` fixnum|long, `int`/`short`/`byte` fixnum, `double`
   and `float` double, `boolean`, `char`, `String`/`Keyword`/`Symbol` that kind or nil, an array tag an array of that
-  kind or nil. Sound because every construction admits only what the hint allows (docs/notes/type-descriptor.md,
-  the hint check), and the method fns are reachable only through the type's dispatch. A protocol call inlined under
+  kind or nil; `(mutable-field* x i)` answers the same, `(set-field!* x i v)` the hint's fact or v's, and the read is
+  a `state` effect, the store an `atom` one. Sound because every construction and every `set!` admits only what the
+  hint allows (docs/notes/type-descriptor.md, the hint check and mutable fields), and the method fns are reachable
+  only through the type's dispatch. A protocol call inlined under
   its guard refines the receiver slot to the implementor type in the then branch (`refine`, the guard's case), so
   the copied body's field reads take the same facts (docs/notes/compiler.md, protocol inlining).
 - [ ] **An unhinted field's fact from its construction sites.** `pos` of clojure.data.json's StringPBR is

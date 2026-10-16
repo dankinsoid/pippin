@@ -831,6 +831,33 @@ typedef struct {
 static bool prim_site_of(const fnctx *f, const clj_node *n, direct_entry *d, prim_site *out);
 static direct_entry *direct_of_head(cljc_compiler *c, const clj_node *head);
 
+static bool intrinsic_is(const clj_node *n, const char *cname) { return n->kind == CLJ_NODE_INTRINSIC && strcmp(n->u.intrinsic.op->cname, cname) == 0; }
+static bool is_mfield_read(const clj_node *n) { return intrinsic_is(n, "clj_mutable_field"); }
+static bool is_mfield_set(const clj_node *n) { return intrinsic_is(n, "clj_set_field"); }
+
+static ukind unboxable_kind(const fnctx *f, const clj_node *n);
+
+// The raw field's kind when the receiver's fact names its type and a set!'s value unboxes into it, else UK_NONE.
+// @ai-generated(solo)
+static ukind mfield_kind(const fnctx *f, const clj_node *n, uint32_t *index) {
+	if (!f->c->opts.closed || !f->facts || clj_opt_off(CLJ_NO_OPT_RAW_FIELDS) || !(is_mfield_read(n) || is_mfield_set(n))) return UK_NONE;
+	const clj_node *i = n->u.intrinsic.args[1];
+	const clj_fact *rf = clj_facts_node(f->facts, n->u.intrinsic.args[0]->id);
+	if (!rf || rf->types != CLJ_T_HOST || !rf->desc || i->kind != CLJ_NODE_CONST || !clj_is_fixnum(i->u.value.v)) return UK_NONE;
+	const clj_type *t = rf->desc;
+	if (t->h.type != &clj_type_type || (t->h.flags & CLJ_FLAG_IMMORTAL)) return UK_NONE;
+	const clj_user_type *ut = (const clj_user_type *)t;
+	intptr_t             k = clj_fixnum_val(i->u.value.v);
+	if (ut->reified || k < 0 || (uintptr_t)k >= ut->nfields || !ut->muts || !(ut->muts[k] & CLJ_FIELD_RAW)) return UK_NONE;
+	ukind kind = ut->hints[k] == CLJ_HINT_LONG ? UK_INT : UK_DBL;
+	if (is_mfield_set(n)) {
+		ukind v = unboxable_kind(f, n->u.intrinsic.args[2]);
+		if (v != kind && !(kind == UK_DBL && v == UK_INT)) return UK_NONE;
+	}
+	*index = (uint32_t)k;
+	return kind;
+}
+
 // Closed only: in dev a rebound operator needs the generic path, whose result is a box.
 static ukind unboxable_kind(const fnctx *f, const clj_node *n) {
 	if (!f->c->opts.closed) return UK_NONE;
@@ -842,6 +869,8 @@ static ukind unboxable_kind(const fnctx *f, const clj_node *n) {
 		return prim_site_of(f, n, direct_of_head(f->c, n->u.invoke.fn), &pc) ? pc.ret : UK_NONE;
 	}
 	case CLJ_NODE_INTRINSIC: {
+		uint32_t field;
+		if (is_mfield_read(n) || is_mfield_set(n)) return mfield_kind(f, n, &field);
 		unbox_op op = unbox_op_of(n->u.intrinsic.op);
 		// no facts is the kill switch's emit part: these forms go with the typed slots
 		if (unbox_is_int_valued(op)) return f->facts ? UK_INT : UK_NONE;
@@ -1281,6 +1310,30 @@ static itemp emit_raw_int_valued(fnctx *f, const clj_node *n, unbox_op op) {
 	return t;
 }
 
+// The receiver's raw field loaded or stored in the slot's own representation; the arm checks the type the facts gave.
+// @ai-generated(solo)
+static itemp emit_raw_mfield(fnctx *f, const clj_node *n) {
+	uint32_t i = 0;
+	ukind    k = mfield_kind(f, n, &i);
+	if (k == UK_NONE) clj_ice("emit/mfield-not-raw", n, "a mutable field access emitted unboxed without a raw field");
+	temp  x = emit_borrowed(f, n->u.intrinsic.args[0]);
+	itemp t = new_itemp(f, k);
+	if (is_mfield_set(n)) {
+		itemp v = emit_raw(f, n->u.intrinsic.args[2]);
+		sb_printf(&f->out, "\t%s %s = %s%s;\n", ctype(k), t.name, k == UK_DBL && v.kind == UK_INT ? "(double)" : "", v.name);
+		if (k == UK_INT) sb_printf(&f->out, "\tif (!clj_c_set_mfield_i64(%s, %u, %s)) {\n", x.name, i, t.name);
+		else sb_printf(&f->out, "\tif (!clj_c_set_mfield_f64(%s, %u, &%s)) {\n", x.name, i, t.name);
+	} else {
+		sb_printf(&f->out, "\t%s %s;\n\tif (!%s(%s, %u, &%s)) {\n", ctype(k), t.name, k == UK_INT ? "clj_c_mfield_i64" : "clj_c_mfield_f64", x.name, i, t.name);
+	}
+	emit_site(f);
+	emit_unwind(f);
+	sb_puts(&f->out, "\t}\n");
+	release_temp(f, &x);
+	f->u->slots.unboxed++;
+	return t;
+}
+
 // n as an unboxed value: only for an unboxable node.
 static itemp emit_raw(fnctx *f, const clj_node *n) {
 	fn_line(f, n);
@@ -1303,6 +1356,7 @@ static itemp emit_raw(fnctx *f, const clj_node *n) {
 		return t;
 	}
 	case CLJ_NODE_INTRINSIC: {
+		if (is_mfield_read(n) || is_mfield_set(n)) return emit_raw_mfield(f, n);
 		unbox_op op = unbox_op_of(n->u.intrinsic.op);
 		if (unbox_is_int_valued(op)) return emit_raw_int_valued(f, n, op);
 		itemp    a = emit_raw(f, n->u.intrinsic.args[0]);
@@ -1685,6 +1739,13 @@ static temp emit_do(fnctx *f, const clj_node *n) {
 		return t;
 	}
 	for (uint32_t i = 0; i + 1 < n->u.seq.n; i++) {
+		uint32_t field;
+		// a set! as a statement: a raw store whose value nothing boxes
+		if (is_mfield_set(n->u.seq.items[i]) && mfield_kind(f, n->u.seq.items[i], &field) != UK_NONE) {
+			(void)emit_raw(f, n->u.seq.items[i]);
+			emit_drops(f, n, i);
+			continue;
+		}
 		temp t = emit_borrowed(f, n->u.seq.items[i]);
 		release_temp(f, &t);
 		emit_drops(f, n, i);
@@ -3072,7 +3133,15 @@ static temp emit_takeout(fnctx *f, const clj_node *n, const cljc_reuse_pair *pai
 
 static temp emit_intrinsic(fnctx *f, const clj_node *n) {
 	const clj_intrinsic *op = n->u.intrinsic.op;
-	unbox_op             uop = unbox_op_of(op);
+	uint32_t             field;
+	if (mfield_kind(f, n, &field) != UK_NONE) {
+		itemp raw = emit_raw(f, n);
+		temp  t = new_temp(f, OWN_YES);
+		sb_printf(&f->out, "\tclj_value %s = %s(%s);\n", t.name, raw.kind == UK_INT ? "clj_long_new" : "clj_double_new", raw.name);
+		live_push(f, t);
+		return t;
+	}
+	unbox_op uop = unbox_op_of(op);
 	if (unbox_is_int_valued(uop) && unboxable_kind(f, n) == UK_INT) return emit_unboxed(f, n, uop);
 	if (uop != UNBOX_NONE && !unbox_is_int_valued(uop)) {
 		bool  all_unboxable = true, all_typed = true;
@@ -3145,7 +3214,9 @@ static temp emit_intrinsic(fnctx *f, const clj_node *n) {
 			sb_printf(&f->out, "%s);\n", extra);
 			f->u->slots.known++;
 		} else {
-			emit_intrinsic_call(f, op, fast_cname(op), args, r.name);
+			// the owner check of an ^:unsynchronized-mutable field is dev's (design §4 «Роли конструкций»)
+			const char *cname = f->c->opts.closed && is_mfield_set(n) ? "clj_set_field_closed" : fast_cname(op);
+			emit_intrinsic_call(f, op, cname, args, r.name);
 		}
 	}
 	sb_printf(&f->out, "\t} else {\n\t%s = clj_c_intrinsic_fallback(V[%zu], %s, %u);\n", r.name, vi, array, n->u.intrinsic.n);

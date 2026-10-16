@@ -167,9 +167,11 @@ const clj_type clj_node_type = {
 	.finalize = node_finalize,
 };
 
+// field >= 0: a mutable field of the method's deftype (mutable-fields*), slot the receiver's, safe from shadowing.
 typedef struct {
 	clj_value sym; // borrowed from the form, which outlives the analysis
 	uint32_t  slot;
+	int32_t   field;
 } local;
 
 typedef struct {
@@ -203,10 +205,12 @@ typedef struct {
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
 static clj_value      kw_line, kw_column, kw_end_line, kw_end_column, kw_ns, kw_name, kw_doc, kw_macro, kw_dynamic, kw_file, kw_suggestion, sym_with_meta;
-static clj_value      kw_lazy, kw_eager;
+static clj_value      kw_lazy, kw_eager, sym_mutable_field, sym_set_field;
 
 static void intern_keywords(void) {
 	sym_with_meta = clj_symbol_from_cstr("with-meta");
+	sym_mutable_field = clj_symbol_from_cstr("mutable-field*");
+	sym_set_field = clj_symbol_from_cstr("set-field!*");
 	kw_file = clj_keyword_from_cstr("file");
 	kw_line = clj_keyword_from_cstr("line");
 	kw_column = clj_keyword_from_cstr("column");
@@ -558,7 +562,29 @@ static void push_local(scope *s, clj_value sym, uint32_t slot) {
 		s->locals = realloc(s->locals, s->lcap * sizeof *s->locals);
 		if (!s->locals) clj_fatal("out of memory");
 	}
-	s->locals[s->nlocals++] = (local){sym, slot};
+	s->locals[s->nlocals++] = (local){sym, slot, -1};
+}
+
+static bool is_unqualified_symbol(clj_value v);
+
+static void push_field(scope *s, clj_value sym, uint32_t receiver, uint32_t field) {
+	push_local(s, sym, receiver);
+	s->locals[s->nlocals - 1].field = (int32_t)field;
+}
+
+// The mutable field the innermost binding of sym is, or NULL; *crossed when it is an enclosing fn's.
+static const local *field_binding(scope *s, clj_value sym, bool *crossed) {
+	*crossed = false;
+	if (!is_unqualified_symbol(sym)) return NULL;
+	for (scope *sc = s; sc; sc = sc->parent) {
+		for (uint32_t i = sc->nlocals; i > 0; i--) {
+			const local *l = &sc->locals[i - 1];
+			if (!clj_equals(l->sym, sym)) continue;
+			*crossed = sc != s;
+			return l->field >= 0 ? l : NULL;
+		}
+	}
+	return NULL;
 }
 
 static uint32_t new_slot(scope *s) { return s->nslots++; }
@@ -567,6 +593,8 @@ static uint32_t new_slot(scope *s) { return s->nslots++; }
 static bool resolve_local(scope *s, clj_value sym, bool *captured, uint32_t *index) {
 	for (uint32_t i = s->nlocals; i > 0; i--) {
 		if (clj_equals(s->locals[i - 1].sym, sym)) {
+			// a field has no slot: its readers ask field_binding first
+			if (s->locals[i - 1].field >= 0) return false;
 			*captured = false;
 			*index = s->locals[i - 1].slot;
 			return true;
@@ -603,7 +631,7 @@ static bool symbol_is(clj_value sym, const char *name) {
 
 typedef enum {
 	SP_NONE, SP_QUOTE, SP_IF, SP_DO, SP_LET, SP_LOOP, SP_FN, SP_DEF, SP_RECUR, SP_VAR, SP_TRY, SP_THROW,
-	SP_SET, SP_NEW, SP_CATCH, SP_FINALLY, SP_RESERVED
+	SP_SET, SP_NEW, SP_FIELDS, SP_CATCH, SP_FINALLY, SP_RESERVED
 } special;
 
 static const struct {
@@ -614,6 +642,8 @@ static const struct {
 	{"quote", SP_QUOTE}, {"if", SP_IF},     {"do", SP_DO},         {"let*", SP_LET},    {"loop*", SP_LOOP},
 	{"fn*", SP_FN},      {"def", SP_DEF},   {"recur", SP_RECUR}, {"var", SP_VAR},
 	{"try", SP_TRY},     {"throw", SP_THROW},  {"set!", SP_SET},      {"new", SP_NEW},
+	// deftype's method wrap (core.clj field-wrap): the body's mutable fields, read and set! through this
+	{"mutable-fields*", SP_FIELDS},
 	// Clause heads and `&` in params: not forms of their own, but syntax-quote must keep them unqualified.
 	{"catch", SP_CATCH}, {"finally", SP_FINALLY}, {"&", SP_RESERVED},
 };
@@ -672,7 +702,31 @@ static clj_node *host_type_symbol(analyzer *a, scope *s, clj_value sym) {
 	return node;
 }
 
+// (op receiver field value?) of a field entry: a call of the clojure.core builtin over the receiver's slot.
+static clj_node *analyze_field_op(analyzer *a, scope *s, clj_value op, const local *f, const clj_value *value) {
+	clj_node *fn = node_new(a, CLJ_NODE_VAR);
+	clj_slot_init(&fn->h, &fn->u.var, clj_retain(clj_ns_intern(clj_ns_core(), op)));
+	clj_node *recv = node_new(a, CLJ_NODE_LOCAL);
+	recv->u.local.index = f->slot;
+	clj_node *call = node_new(a, CLJ_NODE_INVOKE);
+	call->u.invoke.fn = fn;
+	call->u.invoke.n = value ? 3 : 2;
+	call->u.invoke.args = zalloc(call->u.invoke.n, sizeof *call->u.invoke.args);
+	call->u.invoke.args[0] = recv;
+	call->u.invoke.args[1] = node_const(a, clj_fixnum(f->field));
+	if (value && !(call->u.invoke.args[2] = analyze(a, s, *value, false))) {
+		clj_release(clj_from_ptr(call));
+		return NULL;
+	}
+	return call;
+}
+
 static clj_node *analyze_symbol(analyzer *a, scope *s, clj_value sym) {
+	bool         crossed;
+	const local *f = field_binding(s, sym, &crossed);
+	// analyze_fn binds every field its form names before the fn's scope opens (snapshot_fields)
+	if (f && crossed) return fail_form(a, "Mutable field %s read inside a nested fn that does not name it", sym);
+	if (f) return analyze_field_op(a, s, sym_mutable_field, f, NULL);
 	if (clj_is_nil(clj_symbol_ns(sym))) {
 		bool     captured;
 		uint32_t index;
@@ -711,7 +765,7 @@ static clj_value macro_var(const analyzer *a, scope *s, clj_value form) {
 	if (s && clj_is_nil(clj_symbol_ns(head))) {
 		bool     captured;
 		uint32_t index;
-		if (resolve_local(s, head, &captured, &index)) return CLJ_NIL;
+		if (field_binding(s, head, &captured) || resolve_local(s, head, &captured, &index)) return CLJ_NIL;
 	}
 	clj_value var = clj_ns_resolve(a->env.ns, head);
 	// A private macro of another namespace is left for analyze_symbol to refuse.
@@ -1519,11 +1573,15 @@ static clj_node *analyze_var(analyzer *a, const clj_value *items, uint32_t n) {
 	return node_const(a, var);
 }
 
-// (set! sym expr) on a var: (clojure.core/var-set (var sym) expr). Locals and fields are not assignable.
+// (set! sym expr): var-set of a var, set-field!* of a mutable field of this method; a nested fn's field is a snapshot.
 // @ai-generated(guided)
 static clj_node *analyze_set_bang(analyzer *a, scope *s, const clj_value *items, uint32_t n) {
 	if (n != 3) return fail(a, "Malformed assignment, expecting (set! target val)");
 	if (!clj_is_symbol(items[1])) return fail_form(a, "Invalid assignment target: %s", items[1]);
+	bool         crossed;
+	const local *f = field_binding(s, items[1], &crossed);
+	if (f && !crossed) return analyze_field_op(a, s, sym_set_field, f, &items[2]);
+	if (f) return fail_form(a, "Cannot assign to non-mutable: %s", items[1]);
 	if (clj_is_nil(clj_symbol_ns(items[1]))) {
 		bool     captured;
 		uint32_t index;
@@ -1539,6 +1597,107 @@ static clj_node *analyze_set_bang(analyzer *a, scope *s, const clj_value *items,
 	clj_node *node = analyze(a, s, call, false);
 	clj_release(call);
 	return node;
+}
+
+// (mutable-fields* this [field index ...] body...): this is a local of the running fn.
+// @ai-generated(solo)
+static clj_node *analyze_fields(analyzer *a, scope *s, const clj_value *items, uint32_t n, bool tail) {
+	if (n < 3 || !is_unqualified_symbol(items[1]) || !clj_is_vector(items[2])) return fail(a, "mutable-fields* expects a receiver, a field vector and a body");
+	bool     captured;
+	uint32_t index;
+	if (!resolve_local(s, items[1], &captured, &index) || captured) return fail_form(a, "mutable-fields* needs a local of this fn as its receiver, got: %s", items[1]);
+	uint32_t   nf;
+	clj_value *fs = seq_items(a, items[2], &nf);
+	if (!fs) return NULL;
+	uint32_t saved_nlocals = s->nlocals;
+	bool     ok = nf % 2 == 0;
+	for (uint32_t i = 0; ok && i < nf; i += 2) {
+		ok = is_unqualified_symbol(fs[i]) && clj_is_fixnum(fs[i + 1]) && clj_fixnum_val(fs[i + 1]) >= 0 && clj_fixnum_val(fs[i + 1]) <= INT32_MAX;
+		if (ok) push_field(s, fs[i], index, (uint32_t)clj_fixnum_val(fs[i + 1]));
+	}
+	free(fs);
+	clj_node *node = ok ? analyze_body(a, s, items + 3, n - 3, tail) : fail(a, "mutable-fields* expects symbol and index pairs");
+	s->nlocals = saved_nlocals;
+	return node;
+}
+
+// Whether form names sym anywhere, quoted or not; -1 with the exception pending when realizing a lazy form throws.
+// @ai-generated(solo)
+static int form_names(const analyzer *a, clj_value form, clj_value sym);
+
+typedef struct {
+	const analyzer *a;
+	clj_value       sym;
+	int             found;
+} names_ctx;
+
+static bool names_entry(clj_value key, clj_value val, void *ctx) {
+	names_ctx *c = ctx;
+	c->found = form_names(c->a, key, c->sym);
+	if (!c->found) c->found = form_names(c->a, val, c->sym);
+	return c->found == 0;
+}
+
+static bool names_item(clj_value item, void *ctx) {
+	names_ctx *c = ctx;
+	c->found = form_names(c->a, item, c->sym);
+	return c->found == 0;
+}
+
+static int form_names(const analyzer *a, clj_value form, clj_value sym) {
+	char here;
+	if (&here < a->stack_limit) return 1;
+	if (clj_is_symbol(form)) return clj_equals(form, sym) ? 1 : 0;
+	if (clj_is_vector(form)) {
+		for (uint32_t i = 0; i < clj_vector_count(form); i++) {
+			int r = form_names(a, clj_vector_nth(form, i), sym);
+			if (r) return r;
+		}
+		return 0;
+	}
+	names_ctx c = {a, sym, 0};
+	if (is_map(form)) clj_map_each(form, names_entry, &c);
+	else if (clj_is_set(form)) clj_set_each(form, names_item, &c);
+	if (c.found || !clj_is_seq(form)) return c.found;
+	clj_seq_iter it = clj_seq_iter_start(form);
+	clj_value    item;
+	while (clj_seq_iter_next(&it, &item)) {
+		int r = form_names(a, item, sym);
+		if (r) {
+			clj_seq_iter_close(&it);
+			return r;
+		}
+	}
+	return it.thrown ? -1 : 0;
+}
+
+// (let* [f f ...] fn-form) over the fields it names: the JVM's closure copies a field when made and cannot set! it.
+// @ai-generated(solo)
+static bool snapshot_fields(analyzer *a, scope *s, clj_value form, clj_value *wrapped) {
+	*wrapped = CLJ_NIL;
+	clj_value binds = CLJ_NIL;
+	for (scope *sc = s; sc; sc = sc->parent) {
+		for (uint32_t i = 0; i < sc->nlocals; i++) {
+			const local *l = &sc->locals[i];
+			bool         crossed;
+			if (l->field < 0 || field_binding(s, l->sym, &crossed) != l) continue;
+			int named = form_names(a, form, l->sym);
+			if (named < 0) {
+				clj_release(binds);
+				return false;
+			}
+			if (!named) continue;
+			if (clj_is_nil(binds)) binds = clj_vector_empty();
+			binds = clj_vector_conj(binds, l->sym);
+			binds = clj_vector_conj(binds, l->sym);
+		}
+	}
+	if (clj_is_nil(binds)) return true;
+	clj_value items[3] = {clj_symbol_from_cstr("let*"), binds, form};
+	*wrapped = clj_list_from_array(items, 3);
+	clj_release(items[0]);
+	clj_release(binds);
+	return true;
 }
 
 static clj_node *analyze_list_at(analyzer *a, scope *s, clj_value form, bool tail);
@@ -1598,7 +1757,16 @@ static clj_node *analyze_list_at(analyzer *a, scope *s, clj_value form, bool tai
 	case SP_DO: node = analyze_body(a, s, items + 1, n - 1, tail); break;
 	case SP_LET: node = analyze_let(a, s, items, n, tail, false); break;
 	case SP_LOOP: node = analyze_let(a, s, items, n, tail, true); break;
-	case SP_FN: node = analyze_fn(a, s, items, n); break;
+	case SP_FN: {
+		clj_value wrapped;
+		if (!snapshot_fields(a, s, form, &wrapped)) node = NULL;
+		else if (clj_is_nil(wrapped)) node = analyze_fn(a, s, items, n);
+		else {
+			node = analyze(a, s, wrapped, false);
+			clj_release(wrapped);
+		}
+		break;
+	}
 	case SP_DEF: node = analyze_def(a, s, items, n); break;
 	case SP_RECUR: node = analyze_recur(a, s, items, n, tail); break;
 	case SP_VAR: node = analyze_var(a, items, n); break;
@@ -1606,6 +1774,7 @@ static clj_node *analyze_list_at(analyzer *a, scope *s, clj_value form, bool tai
 	case SP_THROW: node = analyze_throw(a, s, items, n); break;
 	case SP_SET: node = analyze_set_bang(a, s, items, n); break;
 	case SP_NEW: node = analyze_new(a, s, items, n); break;
+	case SP_FIELDS: node = analyze_fields(a, s, items, n, tail); break;
 	case SP_CATCH:node = fail(a, "catch outside try"); break;
 	case SP_FINALLY: node = fail(a, "finally outside try"); break;
 	case SP_NONE:

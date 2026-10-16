@@ -676,11 +676,11 @@
 - **Field views: a deftype's field borrowed through a borrowed receiver** (compiler.c `field_views`, `in_view`;
   compiled_internal.h `clj_c_field_view`; `CLJ_NO_OPT=fields`). Closed only: a promoted let slot every binding of
   which is `(field* r i)`, r a borrowed parameter whose fact is host — a deftype method's `this`, or the receiver an
-  inlined protocol body reads — holds the field at +0: the caller holds r for the whole call and a deftype's fields
-  never change, so the read takes no retain and the slot no release (the slot is in `f->borrowed`, declared nil,
-  assigned by its let). A record owns its field reads, since a unique record is updated in place by `assoc`. A
-  receiver that is no instance, or an index past its fields, is the builtin's throw (`clj_b_field_star`), the only
-  other answer it has. data.json's reader read its string and position array with a retain and a release a
+  inlined protocol body reads — holds the field at +0: the caller holds r for the whole call and the fields `field*`
+  reads never change (a mutable field is `mutable-field*`'s, NOTES "Type descriptor"), so the read takes no retain and
+  the slot no release (the slot is in `f->borrowed`, declared nil, assigned by its let). A record owns its field reads,
+  since a unique record is updated in place by `assoc`. A receiver that is no instance, an index past its fields or a
+  mutable field is the builtin's throw (`clj_b_field_star`), the only other answer it has. data.json's reader read its string and position array with a retain and a release a
   character, the string a shared object and its count atomic.
 - **Known types pick their arms; the unchecked ops are intrinsics** (compiler.c `known_cname`, `fact_of_kind`,
   `fact_array_kind`; compiled_internal.h `clj_c_string_nth2`, `clj_c_string_count`, `clj_c_aget_k`,

@@ -31411,7 +31411,7 @@ static const clj_compiled_tree XR[62] = {
 	{clojure_core_async_unmix_all, {0x76ad46a0fd95fffaULL, 0x1541d5d845b135ceULL}},
 	{clojure_core_async_toggle, {0xf32b52204b56d6ecULL, 0xb1ea954b39bb3ce8ULL}},
 	{clojure_core_async_solo_mode, {0x4f3316e2c8097419ULL, 0x8f981fe993fb7e6dULL}},
-	{clojure_core_async_pub, {0x4f79e8176a1a5cf6ULL, 0x857ba50f5bdfa47bULL}},
+	{clojure_core_async_pub, {0xf060f37469d0d415ULL, 0x28294337631bbb6eULL}},
 	{clojure_core_async_sub, {0xb11b35fff5584961ULL, 0xc7965e74653d26b5ULL}},
 	{clojure_core_async_unsub, {0xcdb2e46933d996afULL, 0xb5f0f1fbcb468bbdULL}},
 	{clojure_core_async_unsub_all, {0x549d8b9f5719e500ULL, 0x11f08be1a7af1a43ULL}},
@@ -31902,7 +31902,7 @@ static void unit_pools(void) {
 	K[64] = clj_c_const("\"ch\"", 4);
 	K[65] = clj_c_const("\"ret\"", 5);
 	K[66] = clj_c_const("clojure.core/let", 16);
-	K[67] = clj_c_const("val__272__auto__", 16);
+	K[67] = clj_c_const("val__275__auto__", 16);
 	K[68] = clj_c_const(":as", 3);
 	K[69] = clj_c_const("clojure.core/cond", 17);
 	K[70] = clj_c_const("clojure.core/or", 15);
@@ -31966,7 +31966,7 @@ static void unit_pools(void) {
 	K[128] = clj_c_const("go", 2);
 	K[129] = clj_c_const("clojure.core.async/go", 21);
 	K[130] = clj_c_const("clojure.core/let", 16);
-	K[131] = clj_c_const("f__299__auto__", 14);
+	K[131] = clj_c_const("f__302__auto__", 14);
 	K[132] = clj_c_const("clojure.core/fn", 15);
 	K[133] = clj_c_const("if", 2);
 	K[134] = clj_c_const("clojure.core.async/*scope*", 26);
@@ -31976,7 +31976,7 @@ static void unit_pools(void) {
 	K[138] = clj_c_with_meta(clj_c_const("go-main", 7), clj_c_const("{:pippin/extension true}", 24));
 	K[139] = clj_c_const("clojure.core.async/go-main", 26);
 	K[140] = clj_c_const("clojure.core/let", 16);
-	K[141] = clj_c_const("f__300__auto__", 14);
+	K[141] = clj_c_const("f__303__auto__", 14);
 	K[142] = clj_c_const("clojure.core/fn", 15);
 	K[143] = clj_c_const("if", 2);
 	K[144] = clj_c_const("clojure.core.async/*scope*", 26);
@@ -32110,7 +32110,7 @@ static void unit_pools(void) {
 	K[272] = clj_c_const("mult", 4);
 	K[273] = clj_c_const("clojure.core.async/mult", 23);
 	K[274] = clj_c_const("{}", 2);
-	K[275] = clj_c_const("reify__318", 10);
+	K[275] = clj_c_const("reify__321", 10);
 	K[276] = clj_c_const("[muxch* tap* untap* untap-all*]", 31);
 	K[277] = clj_c_const("{:muxch* 0}", 11);
 	K[278] = clj_c_const("{:tap* 1, :untap* 2, :untap-all* 3}", 35);
@@ -32146,7 +32146,7 @@ static void unit_pools(void) {
 	K[308] = clj_c_const(":reads", 6);
 	K[309] = clj_c_const("[]", 2);
 	K[310] = clj_c_const(":solos", 6);
-	K[311] = clj_c_const("reify__325", 10);
+	K[311] = clj_c_const("reify__328", 10);
 	K[312] = clj_c_const("[muxch* admix* unmix* unmix-all* toggle* solo-mode*]", 52);
 	K[313] = clj_c_const("{:muxch* 0}", 11);
 	K[314] = clj_c_const("{:admix* 1, :solo-mode* 5, :toggle* 4, :unmix* 2, :unmix-all* 3}", 64);
@@ -32179,7 +32179,7 @@ static void unit_pools(void) {
 	K[341] = clj_c_const("pub", 3);
 	K[342] = clj_c_const("clojure.core.async/pub", 22);
 	K[343] = clj_c_const("{}", 2);
-	K[344] = clj_c_const("reify__334", 10);
+	K[344] = clj_c_const("reify__337", 10);
 	K[345] = clj_c_const("[muxch* sub* unsub* unsub-all*]", 31);
 	K[346] = clj_c_const("{:muxch* 0}", 11);
 	K[347] = clj_c_const("{:sub* 1, :unsub* 2, :unsub-all* 3}", 35);

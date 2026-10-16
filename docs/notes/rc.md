@@ -54,8 +54,8 @@
   Intel i9 under other load: 54.8 and 53.3 s against 70.6 and 54.2 s without them), stressSpawn above being the
   one test that shows them.
 - **Reference types are checked at the store, not below a cutoff** (`clj_type.mutable_children`, `clj_slot_store`).
-  A coroutine, an atom, a volatile, a channel, a var, a namespace, a lazy seq and an array replace their
-  children after publication under their own lock or owner, and release the old ones there. The cutoff walk
+  A coroutine, an atom, a volatile, a channel, a var, a namespace, a lazy seq, an array and a deftype with a
+  mutable field (NOTES "Type descriptor", mutable fields) replace their children after publication under their own lock or owner, and release the old ones there. The cutoff walk
   read those slots without that lock: `finish` cleared and released `c->fn` on a carrier while a spawn on the
   test thread walked a channel → coroutine → fn edge, an ASan heap-use-after-free in `shared_below`
   (`AsyncLibTests.goScoped`, arm64 `make test`, run 36921714691).
@@ -142,8 +142,8 @@
 
 - **The cycle collector** (`cc.c`, `include/clj/cc.h`; design §7 «Сборщик циклов: как он устроен», which holds the
   why). Header bits `CLJ_FLAG_MUTABLE`, `CLJ_FLAG_REACH`, `CLJ_FLAG_REACH_LOCAL` (5–7), `CLJ_FLAG_LAZY` (9, below); rc
-  bits `CLJ_RC_WATCH`, `CLJ_RC_BUFFERED` (31, 30), the count in 30 bits. `REACH` is born with an atom, a channel, a volatile and an object
-  array, and is OR'd into a non-`MUTABLE` owner by `clj_slot_init`/`clj_slot_store` (`clj_reach_from`); a `memcpy`
+  bits `CLJ_RC_WATCH`, `CLJ_RC_BUFFERED` (31, 30), the count in 30 bits. `REACH` is born with an atom, a channel, a volatile, an object
+  array and a deftype instance with a mutable field that may hold a value, and is OR'd into a non-`MUTABLE` owner by `clj_slot_init`/`clj_slot_store` (`clj_reach_from`); a `memcpy`
   clone copies it (`fn_with_meta`, `clj_view_with_meta`). A lazy seq is `MUTABLE` with the bits of its thunk only, a
   var is immortal and has none, an exec has none because its root is not a slot. The inline release takes the slow
   path for `REACH_LOCAL`; a nonzero release of a `REACH`/`REACH_LOCAL` object without `BUFFERED` files an entry

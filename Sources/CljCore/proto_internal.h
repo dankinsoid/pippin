@@ -35,8 +35,9 @@ static inline void clj_proto_window_close_inline(clj_proto_reader *r) { atomic_s
 clj_value clj_b_field_star(const clj_value *args, size_t n);
 clj_value clj_b_new_star(const clj_value *args, size_t n);
 
-// A deftype instance of ut over n == ut->nfields fields, each retained.
+// A deftype instance of ut over n == ut->nfields fields, each retained; a raw field's value is its hint's admitted one.
 static inline clj_value clj_instance_make(const clj_user_type *ut, const clj_value *fields, size_t n) {
+	if (__builtin_expect(ut->muts != NULL, 0)) return clj_instance_make_mutable(ut, fields, n);
 	clj_instance *o = clj_alloc(&ut->t, sizeof *o + n * sizeof *o->fields);
 	for (size_t i = 0; i < n; i++) clj_slot_init(&o->h, &o->fields[i], clj_retain(fields[i]));
 	clj_retain(clj_from_ptr((void *)ut));

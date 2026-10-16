@@ -33289,9 +33289,9 @@ static void unit_pools(void) {
 	K[113] = clj_c_const("assert-predicate", 16);
 	K[114] = clj_c_const("clojure.test/assert-predicate", 29);
 	K[115] = clj_c_const("clojure.core/let", 16);
-	K[116] = clj_c_const("values__253__auto__", 19);
+	K[116] = clj_c_const("values__256__auto__", 19);
 	K[117] = clj_c_const("clojure.core/list", 17);
-	K[118] = clj_c_const("result__254__auto__", 19);
+	K[118] = clj_c_const("result__257__auto__", 19);
 	K[119] = clj_c_const("clojure.core/apply", 18);
 	K[120] = clj_c_const("if", 2);
 	K[121] = clj_c_const("clojure.test/do-report", 22);
@@ -33315,7 +33315,7 @@ static void unit_pools(void) {
 	K[139] = clj_c_const("assert-any", 10);
 	K[140] = clj_c_const("clojure.test/assert-any", 23);
 	K[141] = clj_c_const("clojure.core/let", 16);
-	K[142] = clj_c_const("value__255__auto__", 18);
+	K[142] = clj_c_const("value__258__auto__", 18);
 	K[143] = clj_c_const("if", 2);
 	K[144] = clj_c_const("clojure.test/do-report", 22);
 	K[145] = clj_c_const(":actual", 7);
@@ -33346,12 +33346,12 @@ static void unit_pools(void) {
 	K[170] = clj_c_const("assert-expr", 11);
 	K[171] = clj_c_const("instance?", 9);
 	K[172] = clj_c_const("clojure.core/let", 16);
-	K[173] = clj_c_const("klass__256__auto__", 18);
+	K[173] = clj_c_const("klass__259__auto__", 18);
 	K[174] = clj_c_const("1", 1);
-	K[175] = clj_c_const("object__257__auto__", 19);
+	K[175] = clj_c_const("object__260__auto__", 19);
 	K[176] = clj_c_const("2", 1);
 	K[177] = clj_c_const("clojure.core/let", 16);
-	K[178] = clj_c_const("result__258__auto__", 19);
+	K[178] = clj_c_const("result__261__auto__", 19);
 	K[179] = clj_c_const("clojure.core/instance?", 22);
 	K[180] = clj_c_const("if", 2);
 	K[181] = clj_c_const("clojure.test/do-report", 22);
@@ -33377,7 +33377,7 @@ static void unit_pools(void) {
 	K[201] = clj_c_const(":type", 5);
 	K[202] = clj_c_const(":fail", 5);
 	K[203] = clj_c_const("catch", 5);
-	K[204] = clj_c_const("e__259__auto__", 14);
+	K[204] = clj_c_const("e__262__auto__", 14);
 	K[205] = clj_c_const("clojure.test/do-report", 22);
 	K[206] = clj_c_const("quote", 5);
 	K[207] = clj_c_const(":pass", 5);
@@ -33393,9 +33393,9 @@ static void unit_pools(void) {
 	K[217] = clj_c_const(":type", 5);
 	K[218] = clj_c_const(":fail", 5);
 	K[219] = clj_c_const("catch", 5);
-	K[220] = clj_c_const("e__260__auto__", 14);
+	K[220] = clj_c_const("e__263__auto__", 14);
 	K[221] = clj_c_const("clojure.core/let", 16);
-	K[222] = clj_c_const("m__261__auto__", 14);
+	K[222] = clj_c_const("m__264__auto__", 14);
 	K[223] = clj_c_const("clojure.core/ex-message", 23);
 	K[224] = clj_c_const("if", 2);
 	K[225] = clj_c_const("clojure.core/and", 16);
@@ -33412,7 +33412,7 @@ static void unit_pools(void) {
 	K[236] = clj_c_const("try", 3);
 	K[237] = clj_c_const("catch", 5);
 	K[238] = clj_c_const(":default", 8);
-	K[239] = clj_c_const("t__262__auto__", 14);
+	K[239] = clj_c_const("t__265__auto__", 14);
 	K[240] = clj_c_const("clojure.test/do-report", 22);
 	K[241] = clj_c_const(":actual", 7);
 	K[242] = clj_c_const(":expected", 9);

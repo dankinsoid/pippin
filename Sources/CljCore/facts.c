@@ -1492,8 +1492,12 @@ static clj_fact infer_call(pass *p, const clj_node *site, const clj_node *const 
 	}
 	apply_summary(p, e, sum, args, n, have, var, named == NOT_NAMED);
 	clj_fact r = s ? sig_result(s, have, n < 4 ? n : 4) : (name ? construct_result(p, name, args, n) : clj_fact_top());
-	if (name && strcmp(name, "field*") == 0) r = field_fact(have, args, n);
-	else if (name && clj_fact_is_top(r)) r = known_result(name, have, n);
+	if (name && (strcmp(name, "field*") == 0 || strcmp(name, "mutable-field*") == 0)) r = field_fact(have, args, n);
+	else if (name && n == 3 && strcmp(name, "set-field!*") == 0) {
+		// the value set! answers is the one the hint admitted, as at construction
+		r = field_fact(have, args, 2);
+		if (clj_fact_is_top(r)) r = have[2];
+	} else if (name && clj_fact_is_top(r)) r = known_result(name, have, n);
 	const clj_summary *spec = specialized_of(p, var, n, have, sum);
 	if (have != inline_have) free(have);
 	return result_with_summary(p, r, spec ? spec : sum);
@@ -2303,7 +2307,10 @@ static const char *const pure_names[] = {
 };
 static const char *const io_names[] = {"print", "println", "pr", "prn", "printf", "newline", "flush", "slurp", "spit", "load", "require"};
 static const char *const atom_names[] = {"swap!", "reset!", "swap-vals!", "reset-vals!", "compare-and-set!", "vreset!", "vswap!",
-                                         "alter-var-root", "set-validator!", "add-watch", "remove-watch", "alter-meta!", "reset-meta!"};
+                                         "alter-var-root", "set-validator!", "add-watch", "remove-watch", "alter-meta!", "reset-meta!",
+                                         "set-field!*"};
+// A read of a deftype's mutable field: what it answers depends on when, so a lazy def cannot defer it.
+static const char *const state_names[] = {"mutable-field*"};
 // The waits the coroutine parks on; deref is not among them because @atom does not park and @future does (design §4).
 static const char *const park_names[] = {"chan-take*", "chan-put*", "chan-alts*", "chan-deref*", "sleep*",
                                          "read-line", "read", "read+string"}; // core.clj, but named: its body is gone under -DCLJ_COMPILED_CORE
@@ -2350,13 +2357,15 @@ static uint32_t named_effects(pass *p, const char *name, const clj_node *const *
 // A predicate neither allocates nor throws; the rest of the pure list allocates or throws on a wrong argument but no more.
 bool clj_facts_core_named(const char *name) {
 	return named_in(name, park_names, sizeof park_names / sizeof *park_names) || named_in(name, io_names, sizeof io_names / sizeof *io_names) ||
-	       named_in(name, atom_names, sizeof atom_names / sizeof *atom_names) || named_in(name, pure_names, sizeof pure_names / sizeof *pure_names);
+	       named_in(name, atom_names, sizeof atom_names / sizeof *atom_names) || named_in(name, pure_names, sizeof pure_names / sizeof *pure_names) ||
+	       named_in(name, state_names, sizeof state_names / sizeof *state_names);
 }
 
 uint32_t clj_facts_core_effects(const char *name) {
 	if (named_in(name, park_names, sizeof park_names / sizeof *park_names)) return CLJ_EFFECT_ANY | CLJ_EFFECT_PARK;
 	if (named_in(name, io_names, sizeof io_names / sizeof *io_names)) return CLJ_EFFECT_ANY;
 	if (named_in(name, atom_names, sizeof atom_names / sizeof *atom_names)) return CLJ_EFFECT_ATOM | CLJ_EFFECT_ALLOC | CLJ_EFFECT_THROW;
+	if (named_in(name, state_names, sizeof state_names / sizeof *state_names)) return CLJ_EFFECT_STATE | CLJ_EFFECT_ALLOC | CLJ_EFFECT_THROW;
 	if (named_in(name, pure_names, sizeof pure_names / sizeof *pure_names)) {
 		static const char *const total[] = {"not", "identity", "boolean", "meta", "type"};
 		size_t                   len = strlen(name);
