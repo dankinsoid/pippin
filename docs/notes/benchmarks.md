@@ -99,9 +99,10 @@
     (the first workload of a shard also pays its cold closed builds). With `arches: both` the x86_64 shards queue
     behind the arm64 ones for the five runners, and so does any shard while other CI holds a runner. Locally `make
     corpus-bench` stays one job. Measured, the full run with the default base: 31.2 min in run 38952649569 (one
-    shard's xctrace probe hung its 300 s, since then 90 s and one shard), 24.9 min in 38958087196: shards 18.7–24.4
-    min, each about 1 min of setup, 3.8–6.0 of builds and preparation before the workloads (both sides' builds at
-    once take 4–5 of them) and 14–18 of workloads; the plan and merge jobs about 10 s each. The 90 min of one job
+    shard's xctrace probe hung its 300 s, since then 90 s and one shard), 24.9 min in 38958087196 and in 38961464806
+    (the deal from `WORKLOAD_MINUTES` as committed): shards 18–24.5 min, each about 1 min of setup, 4–6.5 of builds
+    and preparation before the workloads (both sides' builds at once take 4–5 of them) and 12.5–18 of workloads;
+    the plan and merge jobs about 10 s each. The 90 min of one job
     were the sum of the workloads (about 80) and the builds (about 10).
   - Times are in-process per iteration of `run`: ours after one iteration, median of >= 3 and >= 2 s; the JVM's after
     >= 5 iterations and 5 s, median of >= 5 and >= 3 s. One runner's numbers spread ±20–30 % from the next's: read
