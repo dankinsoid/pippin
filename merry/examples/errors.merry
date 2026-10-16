@@ -1,0 +1,26 @@
+;; Each form below is rejected; the comments the checker prints say why.
+
+(defn read-config [path]
+  (slurp path))
+
+(defn startup [path]
+  (println "loading" path)
+  (read-config path))
+
+(defn -main {:eff #{Console}} []
+  (startup "app.edn"))
+
+(defn nested-placeholder [xs]
+  (-> xs (map (fn [x] (+ x $)))))
+
+(defn three-way [a b c]
+  (and a b c))
+
+(defn not-a-bool [xs]
+  (if (first xs) 1 0))
+
+(defn missing-field []
+  (:total {:id 1}))
+
+(defn old-default [x]
+  (cond (pos? x) 1 :else 0))

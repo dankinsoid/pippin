@@ -1,0 +1,9 @@
+;; :int traps on overflow instead of wrapping: `run` ends with a panic.
+
+(defn factorial [n]
+  (loop [i n acc 1]
+    (if (zero? i) acc (recur (dec i) (* acc i)))))
+
+(defn -main {:eff #{Console}} []
+  (println (factorial 20))
+  (println (factorial 21)))

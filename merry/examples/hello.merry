@@ -1,0 +1,5 @@
+(defn greet [name]
+  (str "Hello, " name "!"))
+
+(defn -main {:eff #{Console}} []
+  (println (greet "Merry")))

@@ -1,0 +1,13 @@
+;; Forms that Clojure makes macros and Merry writes as functions with :thunk parameters.
+
+(defn and [a :- :bool, b :- [:thunk :bool]] :- :bool
+  (if a @b false))
+
+(defn or [a :- :bool, b :- [:thunk :bool]] :- :bool
+  (if a true @b))
+
+(defn when [test :- :bool, body :- [:thunk a]]
+  (if test @body nil))
+
+(defn when-not [test :- :bool, body :- [:thunk a]]
+  (if test nil @body))

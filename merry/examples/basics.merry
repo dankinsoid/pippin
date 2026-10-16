@@ -1,0 +1,48 @@
+;; Threading with `$`, some-> over [:maybe T], and/or/when as functions with :thunk parameters.
+
+(defn square [x] (* x x))
+
+(defn sum-of-squares [xs]
+  (->> xs (map square) (reduce + 0)))
+
+(defn clamp [lo hi x]
+  (-> x (max lo) (min hi)))
+
+(defn percent [part total]
+  (-> part (* 100) (quot $ total)))
+
+(defn first-even-square [xs]
+  (some-> xs (filter even? $) first square))
+
+(defn discount [price member? coupon?]
+  (cond-> price
+    member? (- 10)
+    coupon? (- 5)))
+
+(defn in-range? [lo hi x]
+  (and (<= lo x) (<= x hi)))
+
+(defn positive-or-log [x]
+  (or (pos? x) (do (println "not positive:" x) false)))
+
+(defn grade [score]
+  (cond
+    (>= score 90) "A"
+    (>= score 75) "B"
+    _ "C"))
+
+(defn factorial [n]
+  (loop [i n acc 1]
+    (if (zero? i) acc (recur (dec i) (* acc i)))))
+
+(defn twice [f x] (f (f x)))
+
+(defn total-of [order] (:total order))
+
+(defn -main {:eff #{Console}} []
+  (println (sum-of-squares [1 2 3]) (clamp 0 10 42) (percent 3 4))
+  (println (first-even-square [1 3 4 5]) (first-even-square [1 3]))
+  (println (discount 100 true false) (in-range? 1 5 3) (grade 80))
+  (positive-or-log -1)
+  (when (in-range? 1 5 3) (println "in range"))
+  (println (twice inc 5) (total-of {:total 7 :id 1}) (factorial 20)))
