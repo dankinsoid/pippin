@@ -1,4 +1,4 @@
-.PHONY: model-long bench-ab corpus-bench port-audit c-only-audit cmutex-audit park-audit slot-audit open-items open-items-audit load-asan build boot bench facts-report shake test test-pool test-ubsan test-tsan test-seeded test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint ios-probe ios-app gates gates-full
+.PHONY: model-long bench-ab corpus-bench corpus-bench-plan port-audit c-only-audit cmutex-audit park-audit slot-audit open-items open-items-audit load-asan build boot bench facts-report shake test test-pool test-ubsan test-tsan test-seeded test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint ios-probe ios-app gates gates-full
 
 # A test that crashes ends with its trace and a nonzero exit; the default death waits on the crash reporter, which
 # can leave the helper unkillable (NOTES.md, "Guard").
@@ -167,10 +167,14 @@ bench-ab:
 
 # The workloads of bench/workloads on JVM Clojure 1.12.6, the interpreter, compiled dev and --closed, with runtime
 # counters, a sampled profile and the facts coverage (docs/notes/benchmarks.md, "Corpus workloads"). Opt-in and in
-# neither gate: about an hour on CI. CORPUS_BENCH_ARGS=--only=medley,strings narrows it; CORPUS_BENCH_BASE=<ref>
-# times that ref beside this tree, alternated on one runner.
+# neither gate: about an hour in one job, CI deals it into shards. CORPUS_BENCH_ARGS=--only=medley,strings narrows
+# it; CORPUS_BENCH_BASE=<ref> times that ref beside this tree, alternated on one runner; CORPUS_BENCH_SHARD=I/N runs
+# the I-th of the N shards corpus-bench-plan deals.
 corpus-bench:
-	python3 scripts/corpus-bench.py --sdkroot='$(SDKROOT)' $(if $(CORPUS_BENCH_BASE),--base='$(CORPUS_BENCH_BASE)') $(CORPUS_BENCH_ARGS)
+	python3 scripts/corpus-bench.py --sdkroot='$(SDKROOT)' $(if $(CORPUS_BENCH_BASE),--base='$(CORPUS_BENCH_BASE)') $(if $(CORPUS_BENCH_SHARD),--shard='$(CORPUS_BENCH_SHARD)') $(CORPUS_BENCH_ARGS)
+
+corpus-bench-plan:
+	@python3 scripts/corpus-bench.py --plan $(if $(CORPUS_BENCH_BASE),--base='$(CORPUS_BENCH_BASE)') $(CORPUS_BENCH_ARGS)
 
 # One file through the C core under ASan: FILE=x.clj make load-asan. A crash lands on the stack that caused it,
 # where the swift-testing run prints "<empty stack>".

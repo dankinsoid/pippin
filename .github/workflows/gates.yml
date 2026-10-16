@@ -59,18 +59,59 @@ env:
   TEST_SHARDS: ${{ inputs.shards }}
 
 jobs:
+  # One gates job per architecture; corpus-bench one per architecture and shard of its deal (docs/notes/benchmarks.md,
+  # "Corpus workloads"), which the corpus-bench job merges.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      arches: ${{ steps.plan.outputs.arches }}
+    steps:
+      - uses: actions/checkout@v7
+        if: ${{ inputs.target == 'corpus-bench' }}
+
+      - id: plan
+        env:
+          # The x86_64 job takes twice arm64's time and the plan's macOS runners are five: it runs nightly or on asking.
+          ARCHES: ${{ (github.event_name == 'schedule' || inputs.arches == 'both')
+            && '[{"arch":"arm64","runner":"macos-26","required":true},{"arch":"x86_64","runner":"macos-26-intel","required":true}]'
+            || '[{"arch":"arm64","runner":"macos-26","required":true}]' }}
+          BENCH: ${{ inputs.target == 'corpus-bench' }}
+          MAKE_ARGS: ${{ inputs.make_args }}
+          CORPUS_BENCH_BASE: ${{ inputs.base }}
+        run: |
+          deal='{"shards": 0}'
+          if [ "$BENCH" = true ]; then
+            python3 -c 'import os, shlex, sys; sys.stdout.write("".join(a + "\0" for a in shlex.split(os.environ["MAKE_ARGS"])))' > "$RUNNER_TEMP/make-args"
+            args=()
+            while IFS= read -r -d '' a; do args+=("$a"); done < "$RUNNER_TEMP/make-args"
+            deal=$(make -s corpus-bench-plan ${args[@]+"${args[@]}"})
+            echo "corpus-bench: $deal"
+          fi
+          DEAL="$deal" python3 - >> "$GITHUB_OUTPUT" <<'EOF'
+          import json, os
+          arches, deal = json.loads(os.environ["ARCHES"]), json.loads(os.environ["DEAL"])
+          n = deal["shards"]
+          if n:
+              jobs = [dict(a, label="corpus-bench (%s, %d/%d: %s)" % (a["arch"], i, n, ", ".join(part)),
+                           shard="%d/%d" % (i, n), shard_index=i)
+                      for a in arches for i, part in enumerate(deal["deal"], 1)]
+          else:
+              jobs = [dict(a, label="gates (%s)" % a["arch"], shard="", shard_index=0) for a in arches]
+          print("matrix=" + json.dumps(jobs))
+          print("arches=" + json.dumps([a["arch"] for a in arches]))
+          EOF
+
   gates:
-    name: gates (${{ matrix.arch }})
+    needs: plan
+    name: ${{ matrix.label }}
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ !matrix.required }}
     timeout-minutes: ${{ (inputs.target || 'gates') == 'gates' && 75 || 340 }}
     strategy:
       fail-fast: false
-      # The x86_64 job takes twice arm64's time and the plan's macOS runners are five: it runs nightly or on asking.
       matrix:
-        include: ${{ fromJSON((github.event_name == 'schedule' || inputs.arches == 'both')
-          && '[{"arch":"arm64","runner":"macos-26","required":true},{"arch":"x86_64","runner":"macos-26-intel","required":true}]'
-          || '[{"arch":"arm64","runner":"macos-26","required":true}]') }}
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v7
 
@@ -173,6 +214,7 @@ jobs:
           TARGET: ${{ inputs.target || 'gates' }}
           MAKE_ARGS: ${{ inputs.make_args }}
           CORPUS_BENCH_BASE: ${{ inputs.target == 'corpus-bench' && inputs.base || '' }}
+          CORPUS_BENCH_SHARD: ${{ matrix.shard }}
         run: |
           set -o pipefail
           # Split as a shell splits words, without eval: a quoted value keeps its spaces and nothing in it runs.
@@ -182,7 +224,7 @@ jobs:
           make "$TARGET" ${args[@]+"${args[@]}"} 2>&1 | tee "$RUNNER_TEMP/gates.log"
 
       - name: Gate times
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && !matrix.shard }}
         run: |
           {
             echo "### gates (${{ matrix.arch }}), corpus cache: $(grep -c 'corpus: cache hit' "$RUNNER_TEMP/gates.log") hits, $(grep -c 'corpus: cache miss' "$RUNNER_TEMP/gates.log") misses"
@@ -192,21 +234,18 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           git status --short
 
-      - name: Corpus bench report
-        if: ${{ !cancelled() && inputs.target == 'corpus-bench' }}
-        run: cat .build/corpus-bench/report.md >> "$GITHUB_STEP_SUMMARY" || true
-
-      # Per-run logs and the sampled profiles, which the report only summarizes.
-      - name: Corpus bench logs
-        if: ${{ !cancelled() && inputs.target == 'corpus-bench' }}
+      # The shard's results for the corpus-bench job to merge, and its own report of its workloads.
+      - name: Corpus bench shard
+        if: ${{ !cancelled() && matrix.shard }}
         uses: actions/upload-artifact@v7
         with:
-          name: corpus-bench-${{ matrix.arch }}
+          name: corpus-bench-${{ matrix.arch }}-shard-${{ matrix.shard_index }}
           path: |
+            .build/corpus-bench/results.json
             .build/corpus-bench/report.md
             .build/corpus-bench/facts-coverage.md
             .build/corpus-bench/logs
-          retention-days: 30
+          retention-days: 7
 
       - name: Save the parser fuzzing corpus
         if: ${{ !cancelled() && inputs.target == 'fuzz-parsers' }}
@@ -233,7 +272,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: shards-${{ matrix.arch }}
+          name: shards-${{ matrix.arch }}${{ matrix.shard && format('-{0}', matrix.shard_index) || '' }}
           path: .build/*/shards
           include-hidden-files: true
           retention-days: 14
@@ -286,3 +325,41 @@ jobs:
         with:
           path: .build/swift-stubs
           key: swift-stubs-${{ runner.arch }}-${{ github.sha }}
+
+  # The shards' one report, under the artifact name and in the summary a single job had.
+  corpus-bench:
+    needs: [plan, gates]
+    if: ${{ !cancelled() && inputs.target == 'corpus-bench' }}
+    name: corpus-bench (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(needs.plan.outputs.arches) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: corpus-bench-${{ matrix.arch }}-shard-*
+          path: ${{ runner.temp }}/shards
+
+      # A shard that wrote nothing fails this step after the report, which names its workloads.
+      - name: Merge the shards
+        run: python3 scripts/corpus-bench.py --merge "$RUNNER_TEMP"/shards/*/
+
+      - name: Corpus bench report
+        if: ${{ !cancelled() }}
+        run: cat .build/corpus-bench/report.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      # Per-run logs and the sampled profiles, which the report only summarizes.
+      - name: Corpus bench logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: corpus-bench-${{ matrix.arch }}
+          path: |
+            .build/corpus-bench/report.md
+            .build/corpus-bench/facts-coverage.md
+            .build/corpus-bench/logs
+          retention-days: 30

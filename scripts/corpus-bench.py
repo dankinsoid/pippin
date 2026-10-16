@@ -4,6 +4,8 @@
 compiled time goes (docs/notes/benchmarks.md, "Corpus workloads"). Writes <out>/report.md and prints it."""
 
 import argparse
+import concurrent.futures
+import json
 import math
 import queue
 import statistics
@@ -40,6 +42,16 @@ TOTAL_BUDGET = 150 * 60
 # At most this many repetitions of a workload whose run takes seconds, unless --reps is given: datascript's 8 pairs
 # would cost the default --base job about 25 min more than 2 do (bench/RESULTS.md, "Datascript").
 REPS_CAP = {"datascript": 2}
+# (minutes outside the repetitions, minutes per repetition of both sides), arm64 against a base, run 38919426472.
+WORKLOAD_MINUTES = {
+	"medley": (3.4, 0.33), "combinatorics": (3.0, 0.45), "dependency": (4.3, 0.46), "nested-update": (2.8, 0.36),
+	"group-freq": (2.9, 0.33), "pipelines": (3.2, 0.36), "strings": (2.4, 0.21), "render": (2.4, 0.30),
+	"suite-data": (2.4, 0.29), "async-pipeline": (2.9, 0.32), "async-libs": (2.0, 0.33), "async-broadcast": (2.1, 0.19),
+	"datascript": (6.0, 1.65), "json": (2.6, 0.49)}
+# Workload minutes per shard: with about 10 min of builds before them and the merge, a run stays near 30 min.
+SHARD_BUDGET = 17
+# The plan's concurrent macOS jobs: a shard past them would wait for a runner (docs/notes/benchmarks.md).
+MAX_SHARDS = 5
 # The timed modes, in the order each repetition runs them.
 TIMED = ["interp", "dev-core", "dev", "closed"]
 TIMED_LABEL = {"interp": "interp", "dev-core": "core+interp", "dev": "dev", "closed": "closed"}
@@ -60,6 +72,12 @@ def swift_env(sdkroot):
 		if sdkroot:
 			env["SDKROOT"] = sdkroot
 	return env
+
+
+def machine():
+	brand = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], stdout=subprocess.PIPE, text=True).stdout.strip()
+	ncpu = subprocess.run(["sysctl", "-n", "hw.ncpu"], stdout=subprocess.PIPE, text=True).stdout.strip()
+	return "%s, %s cpus, %s" % (brand, ncpu, os.uname().machine)
 
 
 def sh(cmd, env=None, timeout=None, cwd=ROOT, check=True):
@@ -126,6 +144,8 @@ class Bench:
 		self.env = swift_env(args.sdkroot)
 		self.lp = [a for p in LOAD_PATH for a in ("--load-path", p)]
 		self.results = {w: {} for w in args.only}
+		self.wall = {}
+		self.machine = machine()
 		self.errors = []
 		# A workload that hung once is not run again: each further run would hang the same and cost RUN_TIMEOUT.
 		self.hung = set()
@@ -164,8 +184,10 @@ class Bench:
 			self.base = self.base_tree()
 			self.sides = [self.base, self.head]
 		self.head.rev = sh(["git", "rev-parse", "HEAD"])[0].stdout.strip()
-		for side in self.sides:
-			self.side_tools(side)
+		# Nothing is timed yet, and one build leaves cores idle while it compiles boot/core.c alone.
+		with concurrent.futures.ThreadPoolExecutor(len(self.sides)) as pool:
+			for f in [pool.submit(self.side_tools, side) for side in self.sides]:
+				f.result()
 		if self.args.interp_ab:
 			self.head.bin["interp-stats"] = self.build("interp-stats", ["-DCLJ_STATS=1"])
 
@@ -497,6 +519,26 @@ class Bench:
 		shutil.rmtree(os.path.join(self.out, "probe.trace"), ignore_errors=True)
 		return "exit %d: %s" % (p.returncode, " ".join(p.stdout.split())[-300:])
 
+	def dump(self, facts, xctrace):
+		"""<out>/results.json: what --merge writes the report of all shards from."""
+		results = {}
+		for w in self.args.only:
+			res = results[w] = dict(self.results[w])
+			for tag in ("dev", "closed"):
+				rows = top_of_stack(res.get(tag + "-sample") or "")
+				if res.get(tag + "-symbols") is not None:
+					# The table names every symbol of the build; the profile looks up the sampled ones.
+					names = {sym for sym, _, _ in rows or []}
+					res[tag + "-symbols"] = {k: v for k, v in res[tag + "-symbols"].items() if k in names}
+			res["_rc_op_ns"], res["_rc_op_ns_cold"] = getattr(self, "rc_op_ns", None), getattr(self, "rc_op_ns_cold", None)
+		doc = {"args": vars(self.args), "head": self.head.rev, "base": self.base.rev if self.base else None,
+		       "machine": self.machine, "durations": self.durations, "xctrace": xctrace, "errors": self.errors,
+		       "facts": bool(facts), "wall": self.wall, "results": results,
+		       "refs": {"refs": self.refs.refs, "versions": self.refs.versions, "cost": self.refs.cost,
+		                "na": [[ref, w, why] for (ref, w), why in self.refs.na.items()]}}
+		with open(os.path.join(self.out, "results.json"), "w") as f:
+			json.dump(doc, f)
+
 
 # ---- the sampled profile
 
@@ -556,19 +598,26 @@ def bucket(symbol, image, symbols):
 TOP = re.compile(r"^\s+(.+?)\s+\(in (.+?)\)\s+(\d+)\s*$")
 
 
-def profile(text, symbols):
-	"""Self samples per bucket and per function, from the 'Sort by top of stack' section of sample's report."""
+def top_of_stack(text):
+	"""(symbol, image, samples) of the 'Sort by top of stack' section of sample's report, None without one."""
 	section = text.split("Sort by top of stack", 1)
 	if len(section) < 2:
 		return None
-	body = section[1].split("Binary Images", 1)[0]
-	buckets, funcs, idle, total = {}, {}, 0, 0
-	for line in body.splitlines()[1:]:
+	rows = []
+	for line in section[1].split("Binary Images", 1)[0].splitlines()[1:]:
 		m = TOP.match(line)
-		if not m:
-			continue
-		sym, image, n = m.group(1), m.group(2), int(m.group(3))
-		sym = re.sub(r"\s+\+\s+\d+$", "", sym)
+		if m:
+			rows.append((re.sub(r"\s+\+\s+\d+$", "", m.group(1)), m.group(2), int(m.group(3))))
+	return rows
+
+
+def profile(text, symbols):
+	"""Self samples per bucket and per function, from the 'Sort by top of stack' section of sample's report."""
+	rows = top_of_stack(text)
+	if rows is None:
+		return None
+	buckets, funcs, idle, total = {}, {}, 0, 0
+	for sym, image, n in rows:
 		b = bucket(sym, image, symbols)
 		if b.startswith("idle"):
 			idle += n
@@ -674,7 +723,7 @@ def ab_section(b, add):
 	    " with CLJ_NO_OPT=" + b.args.base_no_opt if b.args.base_no_opt else ""))
 	add("")
 	full = median_interval(list(range(b.args.reps)))[2] if b.args.reps > 1 else None
-	add("Both trees built and run in this job, %s; %d repetitions, each running every "
+	add("Both trees built and run on one runner, %s; %d repetitions, each running every "
 	    "mode on both sides back to back, the base first in even repetitions and the head first in odd ones. A cell "
 	    "is the median over the pairs of head / base, each side's number the run's fastest iteration, and in brackets "
 	    "the sign test's interval for that median (%s coverage with every pair present; the pair count follows when "
@@ -823,11 +872,16 @@ def census_section(b, add):
 def write_report(b, facts_path, xctrace):
 	lines = []
 	add = lines.append
-	machine = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"], stdout=subprocess.PIPE, text=True).stdout.strip()
-	ncpu = subprocess.run(["sysctl", "-n", "hw.ncpu"], stdout=subprocess.PIPE, text=True).stdout.strip()
 	against = " against base %s %s" % (b.args.base, b.base.rev[:10]) if b.base else ""
-	add("# corpus-bench — %s%s, %s, %s cpus, %s" % (b.head.rev[:10], against, machine, ncpu, os.uname().machine))
+	add("# corpus-bench — %s%s, %s" % (b.head.rev[:10], against, b.machine))
 	add("")
+	if getattr(b, "shards", None) and len(b.shards) > 1:
+		add("**%d shards, one runner each**: every shard built and timed its own workloads%s, so each ratio, interval "
+		    "and `*` is one runner's, as in a single job. The absolute ms of two workloads in different shards come from "
+		    "different runners, which spread ±20–30 %% from each other: compare them loosely. Shards: %s." % (
+			    len(b.shards), ", head and base side by side" if b.base else "",
+			    "; ".join("%d %s (%s)" % (i, ", ".join(ws), m) for i, ws, m, _ in b.shards)))
+		add("")
 	add("ms per iteration of `run`, median after a warm-up (ours: 1 iteration, then >= 3 and >= 2 s; the JVM: >= 5 "
 	    "iterations and 5 s, then >= 5 and >= 3 s). *JVM cold* is a fresh `clojure -M` process running `run` once, "
 	    "start to exit; *1st* is that first iteration in-process. *core+interp* is the compiled core with the workload "
@@ -870,7 +924,7 @@ def write_report(b, facts_path, xctrace):
 	add("")
 	add("RC ops are every `clj_retain`/`clj_release` that reached a heap object (plain = unshared, the inline path; "
 	    "shared = atomic; immortal = skipped). *rc est.* is plain ops × %s ns (`clj_debug_rc_op_ns`, an inline op on a "
-	    "cached header, measured on this runner) over the closed median: a floor, since a miss on the header costs more; "
+	    "cached header, measured on the workload's runner) over the closed median: a floor, since a miss on the header costs more; "
 	    "*cold* the same at %s ns, a miss on every header (`clj_debug_rc_op_ns_cold`, 1M headers shuffled). "
 	    "Calls: `clj_invoke` (generic), compiled generic sites (`clj_c_invoke`), `apply`, protocol methods called as "
 	    "values and compiled inline-cache misses. Allocation types are the top ones by count." % (
@@ -897,10 +951,13 @@ def write_report(b, facts_path, xctrace):
 		st, at = s["stat"], s["alloc_type"]
 		closed = median_of(r.get("closed"))
 		est = cold = None
-		if closed and getattr(b, "rc_op_ns", None):
-			est = 100.0 * st.get("rc_plain", 0) * b.rc_op_ns / (closed * 1e6)
-		if closed and getattr(b, "rc_op_ns_cold", None):
-			cold = 100.0 * st.get("rc_plain", 0) * b.rc_op_ns_cold / (closed * 1e6)
+		# A merged report's workloads each carry the calibration of the runner that timed them.
+		op_ns = r["_rc_op_ns"] if "_rc_op_ns" in r else getattr(b, "rc_op_ns", None)
+		op_ns_cold = r["_rc_op_ns_cold"] if "_rc_op_ns_cold" in r else getattr(b, "rc_op_ns_cold", None)
+		if closed and op_ns:
+			est = 100.0 * st.get("rc_plain", 0) * op_ns / (closed * 1e6)
+		if closed and op_ns_cold:
+			cold = 100.0 * st.get("rc_plain", 0) * op_ns_cold / (closed * 1e6)
 		add("| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
 			w, fmt(s.get("stats_ms"), 0), k(st.get("rc_plain")), k(st.get("rc_shared")), k(st.get("rc_immortal")),
 			fmt(est, 0) + " %" if est is not None else "—", fmt(cold, 0) + " %" if cold is not None else "—", k(st.get("alloc")), fmt(st.get("alloc_bytes", 0) / 1e6, 1),
@@ -1035,8 +1092,15 @@ def write_report(b, facts_path, xctrace):
 		add("")
 	add("xctrace: " + xctrace)
 	add("")
-	add("Wall time: the builds before the workloads %.1f min, the workloads %.1f min." % (
-		b.durations[0] / 60, b.durations[1] / 60))
+	if getattr(b, "shards", None):
+		add("Wall time per shard: " + "; ".join("%d (%s) the builds before the workloads %.1f min, the workloads %.1f min" % (
+			i, ", ".join(ws), d[0] / 60, d[1] / 60) for i, ws, _, d in b.shards) + ".")
+	else:
+		add("Wall time: the builds before the workloads %.1f min, the workloads %.1f min." % (
+			b.durations[0] / 60, b.durations[1] / 60))
+	add("")
+	add("Wall time per workload: " + ", ".join("%s %.1f min" % (w, b.wall[w] / 60) for w in b.args.only
+	                                           if w in b.wall) + ".")
 	add("")
 	if b.errors:
 		add("## Errors")
@@ -1048,6 +1112,121 @@ def write_report(b, facts_path, xctrace):
 	with open(path, "w") as f:
 		f.write("\n".join(lines))
 	print("\n".join(lines), flush=True)
+
+
+
+
+# ---- shards: each its own runner, head and base side by side on it; --merge writes their one report
+
+def reps_of(args, w):
+	return args.reps if args.reps_given else min(args.reps, REPS_CAP.get(w, args.reps))
+
+
+def estimate(args, w):
+	outside, per_rep = WORKLOAD_MINUTES[w]
+	return outside + reps_of(args, w) * per_rep * (1 if args.base else 0.5)
+
+
+def deal(args, n):
+	"""n shards' workloads, each in --only's order, and their estimated minutes: the longest workload first, each
+	onto the least loaded shard."""
+	loads, parts = [0.0] * n, [[] for _ in range(n)]
+	for w in sorted(args.only, key=lambda w: -estimate(args, w)):
+		i = loads.index(min(loads))
+		loads[i] += estimate(args, w)
+		parts[i].append(w)
+	return [[w for w in args.only if w in part] for part in parts], loads
+
+
+def shard_count(args):
+	if args.shards:
+		return args.shards
+	most = min(MAX_SHARDS, len(args.only))
+	return next((n for n in range(1, most + 1) if max(deal(args, n)[1]) <= SHARD_BUDGET), most)
+
+
+def shard_index(doc):
+	i, n = doc["args"]["shard"].split("/") if doc["args"].get("shard") else ("1", "1")
+	return int(i), int(n)
+
+
+class Merged:
+	"""The part of a Bench write_report reads, put together from the shards' results.json."""
+
+
+def merge(dirs, out):
+	docs = []
+	for d in dirs:
+		path = os.path.join(d, "results.json")
+		if os.path.exists(path):
+			with open(path) as f:
+				docs.append((d, json.load(f)))
+		else:
+			log("%s has no results.json" % d)
+	if not docs:
+		return "corpus-bench: no results.json in " + ", ".join(dirs)
+	docs.sort(key=lambda dd: shard_index(dd[1]))
+	first = docs[0][1]
+	for d, doc in docs[1:]:
+		for key in ("head", "base"):
+			if doc[key] != first[key]:
+				return "corpus-bench: %s timed %s %s, %s %s: not one run's shards" % (d, key, doc[key], docs[0][0], first[key])
+		if doc["args"]["all"] != first["args"]["all"] or shard_index(doc)[1] != shard_index(first)[1]:
+			return "corpus-bench: %s and %s deal different workloads or shard counts" % (d, docs[0][0])
+	b = Merged()
+	b.args = argparse.Namespace(**first["args"])
+	b.args.only = first["args"]["all"]
+	b.out, b.logs = out, os.path.join(out, "logs")
+	os.makedirs(b.logs, exist_ok=True)
+	b.head = Side("head", ROOT, "")
+	b.head.rev = first["head"]
+	b.base = None
+	if first["base"]:
+		b.base = Side("base", None, "base-")
+		b.base.rev = first["base"]
+	b.results = {w: {} for w in b.args.only}
+	b.errors, b.wall, b.shards, machines, xctrace, facts = [], {}, [], [], [], None
+	b.refs = corpus_refs.Refs.__new__(corpus_refs.Refs)
+	b.refs.b, b.refs.refs, b.refs.versions, b.refs.na, b.refs.cost = b, [], {}, {}, {}
+	n = shard_index(first)[1]
+	missing = sorted(set(range(1, n + 1)) - {shard_index(doc)[0] for _, doc in docs})
+	ran = {w for _, doc in docs for w in doc["args"]["only"]}
+	b.errors += ["%s: no results, shard %s of %d wrote none (its job's log says why)" % (
+		w, " or ".join(map(str, missing)), n) for w in b.args.only if w not in ran]
+	for d, doc in docs:
+		i = shard_index(doc)[0]
+		b.results.update(doc["results"])
+		b.errors += doc["errors"]
+		b.wall.update(doc["wall"])
+		b.shards.append((i, doc["args"]["only"], doc["machine"], doc["durations"]))
+		if doc["machine"] not in machines:
+			machines.append(doc["machine"])
+		if doc["xctrace"] not in xctrace:
+			xctrace.append(doc["xctrace"])
+		refs = doc["refs"]
+		b.refs.refs = sorted(set(b.refs.refs) | set(refs["refs"]), key=corpus_refs.REFS.index)
+		b.refs.versions.update(refs["versions"])
+		b.refs.na.update({(ref, w): why for ref, w, why in refs["na"]})
+		for k, v in refs["cost"].items():
+			b.refs.cost[k] = b.refs.cost.get(k, 0.0) + v
+		if doc["facts"]:
+			facts = os.path.join(out, "facts-coverage.md")
+			shutil.copy(os.path.join(d, "facts-coverage.md"), facts)
+		src = os.path.join(d, "logs")
+		for top, _, files in os.walk(src):
+			for f in files:
+				rel = os.path.relpath(os.path.join(top, f), src)
+				dst = os.path.join(b.logs, rel)
+				if os.path.exists(dst):
+					dst = os.path.join(b.logs, os.path.dirname(rel), "shard%d.%s" % (i, f))
+				os.makedirs(os.path.dirname(dst), exist_ok=True)
+				shutil.copy(os.path.join(top, f), dst)
+	b.machine = "; ".join(machines)
+	for key in ("rc_op_ns", "rc_op_ns_cold"):
+		got = sorted({r["_" + key] for r in b.results.values() if r.get("_" + key) is not None})
+		setattr(b, key, None if not got else got[0] if len(got) == 1 else "%.2f–%.2f" % (got[0], got[-1]))
+	write_report(b, facts, "; ".join(xctrace))
+	return 1 if b.errors else 0
 
 
 def main():
@@ -1068,7 +1247,13 @@ def main():
 	ap.add_argument("--base-no-opt", metavar="NAMES",
 	                help="CLJ_NO_OPT for the base's compiles and runs: with --base=HEAD, the share of those optimizations")
 	ap.add_argument("--reps", type=int, help="timed runs per mode and side (default 8 with --base, else 1)")
+	ap.add_argument("--plan", action="store_true", help="print the deal of the workloads into shards as JSON and exit")
+	ap.add_argument("--shards", type=int, help="the shard count of --plan, instead of the fewest within SHARD_BUDGET")
+	ap.add_argument("--shard", metavar="I/N", help="run the I-th of N shards' workloads; --merge joins their outputs")
+	ap.add_argument("--merge", nargs="+", metavar="DIR", help="one report from shards' outputs (results.json, logs)")
 	args = ap.parse_args()
+	if args.merge:
+		sys.exit(merge(args.merge, os.path.join(ROOT, args.out)))
 	args.only = [w for w in args.only.split(",") if w]
 	args.refs = [r for r in args.refs.split(",") if r and not (args.skip_jvm and r == "jvm")]
 	unknown = [r for r in args.refs if r not in corpus_refs.REFS]
@@ -1082,6 +1267,24 @@ def main():
 		args.reps = 8 if args.base else 1
 	if args.reps < 1:
 		sys.exit("corpus-bench: --reps must be at least 1")
+	if args.shards is not None and not 1 <= args.shards <= len(args.only):
+		sys.exit("corpus-bench: --shards must be between 1 and the workload count")
+	if args.plan:
+		n = shard_count(args)
+		parts, loads = deal(args, n)
+		print(json.dumps({"shards": n, "deal": parts, "minutes": [round(m, 1) for m in loads]}))
+		return
+	args.all = args.only
+	if args.shard:
+		m = re.fullmatch(r"(\d+)/(\d+)", args.shard)
+		if not m or not 1 <= int(m.group(1)) <= int(m.group(2)) <= len(args.only):
+			sys.exit("corpus-bench: --shard is I/N with 1 <= I <= N <= the workload count")
+		i, n = int(m.group(1)), int(m.group(2))
+		parts, loads = deal(args, n)
+		args.only = parts[i - 1]
+		# clj-facts reads the sources, not the runs: the least loaded shard runs it for all.
+		args.skip_facts = args.skip_facts or i - 1 != loads.index(min(loads))
+		log("shard %d/%d: %s" % (i, n, ", ".join(args.only)))
 	b = Bench(args)
 	t0 = time.monotonic()
 	try:
@@ -1097,11 +1300,14 @@ def main():
 				b.errors.append("%s: not run, the target's %d min budget was spent" % (w, TOTAL_BUDGET // 60))
 				continue
 			log("=== " + w)
+			t = time.monotonic()
 			b.run_workload(w)
+			b.wall[w] = time.monotonic() - t
 		b.durations = (start - t0, time.monotonic() - start)
 		facts = None if args.skip_facts else b.facts()
 	finally:
 		b.drop_base_tree()
+	b.dump(facts, xctrace)
 	write_report(b, facts, xctrace)
 	# A missing number is a failed run: the report says which, and the target fails.
 	if b.errors:
