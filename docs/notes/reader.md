@@ -39,8 +39,11 @@
 - **Reader conditionals** `#?`/`#?@` select the first branch whose feature is in `clj_reader.features`
   (a set of keywords copied from the process-wide `clj_reader_set_features` at init; `:default` always
   matches; nil means `:default` alone). No branch → the form reads as nothing (an EOF at top level, a
-  missing item inside a collection); `#?@` splices only into an enclosing collection. Which key names
-  this runtime is still open (Open decisions); the corpus harness sets `#{:clj}` per library.
+  missing item inside a collection); `#?@` splices only into an enclosing collection. The runtime's key
+  is `:pippin` (design §3 «Инвариант»); the corpus harness sets `#{:clj}` per library.
+- [ ] **`:pippin` is not in the default feature set yet.** The process-wide set is `#{:default}` alone,
+  so a `#?(:pippin …)` branch reads as nothing; the set becomes `#{:pippin}`. Trigger: the first `.cljc`
+  outside the corpus with a `:pippin` branch.
 - **A keyword's parts may start with a digit** (`:0`, `:1/2`), a symbol's may not: Clojure reads and prints
   both keywords, and the suite's `(keyword "0")` round-trip needs it.
 - **`::kw` and `::alias/kw`** resolve through `clj_reader.resolve_ns` (`clj_reader_resolve_ns`: the

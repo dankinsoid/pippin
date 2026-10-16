@@ -195,3 +195,5 @@
   anything of another type and falls back to identity for another `Eduction`, which is what the JVM's
   `pcequiv` does by accident — neither side there is the persistent collection that would seq them. It still
   prints as an object, as the JVM's does.
+- [ ] **`or-some` is decided, not written** (design §3 «Инвариант»): a macro over nested `if-some`, marked
+  `^:pippin/extension`, its docstring ending "Not in the JVM's clojure.core". Trigger: the next core.clj change.

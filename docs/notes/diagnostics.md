@@ -82,3 +82,6 @@
 - [ ] **Only `clj-load` renders.** nREPL still answers with the printed `#error` map and the Swift host
   with `ClojureError`; §3-07 wants one format for CLI, nREPL and LSP. Trigger: the LSP step (§10, step
   10), where the JSON shape and the code actions are built, so that the structure is not built twice.
+- [ ] **An extension var in a `.cljc` outside a `#?(:pippin …)` branch is not reported** (design §3
+  «Инвариант»): on the JVM such a file fails to load. The check needs every `#?` branch, which only the tool
+  reader keeps (design §5c), so it lives in our LSP. Trigger: the LSP (design §10 step 10).

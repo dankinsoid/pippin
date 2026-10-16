@@ -336,6 +336,9 @@
   "Syntax error compiling at (file:line:col). <message>" with `{:file :line :column}` data and the original
   as the cause, like CompilerException. Namespaces are immortal like vars: tests create theirs before
   taking a baseline.
+- [ ] **`.pippin` is not looked up yet.** `require` probes `.cljc` then `.clj` (`load.c`); `.pippin` goes
+  first, as cljs puts `.cljs` ahead of `.cljc` (design §3 «Инвариант»). Trigger: the first source file
+  named `.pippin`.
 - **An import is a var, so neither backend learns anything new** (`import*`, builtins_ns.c; design §3 «"Наш хост" —
   это C-ядро»). The import table maps a name to the var holding the type: a program's `defrecord`/`deftype`
   brings its own var (`pkg` or `pkg` with `_` as `-`, the JVM's spelling of a record's package), and a bridge's
