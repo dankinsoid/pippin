@@ -105,7 +105,7 @@
     (walk-vars #(vswap! acc update (:id %) (fnil inc 0)) t)
     @acc))
 
-(declare show)
+(declare show show-pair)
 
 (defn- occurs? [id t]
   (contains? (free-vars t) id))
@@ -146,7 +146,9 @@
         (when t1 (bind! t1 (trow only2 t3)))))))
 
 (defn- mismatch [e a]
-  (fail (str "expected " (show e) ", got " (show a))))
+  (let [[se sa] (show-pair e a)]
+    (fail (str "expected " se ", got " sa
+               (when (con? (prune a) :any) "; a value of :any goes down only through a check")))))
 
 (defn- unify-fn [e a]
   (let [pe (:params e) pa (:params a)]
@@ -163,12 +165,14 @@
     (unify-row (:eff e) (:eff a) :effect)))
 
 (defn unify
-  "expected first, actual second; :any accepts everything without binding."
+  "expected first, actual second. :any is the top type: anything goes up into it, nothing comes
+  down without a check. :error stands for a definition that failed and unifies with everything."
   [expected actual]
   (let [e (prune expected) a (prune actual)]
     (cond
       (and (tv? e) (tv? a) (= (:id e) (:id a))) nil
-      (or (con? e :any) (con? a :any)) nil
+      (or (con? e :error) (con? a :error)) nil
+      (con? e :any) nil
       (tv? e) (bind! e a)
       (tv? a) (bind! a e)
       (not= (:tag e) (:tag a)) (mismatch e a)

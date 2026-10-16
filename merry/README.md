@@ -38,6 +38,8 @@ notation of `static.clj`:
   `some->`; a plain value is accepted where a maybe is expected.
 - Map literals with keyword keys are closed records; `(:k m)` asks for an open row with `:k`.
 - `:int` traps on overflow.
+- `:any` is the top type: anything goes up into it, and a value of `:any` comes down only through a
+  check (`(inc x)` over `:any` is an error).
 
 ## Not yet
 

@@ -125,7 +125,7 @@
 (defmethod on-event :order/paid      [[_ paid]]  (Log/info "paid" (::total paid)))
 (defmethod on-event :order/cancelled [[_ c]]     (Log/warn "cancelled" (:reason c)))
 
-;; defdispatch is dynamic: any dispatch function over Dyn, a missing method fails at runtime.
+;; defdispatch is dynamic: any dispatch function over Any, a missing method fails at runtime.
 (defdispatch webhook (fn [d] (get d "type")))
 
 
@@ -384,14 +384,14 @@
 
   user=> (checkout c)
   ;; error: Inventory, Payments are not handled
-  ;; the REPL installs only Async (a seeded scheduler), Fail (prints the error) and Dyn
+  ;; the REPL installs only Async (a seeded scheduler) and Fail (prints the error)
 
   user=> (with [(fake-inventory {"ABC-0001" 1}) (fake-payments :ok)] (checkout c))
   ;; Fail: [:out-of-stock {:sku "ABC-0001" :left 1}]
 
-  user=> (def d (json/read-dyn (slurp "cart.json")))
+  user=> (def d (json/read-any (slurp "cart.json")))
   user=> (type-of d)
-  ;; => Dyn
+  ;; => Any
   user=> (as Cart d)
   ;; Fail: [:invalid Cart {:missing [::o/id]}]
 
@@ -408,5 +408,5 @@
   ;; => {:phase-1-ms 41, :by {openapi/schema 30, s/merge 6}, :check-ms 12}
 
   user=> (contract eval)
-  ;; => [:=> [:any] Dyn {:eff #{Eval}}]   a release binary without the compiler rejects Eval at link time
+  ;; => [:=> [Any] Any {:eff #{Eval}}]   a release binary without the compiler rejects Eval at link time
   )

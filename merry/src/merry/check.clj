@@ -226,7 +226,7 @@
         f (case (:tag f0)
             :fn f0
             :var (let [g (fresh-fn)] (t/unify f0 g) g)
-            (if (t/con? f0 :any)
+            (if (t/con? f0 :error)
               (fresh-fn)
               (err form (str "calling a value of type " (t/show f0)))))
         callee (if (symbol? head) head "the function")]
@@ -372,9 +372,9 @@
     (catch clojure.lang.ExceptionInfo e
       (if (::t/error (ex-data e))
         (do
-          ;; :any keeps one error from cascading into every later use of the name
+          ;; :error keeps one failed definition from cascading into every later use of its name
           (when-let [n (def-name form)]
-            (swap! *globals* assoc n {:scheme (t/mono (t/tcon :any)) :origins {}}))
+            (swap! *globals* assoc n {:scheme (t/mono (t/tcon :error)) :origins {}}))
           {:kind :error
            :message (ex-message e)
            :line (or (:line (ex-data e)) (line-of form))})
