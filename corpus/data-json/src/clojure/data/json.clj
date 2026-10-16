@@ -36,35 +36,35 @@
   (compile 'clojure.data.json)
   )
 
-;; pippin: no mutable fields (docs/notes/type-descriptor.md): pos is the one slot of a long array, hinted ^longs.
-(deftype StringPBR [^String s ^longs pos ^long len]
+(deftype StringPBR [^String s ^:unsynchronized-mutable ^long pos ^long len]
   InternalPBR
   (readChar [_]
-    (if (< (aget pos 0) len)
-      (let [p (aget pos 0)]
-        (aset pos 0 (unchecked-inc p))
+    (if (< pos len)
+      (let [p pos]
+        (set! pos (unchecked-inc pos))
         (let [c (int (nth s p))]
           c))
       (let [i (int -1)]
         i)))
   (readChars [_ bufflen]
-    (let [p (aget pos 0)
-          remaining (- len p)
+    (let [remaining (- len pos)
           n (Math/min remaining bufflen)]
       (when (pos? n)
-        (aset pos 0 (+ p n)))
+        (let [p pos
+              end (+ p n)]
+          (set! pos end)))
       (if (pos? n) n -1)))
   (unreadChar [_ _c]
     ;; ASSERT: c should never be -1 (EOF)
-    (aset pos 0 (unchecked-dec (aget pos 0)))
+    (set! pos (unchecked-dec pos))
     nil)
   (unreadChars [_ bufflen]
-    (aset pos 0 (unchecked-subtract (aget pos 0) bufflen))
+    (set! pos (unchecked-subtract pos bufflen))
     nil)
   (toReader [_]
-    (subs s (aget pos 0) len))
+    (subs s pos len))
   (position [_]
-    (aget pos 0))
+    pos)
   (charAt [_ i]
     (nth s i))
   (substring [_ start end]
@@ -72,7 +72,7 @@
 
 (defn- string-pbr
   [^String s]
-  (->StringPBR s (long-array 1) (count s)))
+  (->StringPBR s 0 (count s)))
 
 ;; pippin: no StringBuilder: a string in a volatile, which (vswap! v str x) appends to in place while the volatile
 ;; alone holds it.

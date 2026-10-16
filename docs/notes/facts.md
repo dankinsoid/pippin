@@ -254,12 +254,11 @@
   only through the type's dispatch. A protocol call inlined under
   its guard refines the receiver slot to the implementor type in the then branch (`refine`, the guard's case), so
   the copied body's field reads take the same facts (docs/notes/compiler.md, protocol inlining).
-- [ ] **An unhinted field's fact from its construction sites.** `pos` of clojure.data.json's StringPBR is
-  `(long-array 1)` at its one construction; with every `new*` of a type visible (a closed set, the constructor var
-  only called) the join of what they pass would be the field's fact without a hint. Not done: the sites are other
-  forms' trees, so it is a closed-world pass over the set before the emit, the caller join's machinery for fields.
-  The data.json port hints its field `^longs` instead, as upstream hints it `^long`. Trigger: a hot unhinted field
-  in a profile of a library that cannot be given the hint.
+- [ ] **An unhinted field's fact from its construction sites.** A field every construction of its type passes a
+  long would have that fact without a hint: with every `new*` of a type visible (a closed set, the constructor var
+  only called) the join of what they pass is the field's fact. Not done: the sites are other forms' trees, so it is a
+  closed-world pass over the set before the emit, the caller join's machinery for fields. Trigger: a hot unhinted
+  field in a profile of a library that cannot be given the hint.
 - **Known types answer for nth, get and aget** (`known_result`; `CLJ_NO_OPT=known`): `nth`/`get` over a string (or
   nil) answer a char (nil past the end for `get`, nil over nil, the not-found argument joined in), `aget` over an array
   of a known kind its element's kind. The unchecked ops are arithmetic signatures (`unchecked-add` as `+`), their

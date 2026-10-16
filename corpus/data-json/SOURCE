@@ -15,9 +15,8 @@ jar's file. read-str and write-str behave as upstream on every input the workloa
 JVM's, checked with = on every run); what behaves otherwise, or not at all, is named below.
 
 - InternalPBR is a protocol (definterface is refused, design §8), its call sites functions in place of method
-  calls. StringPBR keeps its position in a one-slot long array hinted ^longs, as upstream hints the field ^long (no
-  mutable fields, NOTES "Type descriptor"), reads
-  a char with nth and counts the string with count: indexes are code points here, UTF-16 units on the JVM, which
+  calls. StringPBR keeps its position in its ^:unsynchronized-mutable ^long field, as upstream, reads a char with
+  nth and counts the string with count: indexes are code points here, UTF-16 units on the JVM, which
   differ only outside the BMP. readChars and unreadChars move the position without a char[] buffer, and
   read-quoted-string scans its 64-char window in place and takes the string with subs, where upstream copies it
   into a char[] and makes a String of it.

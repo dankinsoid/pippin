@@ -1,6 +1,6 @@
 --- upstream/data.json/clojure/data/json.clj
 +++ corpus/data-json/src/clojure/data/json.clj
-@@ -11,86 +11,94 @@
+@@ -11,34 +11,26 @@
    See http://www.json.org/"}
    clojure.data.json
    (:refer-clojure :exclude (read))
@@ -50,52 +50,39 @@
  
  (comment
    (compile 'clojure.data.json)
-   )
- 
--(deftype StringPBR [^String s ^:unsynchronized-mutable ^long pos ^long len]
-+;; pippin: no mutable fields (docs/notes/type-descriptor.md): pos is the one slot of a long array, hinted ^longs.
-+(deftype StringPBR [^String s ^longs pos ^long len]
-   InternalPBR
-   (readChar [_]
--    (if (< pos len)
--      (let [p pos]
--        (set! pos (unchecked-inc pos))
+@@ -50,47 +42,63 @@
+     (if (< pos len)
+       (let [p pos]
+         (set! pos (unchecked-inc pos))
 -        (let [c (int (.charAt s p))]
-+    (if (< (aget pos 0) len)
-+      (let [p (aget pos 0)]
-+        (aset pos 0 (unchecked-inc p))
 +        (let [c (int (nth s p))]
            c))
        (let [i (int -1)]
          i)))
 -  (readChars [_  buffer start bufflen]
--    (let [remaining (- len pos)
 +  (readChars [_ bufflen]
-+    (let [p (aget pos 0)
-+          remaining (- len p)
+     (let [remaining (- len pos)
            n (Math/min remaining bufflen)]
        (when (pos? n)
--        (let [p pos
--              end (+ p n)]
+         (let [p pos
+               end (+ p n)]
 -          (set! pos end)
 -          (.getChars ^String s p end ^chars buffer start)))
-+        (aset pos 0 (+ p n)))
++          (set! pos end)))
        (if (pos? n) n -1)))
    (unreadChar [_ _c]
      ;; ASSERT: c should never be -1 (EOF)
--    (set! pos (unchecked-dec pos))
-+    (aset pos 0 (unchecked-dec (aget pos 0)))
+     (set! pos (unchecked-dec pos))
      nil)
 -  (unreadChars [_ _buffer _start bufflen]
--    (set! pos (unchecked-subtract pos bufflen))
 +  (unreadChars [_ bufflen]
-+    (aset pos 0 (unchecked-subtract (aget pos 0) bufflen))
+     (set! pos (unchecked-subtract pos bufflen))
      nil)
    (toReader [_]
 -    (StringReader. (.subSequence s pos len))))
-+    (subs s (aget pos 0) len))
++    (subs s pos len))
 +  (position [_]
-+    (aget pos 0))
++    pos)
 +  (charAt [_ i]
 +    (nth s i))
 +  (substring [_ start end]
@@ -108,7 +95,7 @@
  (defn- string-pbr
    [^String s]
 -  (->StringPBR s 0 (.length s)))
-+  (->StringPBR s (long-array 1) (count s)))
++  (->StringPBR s 0 (count s)))
  
 -;;; JSON READER
 +;; pippin: no StringBuilder: a string in a volatile, which (vswap! v str x) appends to in place while the volatile
@@ -575,7 +562,7 @@
          val)
        val)))
  
-@@ -482,70 +490,16 @@
+@@ -482,71 +490,17 @@
    "Pass as :extra-data-fn to `read` or `read-str` to throw if data is found
    after the first object and return the remaining data in ex-data :remaining."
    [val rdr]
@@ -594,7 +581,8 @@
 -  If you wish to repeatedly read items from the same reader, you must
 -  supply a PushbackReader with buffer size >= 64, and reuse it on
 -  subsequent calls.
--
++;; pippin: read, over a java.io.Reader, is not carried.
+ 
 -  Options are key-value pairs, valid options are:
 -
 -     :eof-error? boolean
@@ -645,10 +633,10 @@
 -    (->> options
 -         (merge default-read-options)
 -         (-read1 pbr eof-error? eof-value))))
-+;; pippin: read, over a java.io.Reader, is not carried.
- 
+-
  (defn read-str
    "Reads one JSON value from input String. Options are the same as for
+   read."
 @@ -564,17 +518,17 @@
    (-write [object out options]
      "Print object to Appendable out as JSON"))

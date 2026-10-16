@@ -50,7 +50,8 @@
   `pippin.diff`; the workload `bench/workloads/src/workloads/json.clj` through `workloads.json-host`), with no
   manifest for the same reason as datascript's. The JVM runs its jar and bb its built-in copy. Its reader and writer
   are Clojure over java.io and java.lang, so the port touches most of the file but none of its algorithm: the
-  definterface stream is a protocol (design §8), its mutable position a one-slot long array ("Type descriptor"),
+  definterface stream is a protocol (design §8), its mutable position the `^long` field upstream has ("Type
+  descriptor", mutable fields),
   the char[] window read in place with `nth` and taken with `subs` (a window filled a char at a time measured 1.93×
   slower: NOTES "Strings", the bulk copy entry), StringBuilder and StringWriter a string in a volatile appended in
   place (NOTES "Strings", the string builder entry), JVM exceptions `ex-info`, its extensions
