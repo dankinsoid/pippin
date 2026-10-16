@@ -329,7 +329,7 @@ jobs:
   # The shards' one report, under the artifact name and in the summary a single job had.
   corpus-bench:
     needs: [plan, gates]
-    if: ${{ !cancelled() && inputs.target == 'corpus-bench' }}
+    if: ${{ !cancelled() && inputs.target == 'corpus-bench' && needs.plan.result == 'success' }}
     name: corpus-bench (${{ matrix.arch }})
     runs-on: ubuntu-latest
     strategy:
