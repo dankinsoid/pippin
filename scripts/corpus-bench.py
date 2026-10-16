@@ -395,21 +395,33 @@ class Bench:
 			res["interp-stats-off"] = self.ours("interp-stats-off", w, hb["interp-stats"], ["--stats"], env=off)
 			yield
 		# What each side times: (binary, extra args) per mode; a mode whose build failed is absent.
-		timed, units, trees = {}, {}, {}
-		for side in self.sides:
+		timed, units, stats = {}, {}, {}
+
+		def prepare(side):
 			t = timed[side.name] = {"interp": (side.bin["interp"], []), "dev-core": (side.bin["dev"], [])}
 			units[side.name] = u = self.dev_units(w, side)
 			if u:
 				t["dev"] = (side.bin["dev"], ["--units", u, "--dylib-dir", u + "-dylib"])
 			if self.args.skip_closed:
-				continue
-			trees[side.name] = tree = self.closed_tree(w, side)
+				return
+			tree = self.closed_tree(w, side)
 			if not tree:
-				continue
+				return
 			try:
 				t["closed"] = (self.build(side.prefix + "closed", ["-DCLJ_COMPILED_CORE", "-DCLJ_CLOSED"], package=tree), [])
 			except RuntimeError as e:
 				self.errors.append("%s: the %s closed build failed: %s" % (w, side.name, str(e)[-800:]))
+				return
+			try:
+				stats[side.name] = self.build(side.prefix + "closed-stats",
+				                              ["-DCLJ_COMPILED_CORE", "-DCLJ_CLOSED", "-DCLJ_STATS=1"], package=tree)
+			except RuntimeError as e:
+				self.errors.append("%s: the %s closed stats build failed: %s" % (w, side.name, str(e)[-800:]))
+
+		# Untimed, so the sides prepare at once, the closed stats build too, before any run.
+		with concurrent.futures.ThreadPoolExecutor(len(self.sides)) as pool:
+			for f in [pool.submit(prepare, side) for side in self.sides]:
+				f.result()
 		yield
 		# A pair is two adjacent runs of one mode; who goes first alternates, so drift and warm-up hit both sides.
 		runs = {}
@@ -461,16 +473,10 @@ class Bench:
 			c = parse(cal.stdout)
 			self.rc_op_ns, self.rc_op_ns_cold = c.get("rc_op_ns"), c.get("rc_op_ns_cold")
 		for side in self.sides:
-			if "closed" not in timed[side.name]:
+			if side.name not in stats:
 				continue
-			try:
-				stats = self.build(side.prefix + "closed-stats", ["-DCLJ_COMPILED_CORE", "-DCLJ_CLOSED", "-DCLJ_STATS=1"],
-				                   package=trees[side.name])
-			except RuntimeError as e:
-				self.errors.append("%s: the %s closed stats build failed: %s" % (w, side.name, str(e)[-800:]))
-				continue
-			res[side.prefix + "closed-stats"] = self.ours(side.prefix + "closed-stats", w, stats, ["--stats", "--census"],
-			                                              side=side)
+			res[side.prefix + "closed-stats"] = self.ours(side.prefix + "closed-stats", w, stats[side.name],
+			                                              ["--stats", "--census"], side=side)
 			yield
 
 	def symbols(self, scratch):
@@ -511,9 +517,10 @@ class Bench:
 
 	def xctrace_probe(self):
 		try:
+			# About 20 s when it works; on one runner of run 38952649569 it hung to the end of a 300 s timeout.
 			p = subprocess.run(["xcrun", "xctrace", "record", "--template", "Time Profiler", "--time-limit", "2s",
 			                    "--output", os.path.join(self.out, "probe.trace"), "--launch", "--", "/bin/sleep", "1"],
-			                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=300)
+			                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=90)
 		except (OSError, subprocess.TimeoutExpired) as e:
 			return "did not run: %s" % e
 		shutil.rmtree(os.path.join(self.out, "probe.trace"), ignore_errors=True)
@@ -1090,7 +1097,7 @@ def write_report(b, facts_path, xctrace):
 			   line.startswith("| **library code**"):
 				add(line)
 		add("")
-	add("xctrace: " + xctrace)
+	add("xctrace: " + (xctrace or "probed in another shard"))
 	add("")
 	if getattr(b, "shards", None):
 		add("Wall time per shard: " + "; ".join("%d (%s) the builds before the workloads %.1f min, the workloads %.1f min" % (
@@ -1201,7 +1208,7 @@ def merge(dirs, out):
 		b.shards.append((i, doc["args"]["only"], doc["machine"], doc["durations"]))
 		if doc["machine"] not in machines:
 			machines.append(doc["machine"])
-		if doc["xctrace"] not in xctrace:
+		if doc["xctrace"] and doc["xctrace"] not in xctrace:
 			xctrace.append(doc["xctrace"])
 		refs = doc["refs"]
 		b.refs.refs = sorted(set(b.refs.refs) | set(refs["refs"]), key=corpus_refs.REFS.index)
@@ -1275,6 +1282,7 @@ def main():
 		print(json.dumps({"shards": n, "deal": parts, "minutes": [round(m, 1) for m in loads]}))
 		return
 	args.all = args.only
+	probe = True
 	if args.shard:
 		m = re.fullmatch(r"(\d+)/(\d+)", args.shard)
 		if not m or not 1 <= int(m.group(1)) <= int(m.group(2)) <= len(args.only):
@@ -1282,8 +1290,9 @@ def main():
 		i, n = int(m.group(1)), int(m.group(2))
 		parts, loads = deal(args, n)
 		args.only = parts[i - 1]
-		# clj-facts reads the sources, not the runs: the least loaded shard runs it for all.
-		args.skip_facts = args.skip_facts or i - 1 != loads.index(min(loads))
+		# clj-facts and the xctrace probe answer the same on every runner: the least loaded shard runs them for all.
+		probe = i - 1 == loads.index(min(loads))
+		args.skip_facts = args.skip_facts or not probe
 		log("shard %d/%d: %s" % (i, n, ", ".join(args.only)))
 	b = Bench(args)
 	t0 = time.monotonic()
@@ -1293,7 +1302,7 @@ def main():
 			# The classpath is resolved once, outside every timed process.
 			sh(["clojure", "-Sdeps", JVM_DEPS, "-M", "-e", "nil"], timeout=1800)
 		b.refs.prepare(args.only)
-		xctrace = b.xctrace_probe()
+		xctrace = b.xctrace_probe() if probe else None
 		start = time.monotonic()
 		for w in args.only:
 			if time.monotonic() - start > TOTAL_BUDGET:
