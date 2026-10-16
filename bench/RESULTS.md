@@ -3422,3 +3422,38 @@ async rows' intervals span 0.8–1.3.
   0.975 [0.972–0.978] without it (38725629176), rewritten branch-free; no ONCYCLE inheritance 0.972, constant birth bits
   0.982, no transient checks 0.996 (38720234271, 38720249358, 38720244269). d9c9f2c itself against main had nested-update
   closed 1.111, dependency 1.067 (38640990716).
+
+## The cycle check at a store: the inline cost — 6a589ab, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+What the store check left on workloads with no candidate, and how it went (design §7, «Проверка цикла в момент записи»;
+NOTES "RC"). Run 38883821458 is `make corpus-bench` against main 83884f8, the default 8 repetitions, 2 for datascript.
+Same runner, head / base, each run's fastest iteration:
+
+| workload | interp | core+interp | dev | closed |
+|---|---:|---:|---:|---:|
+| datascript | 0.849 [0.840–0.858]* (2) | 0.886 [0.881–0.890]* (2) | 0.796 [0.780–0.811]* (2) | 0.750 [0.704–0.796]* (2) |
+| *geomean, the other 13* | 0.993 | 1.005 | 1.008 | 0.998 |
+
+datascript closed 557.7 ms (median), 4.2× the JVM's 131.6. Starred cells worse than 1: nested-update core+interp 1.041,
+json interp 1.027, pipelines core+interp 1.013, strings dev 1.010, suite-data closed 1.008; better: group-freq interp
+0.966 and closed 0.973, strings interp 0.972, suite-data core+interp 0.994, json closed 0.956. The two above 1 % again at 16
+repetitions (run 38893505629, `--only=nested-update,json,pipelines`): nested-update 0.998 / 1.000 / 0.999 / 1.013, json
+1.005 / 0.986 / 0.994 / 0.977, pipelines 0.998 / 1.010 / 1.003 / 0.988.
+
+- **Where the cost was.** Against e8b606e (16 repetitions, `--only=…`, closed): main's whole `clj_reach_from` took
+  nested-update to 0.926, dependency 0.935, medley dev 0.938 (run 38759124711); no `HEAPREF` write at all, 0.967
+  (38759117094). With main's `clj_reach_from` on 3b143b5 every slowed workload was level against main (38795595950),
+  so the rest of the change cost nothing. Its closed sample of nested-update had no `clj_slot_store` frame, the
+  head's had 535 self samples in one (run 38877570655): grown past clang's threshold, the inline primitive became a
+  call in `clj_vector_conj`. `always_inline` on it, `clj_slot_init` and `clj_reach_from` removed the frame.
+- **Steps on the way**, each against main 83884f8 unless named: the release mask with bit 16 (nested-update closed
+  0.951 without it against d9c9f2c, run 38720239274); ONCYCLE's inheritance at a store, which only the kill switch
+  needed (0.972 without, 38720234271), replaced by `clj_cc_kill_oncycle` where REACH_LOCAL is gained; `HEAPREF` only on
+  a reference type with REACH_LOCAL, all such work out of line in `clj_cc_reach_local`; REACH_LOCAL moved to bit 15.
+  Before `always_inline` the 16-repetition run 38877570655 still had nested-update closed 1.118, dev 1.064.
+- **Realizations.** Filing every realization unwalked cost medley closed 1.083 (run 38730569880, 18.0k realizations a
+  iteration); a budget of 8 nodes and 64 children closes medley's 5.9k rings in its walk (no deferral, 11.9k candidates
+  against main's 47.9k) and files datascript's 73.7k as before, at 0.92M nodes walked.
+- **Collector work, datascript closed stats run, per iteration**: candidates 90.6k (main 1.06M), collections 16.5
+  (4.1k), table lookups 0 (8.38M); the cycle collector's frames 4.4 % of busy samples (12.1 % on main).
+
