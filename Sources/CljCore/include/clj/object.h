@@ -346,9 +346,9 @@ extern _Atomic uint64_t clj_debug_rc_counters[3];
 // gets none: the collector never enters it. Only a new bit is written, into an unshared or a shared unique owner, so
 // the plain write races with no reader; an ex-info's trace, stored after publication, brings none.
 // The new edge voids the owner's acyclic mark or dirties a reference type (design §7, «Метка «ацикличен»»).
-// A child with REACH_LOCAL goes out of line (clj_cc_reach_local): the inlined rest is main's, whose in-place path is
-// hot, and a longer inline body cost nested-update 6 % closed though no child there has the bit (bench/RESULTS.md).
-static inline void clj_reach_from(clj_header *owner, uint32_t flags, clj_value v) {
+// A child with REACH_LOCAL goes out of line (clj_cc_reach_local). Always inlined, as the slot primitives: grown past
+// clang's threshold, clj_slot_store became a call in clj_vector_conj, nested-update 8 % closed (bench/RESULTS.md).
+static inline __attribute__((always_inline)) void clj_reach_from(clj_header *owner, uint32_t flags, clj_value v) {
 	if (!clj_is_ptr(v)) return;
 	clj_header *c = clj_header_of(v);
 #if CLJ_STATS
@@ -397,7 +397,7 @@ static inline void clj_slot_stored(clj_header *owner, uint32_t flags) {
 // The store into a live object: a shared owner publishes v before v becomes reachable through it. A reference type
 // (atom, channel, ...) stores under its own lock, which this does not take; debug builds check that it is held.
 // The caller releases the old value after this returns, never before (the collector's lock-free protocol, cc.c).
-static inline void clj_slot_store(clj_header *owner, clj_slot *slot, clj_value v) {
+static inline __attribute__((always_inline)) void clj_slot_store(clj_header *owner, clj_slot *slot, clj_value v) {
 	uint32_t f = owner->flags;
 	if (f & CLJ_FLAG_SHARED) clj_share(v);
 	clj_reach_from(owner, f, v);
@@ -408,7 +408,7 @@ static inline void clj_slot_store(clj_header *owner, clj_slot *slot, clj_value v
 
 // Fills a slot of an object no other execution can reach yet, without the flag test. An owner born shared (var,
 // coroutine) takes only values that need no publication; debug builds check it.
-static inline void clj_slot_init(clj_header *owner, clj_slot *slot, clj_value v) {
+static inline __attribute__((always_inline)) void clj_slot_init(clj_header *owner, clj_slot *slot, clj_value v) {
 	CLJ_SLOT_INIT_CHECK(owner, v);
 	clj_reach_from(owner, owner->flags, v);
 	slot->v = v;
