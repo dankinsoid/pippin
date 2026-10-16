@@ -37,8 +37,10 @@
   workload returns one): the spec a port to another language starts from. A run past 240 s is sampled into the logs
   and killed, the workload's remaining runs skipped, so a hang fails the target and names itself; the whole target
   stops starting workloads after 150 min and the CI step is capped at 180. Opt-in, in
-  neither gate: a CI dispatch with `target: corpus-bench` (on the arm64 runner about 20 min for one tree plus 10 for the reference runtimes, 79 with the default base; datascript adds about 7 min to one tree and about 19 to the default base at its 2 repetitions, bench/RESULTS.md "Datascript";the report is the job
-  summary, the logs and `sample` files the `corpus-bench-arm64` artifact), `CORPUS_BENCH_ARGS=--only=a,b` narrows it.
+  neither gate: a CI dispatch with `target: corpus-bench`, dealt into parallel shards (the "Sharded on CI" bullet
+  below; in one job it took 80–90 min with the default base); the report is the run's summary, written by the
+  `corpus-bench (arm64)` job, and the logs and `sample` files are the `corpus-bench-arm64` artifact, as from one
+  job. `CORPUS_BENCH_ARGS=--only=a,b` narrows it.
   The workflow splits `make_args` as a shell splits words (`shlex`, no eval), so a value with spaces is quoted:
   `-f make_args="CORPUS_BENCH_ARGS='--only=a,b --reps=16'"`; unquoted, make would read `--reps=16` as its own option.
   `--interp-ab=VAR` adds a stats build of the interpreter and runs the interpreter and its counters twice, the second
@@ -71,10 +73,36 @@
     interval 14 and 13 % wide (median over the 36 data cells), the fastest iterations 8 and 11 %, and 3 and 1 of the
     36 excluded 1, about the 7 % the interval promises. What that leaves resolvable (bench/RESULTS.md "Same-runner
     A/A"): a data workload's cell moves up to ±4–7 % with nothing changed, a mode's geomean ±2 %; a smaller claim
-    needs more `--reps`, with `--only` to keep them inside the 150 min. Cost on the arm64 runner: 67–70 min for the step against about 20 for
-    one tree (7–9 min of builds before the workloads, the workloads 59–61; a dev run recompiles its units with clang,
-    about 3 s of each). The async workloads' counters move between two runs of one tree (scheduling); the others'
-    are exact, so any counter change there is the head's.
+    needs more `--reps`, with `--only` to keep them inside the 150 min. Cost on the arm64 runner in one job: 67–90
+    min for the step against about 20 for one tree (7–10 min of builds before the workloads, the workloads 59–81; a
+    dev run recompiles its units with clang, about 3 s of each). The async workloads' counters move between two runs
+    of one tree (scheduling); the others' are exact, so any counter change there is the head's.
+  - **Sharded on CI.** The workflow's `plan` job (ubuntu) runs `make corpus-bench-plan` with the dispatch's
+    `make_args` and `base`: `scripts/corpus-bench.py --plan` deals the selected workloads, the longest first onto
+    the least loaded shard, by `WORKLOAD_MINUTES` (each workload's minutes outside its repetitions and per
+    repetition, measured on arm64 against a base) into the fewest shards whose estimate stays within
+    `SHARD_BUDGET` (17 min of workloads), at most `MAX_SHARDS`, 5: the plan runs five macOS jobs at once, so a
+    sixth shard would only queue. The full run with a base is five shards, one tree three, an `--only` of a few
+    workloads one or two; `CORPUS_BENCH_ARGS=--shards=N` overrides the count. Each shard is a job `corpus-bench
+    (arm64, i/n: <its workloads>)` running `make corpus-bench` with `CORPUS_BENCH_SHARD=i/n`: it builds both trees
+    and runs its workloads' whole A/B on its own runner, so every ratio, interval and `*` is one runner's as before;
+    it uploads `corpus-bench-<arch>-shard-<i>` (its `results.json`, its own report, its logs). The `corpus-bench
+    (<arch>)` job (ubuntu) merges them with `corpus-bench.py --merge` into the one report, artifact and summary a
+    single job wrote: the same tables and rows in `--only`'s order, the geomeans over all workloads, and a header
+    naming the shards, because the absolute ms of two workloads in different shards come from different runners.
+    Per runner, not per run: the rc calibration (each workload's *rc est.* uses its shard's; the text gives the
+    range), and the reference and ClojureDart wall times, summed. clj-facts and the xctrace probe run in the least
+    loaded shard only. A shard that wrote nothing leaves its workloads' rows empty and named under "Errors", and the
+    merge fails the run as a failed workload did. The two sides' builds run side by side, before the workloads and
+    each workload's closed and closed stats builds before its runs: nothing is timed while two builds share the
+    cores. Refresh `WORKLOAD_MINUTES` from the report's "Wall time per workload" line when a workload's cost moves
+    (the first workload of a shard also pays its cold closed builds). With `arches: both` the x86_64 shards queue
+    behind the arm64 ones for the five runners, and so does any shard while other CI holds a runner. Locally `make
+    corpus-bench` stays one job. Measured, the full run with the default base: 31.2 min in run 38952649569 (one
+    shard's xctrace probe hung its 300 s, since then 90 s and one shard), 24.9 min in 38958087196: shards 18.7–24.4
+    min, each about 1 min of setup, 3.8–6.0 of builds and preparation before the workloads (both sides' builds at
+    once take 4–5 of them) and 14–18 of workloads; the plan and merge jobs about 10 s each. The 90 min of one job
+    were the sum of the workloads (about 80) and the builds (about 10).
   - Times are in-process per iteration of `run`: ours after one iteration, median of >= 3 and >= 2 s; the JVM's after
     >= 5 iterations and 5 s, median of >= 5 and >= 3 s. One runner's numbers spread ±20–30 % from the next's: read
     a backend's column against another only over several runs (bench/RESULTS.md, "Corpus workloads"). *JVM cold*

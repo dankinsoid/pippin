@@ -344,7 +344,9 @@
   What is left: builds, about half of every job; `corpus-compiled` on a miss, its first `dlopen` of each fresh
   unit (the clang over the units now runs in parallel); on arm64 the memory bound (2 ASan shards of ~2 GB).
 - **CI.** `.github/workflows/gates.yml` runs `make gates` on push to main, on pull requests, nightly and by
-  hand; a push or pull request that touches only `docs/` and Markdown files does not start it. One job per
+  hand; a push or pull request that touches only `docs/` and Markdown files does not start it. A `plan` job
+  (ubuntu, seconds) writes the matrix: for `target: corpus-bench` one job per architecture and shard and a merge
+  job after them (docs/notes/benchmarks.md, "Sharded on CI"), for every other target one job per
   architecture: `macos-26` (arm64, 3 cores, 7 GB) on every trigger, `macos-26-intel` (x86_64, 4 cores, 14 GB)
   only nightly (`schedule`, 23:00 UTC, on main) and on a dispatch with `arches: both`
   (`gh workflow run gates.yml --ref <branch> -f arches=both`): its job takes about twice arm64's. **A change to

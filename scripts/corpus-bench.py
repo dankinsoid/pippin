@@ -42,13 +42,14 @@ TOTAL_BUDGET = 150 * 60
 # At most this many repetitions of a workload whose run takes seconds, unless --reps is given: datascript's 8 pairs
 # would cost the default --base job about 25 min more than 2 do (bench/RESULTS.md, "Datascript").
 REPS_CAP = {"datascript": 2}
-# (minutes outside the repetitions, minutes per repetition of both sides), arm64 against a base, run 38919426472.
+# (minutes outside the repetitions, minutes per repetition of both sides), arm64 against a base, run 38958087196;
+# the first workload of each shard there also paid its cold closed builds.
 WORKLOAD_MINUTES = {
-	"medley": (3.4, 0.33), "combinatorics": (3.0, 0.45), "dependency": (4.3, 0.46), "nested-update": (2.8, 0.36),
-	"group-freq": (2.9, 0.33), "pipelines": (3.2, 0.36), "strings": (2.4, 0.21), "render": (2.4, 0.30),
-	"suite-data": (2.4, 0.29), "async-pipeline": (2.9, 0.32), "async-libs": (2.0, 0.33), "async-broadcast": (2.1, 0.19),
-	"datascript": (6.0, 1.65), "json": (2.6, 0.49)}
-# Workload minutes per shard: with about 10 min of builds before them and the merge, a run stays near 30 min.
+	"medley": (2.7, 0.33), "combinatorics": (3.9, 0.48), "dependency": (3.9, 0.42), "nested-update": (3.3, 0.38),
+	"group-freq": (2.5, 0.34), "pipelines": (2.6, 0.37), "strings": (1.9, 0.22), "render": (3.1, 0.32),
+	"suite-data": (1.9, 0.28), "async-pipeline": (2.1, 0.30), "async-libs": (1.9, 0.37), "async-broadcast": (1.5, 0.14),
+	"datascript": (5.5, 1.73), "json": (2.1, 0.46)}
+# Workload minutes per shard: with about 7 min of setup and builds before them and the merge, a run stays near 25 min.
 SHARD_BUDGET = 17
 # The plan's concurrent macOS jobs: a shard past them would wait for a runner (docs/notes/benchmarks.md).
 MAX_SHARDS = 5
