@@ -3457,3 +3457,41 @@ repetitions (run 38893505629, `--only=nested-update,json,pipelines`): nested-upd
 - **Collector work, datascript closed stats run, per iteration**: candidates 90.6k (main 1.06M), collections 16.5
   (4.1k), table lookups 0 (8.38M); the cycle collector's frames 4.4 % of busy samples (12.1 % on main).
 
+
+## Mutable fields — 525affb, GitHub `macos-26`, Apple M1 (Virtual), 3 cpus (release, pool)
+
+`^:unsynchronized-mutable` and `^:volatile-mutable` deftype fields (design §4 «Роли конструкций»; NOTES "Type
+descriptor", mutable fields), and the two ports going back to upstream with them: data.json's StringPBR holds its
+position in its `^long` field instead of a one-slot `^longs` array, datascript's Datom and BTSet cache their hash and
+Datom sets its idx. Run 38919426472 is the full `make corpus-bench --base-sources` against main 159d9be, each side its
+own ports, 8 repetitions, 2 for datascript; the shares are runs of one workload against the parent commit with
+`--base-sources` (the port alone) or the same commit with a kill switch for the base (8 pairs each). Cells are head /
+base, the median over the pairs with the sign test's interval.
+
+| run | interp | core+interp | dev | closed |
+|---|---:|---:|---:|---:|
+| json, 525affb vs main (38919426472) | 0.964 [0.853–0.997]* | 0.933 [0.926–0.971]* | 0.991 [0.969–1.088] | 0.995 [0.924–1.122] |
+| datascript, 525affb vs main (38919426472) | 0.952 [0.933–0.970]* (2) | 0.999 [0.974–1.024] (2) | 1.017 [0.957–1.076] (2) | 1.030 [1.020–1.040]* (2) |
+| json's port: 724f95a vs b9d464b (38906771102) | 0.991 [0.982–1.040] | 0.994 [0.981–1.003] | 0.984 [0.932–0.989]* | 0.986 [0.983–1.001] |
+| datascript's port: 525affb vs 724f95a (38906775993) | 0.980 [0.917–1.074] | 1.005 [0.979–1.040] | 0.974 [0.765–1.016] | 1.027 [0.989–1.108] |
+| raw fields unboxed: json vs `CLJ_NO_OPT=raw-fields` (38906817375) | 1.003 [0.993–1.031] | 1.001 [0.984–1.008] | 1.004 [1.000–1.083] | 0.960 [0.957–1.017] |
+
+- **json** (run 38919426472): closed 73.4 → 72.9 ms fastest, 83.5 median, 4.2× the JVM's data.json (19.78 ms on this
+  runner); the share run's runner had 74.5 against 18.94, 3.9×. The position as a field costs no more than the array
+  cell: plain RC −7.4 % closed and −27.2 % dev an iteration (the array's retain and release a character are gone);
+  closed reads and stores the field as an `int64_t` (`clj_c_mfield_i64`, readChar's `set!` a statement that boxes
+  nothing), which against the boxed arm measured 0.960, not significant over 8 pairs. Through the builtin call alone dev
+  ran 1.082 [1.038–1.128] against the array (run 38903637955); the boxed arms in line (`clj_c_mutable_field`,
+  `clj_c_set_field`) took it to 0.984.
+- **datascript** (run 38919426472): closed 523.8 → 539.5 ms fastest, 572.6 median, 3.6× the JVM's 157.95. The port's
+  share over 8 pairs is level (1.027 [0.989–1.108]); its counters move by MB +0.7 % (the owner word of Datom and BTSet)
+  and nothing else: the hash cache saves no measurable work here, the workload hashes few datoms and sets. The closed
+  cell against main over 2 pairs, 1.030, is an open item (NOTES "Type descriptor", mutable fields).
+- **Elsewhere** (run 38919426472): closed geomean over the fourteen workloads 0.989; every other cell within ±3 % but
+  the async rows, whose intervals span 0.75–1.31, and every counter of the twelve equal to main's. Starred: medley closed
+  1.010, pipelines closed 1.007, strings interp 1.016 and closed 1.007, suite-data interp 1.014; async-libs closed 0.966.
+- **Compile cost** (x86_64 dev host, i9-9980HK; `clj-compile --core --closed` of each workload, then clang `-O2
+  -DCLJ_CLOSED` of every unit it writes, CPU seconds; main 159d9be → 525affb): C 39.61 → 39.22 MB (−1.0 %);
+  clj-compile 6.88 → 7.55 s and clang 168.8 → 190.2 s over the fourteen in one pass each, which moves with the
+  laptop's heat — alternated passes of datascript gave clang 49.0, 54.8, 68.4 s for main and 60.5, 57.3, 55.2 for the
+  head, json 13.7, 15.6, 18.8 against 16.1, 15.6, 14.4: no change past the noise, inside the 15 % budget.

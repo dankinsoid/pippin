@@ -97,12 +97,17 @@
   the builtin; `CLJ_NO_OPT=raw-fields` turns that off. Elsewhere every unit, dev's too, calls the boxed arms in line
   (`clj_c_mutable_field`, `clj_c_set_field`: a raw long or an immediate field read, a fixnum stored into an unpublished
   raw long field), the builtin otherwise; `CLJ_NO_OPT=inline` turns them off with the other fast arms. Fixtures/compiler/mutable-fields.clj, MutableFieldTests,
-  StoreCheckTests.deftypeMutableFields. **Not done**, each with its trigger: `(set! (.-f this) v)` inside a method is
+  StoreCheckTests.deftypeMutableFields. The ports use them as upstream does: data.json's StringPBR keeps its position
+  in its `^long` field, datascript's Datom and BTSet cache their hash and Datom sets its idx (corpus/*/SOURCE;
+  bench/RESULTS.md, "Mutable fields": json level with the array cell it replaced, its plain RC −7 % closed). **Not done**, each with its trigger: `(set! (.-f this) v)` inside a method is
   "Invalid assignment target" — a library that writes its field so; a dev unit boxes every read and store of a raw
   field — a dev profile with one in it; the owner is the instance's maker, so a REPL eval (each a coroutine of its own)
   cannot set! a field of an instance an earlier eval made, and a hash cache another thread fills fails in dev — a user
   who meets it, the fix then being an owner that moves with a hand-over; a dead coroutine's address reused by a new one
-  passes the check (silence, not a false error).
+  passes the check (silence, not a false error); datascript closed 1.030 [1.020–1.040] against main over 2 pairs, its
+  port's share 1.027 [0.989–1.108] over 8 with no counter but MB moved (run 38919426472, 38906775993): whether BTSet
+  born a reference type (its `_hash` is unhinted, nil or a long), the owner word or noise — a datascript profile with
+  BTSet's construction or `clj_instance_make_mutable` in it.
 - [ ] **No transient interfaces on a deftype.** `IEditableCollection`, `ITransientCollection` and `ITransientSet`
   have no slots, so a deftype cannot declare `asTransient`, `conj!`, `persistent!` or `disjoin`; `transient` is the
   identity outside a small map (NOTES "core.clj") and `conj!` is `conj`, which reaches the type's `cons`.
