@@ -723,6 +723,41 @@ static inline bool clj_c_set_mfield_f64(clj_value x, uint32_t i, double *v) {
 	return true;
 }
 
+// The boxed arms of mutable-field* and set-field!*, dev's as well: a raw long or an immediate field in line.
+static inline clj_value clj_c_mutable_field(clj_value x, clj_value i) {
+	if (__builtin_expect(clj_is_instance(x) && clj_is_fixnum(i), 1)) {
+		const clj_user_type *ut = (const clj_user_type *)clj_type_of(x);
+		uintptr_t            k = (uintptr_t)clj_fixnum_val(i);
+		if (k < ut->nfields && ut->muts && ut->muts[k]) {
+			const clj_instance *o = clj_to_ptr(x);
+			if ((ut->muts[k] & CLJ_FIELD_RAW) && ut->hints[k] == CLJ_HINT_LONG) return clj_long_new((int64_t)clj_c_raw_load(o, (uint32_t)k));
+			if (!(ut->muts[k] & (CLJ_FIELD_RAW | CLJ_FIELD_HEAP))) return (clj_value)clj_c_raw_load(o, (uint32_t)k);
+		}
+	}
+	return clj_mutable_field(x, i);
+}
+
+// A fixnum into a raw long field; unpublished, so dev's owner check has nothing to ask.
+static inline clj_instance *clj_c_long_store(clj_value x, clj_value i, clj_value v) {
+	if (!clj_is_fixnum(v) || !clj_is_fixnum(i) || clj_fixnum_val(i) < 0) return NULL;
+	clj_instance *o = clj_c_raw_field(x, (uint32_t)clj_fixnum_val(i), CLJ_HINT_LONG);
+	return o && !(o->h.flags & CLJ_FLAG_SHARED) ? o : NULL;
+}
+
+static inline clj_value clj_c_set_field(clj_value x, clj_value i, clj_value v) {
+	clj_instance *o = clj_c_long_store(x, i, v);
+	if (__builtin_expect(o == NULL, 0)) return clj_set_field(x, i, v);
+	clj_c_raw_store(o, (uint32_t)clj_fixnum_val(i), (uint64_t)clj_fixnum_val(v));
+	return v;
+}
+
+static inline clj_value clj_c_set_field_closed(clj_value x, clj_value i, clj_value v) {
+	clj_instance *o = clj_c_long_store(x, i, v);
+	if (__builtin_expect(o == NULL, 0)) return clj_set_field_closed(x, i, v);
+	clj_c_raw_store(o, (uint32_t)clj_fixnum_val(i), (uint64_t)clj_fixnum_val(v));
+	return v;
+}
+
 // (new* T args...) of a deftype: the instance built in place, its hints checked; a record, a wrong count or a non-type through the builtin.
 static inline clj_value clj_c_new(clj_value fn, const clj_value *args, size_t n) {
 	clj_value type = args[0];

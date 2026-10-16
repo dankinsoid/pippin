@@ -94,10 +94,12 @@
   does, `set-field!*` the hint's or its value's; the read is a `state` effect, the store an `atom` one. Closed units
   read and store a RAW field unboxed when the receiver's fact names the type (`clj_c_mfield_i64`/`_f64`,
   `clj_c_set_mfield_i64`/`_f64`, a statement `set!` boxing nothing), each arm checking the type and falling back to
-  the builtin; `CLJ_NO_OPT=raw-fields` turns that off. Fixtures/compiler/mutable-fields.clj, MutableFieldTests,
+  the builtin; `CLJ_NO_OPT=raw-fields` turns that off. Elsewhere every unit, dev's too, calls the boxed arms in line
+  (`clj_c_mutable_field`, `clj_c_set_field`: a raw long or an immediate field read, a fixnum stored into an unpublished
+  raw long field), the builtin otherwise; `CLJ_NO_OPT=inline` turns them off with the other fast arms. Fixtures/compiler/mutable-fields.clj, MutableFieldTests,
   StoreCheckTests.deftypeMutableFields. **Not done**, each with its trigger: `(set! (.-f this) v)` inside a method is
-  "Invalid assignment target" — a library that writes its field so; a dev unit boxes every read and store — a dev
-  profile with a mutable field in it; the owner is the instance's maker, so a REPL eval (each a coroutine of its own)
+  "Invalid assignment target" — a library that writes its field so; a dev unit boxes every read and store of a raw
+  field — a dev profile with one in it; the owner is the instance's maker, so a REPL eval (each a coroutine of its own)
   cannot set! a field of an instance an earlier eval made, and a hash cache another thread fills fails in dev — a user
   who meets it, the fix then being an owner that moves with a hand-over; a dead coroutine's address reused by a new one
   passes the check (silence, not a false error).

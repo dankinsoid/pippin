@@ -2907,6 +2907,7 @@ static const char *fast_cname(const clj_intrinsic *op) {
 		{"clj_unchecked_inc", "clj_c_unchecked_inc"}, {"clj_unchecked_dec", "clj_c_unchecked_dec"},
 		{"clj_unchecked_add_int", "clj_c_unchecked_add_int"}, {"clj_unchecked_subtract_int", "clj_c_unchecked_subtract_int"},
 		{"clj_unchecked_inc_int", "clj_c_unchecked_inc_int"}, {"clj_unchecked_dec_int", "clj_c_unchecked_dec_int"},
+		{"clj_mutable_field", "clj_c_mutable_field"}, {"clj_set_field", "clj_c_set_field"},
 	};
 	if (clj_opt_off(CLJ_NO_OPT_INLINE)) return op->cname;
 	for (size_t i = 0; i < sizeof fast / sizeof *fast; i++) {
@@ -3215,7 +3216,8 @@ static temp emit_intrinsic(fnctx *f, const clj_node *n) {
 			f->u->slots.known++;
 		} else {
 			// the owner check of an ^:unsynchronized-mutable field is dev's (design §4 «Роли конструкций»)
-			const char *cname = f->c->opts.closed && is_mfield_set(n) ? "clj_set_field_closed" : fast_cname(op);
+			const char *cname = fast_cname(op);
+			if (f->c->opts.closed && is_mfield_set(n)) cname = clj_opt_off(CLJ_NO_OPT_INLINE) ? "clj_set_field_closed" : "clj_c_set_field_closed";
 			emit_intrinsic_call(f, op, cname, args, r.name);
 		}
 	}
