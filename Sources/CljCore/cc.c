@@ -453,6 +453,25 @@ static bool ck_valid(checked_set *s, const clj_header *h) {
 	return s && (h->flags & CLJ_FLAG_ACYCLIC) && ck_has_recent(s, h);
 }
 
+// A reference type takes HEAPREF at its first edge from the heap: a store into it closes a cycle only after one,
+// and one without REACH_LOCAL lies on no cycle a local collection could free. flags are the owner's before the store,
+// with a MUTABLE owner's DIRTY and GUARDED already handled (object.h).
+void clj_cc_reach_local(clj_header *owner, uint32_t flags, clj_header *c, uint32_t f) {
+	if ((f & (CLJ_FLAG_MUTABLE | CLJ_FLAG_HEAPREF)) == CLJ_FLAG_MUTABLE) c->flags = f | CLJ_FLAG_HEAPREF;
+	if (flags & (CLJ_FLAG_MUTABLE | CLJ_FLAG_IMMORTAL)) {
+		// After the guard hit, so a mark the walk would skip is void. An immutable owner is edited only while unique
+		// from an owned root down, and a path back to it would make that root shared (design §7).
+		if ((flags & CLJ_FLAG_MUTABLE) && ((flags & CLJ_FLAG_HEAPREF) || c == owner)) clj_cc_store_check(owner, c);
+		return;
+	}
+	uint32_t add = (f & (CLJ_FLAG_REACH | CLJ_FLAG_LAZY)) | CLJ_FLAG_REACH_LOCAL | clj_cc_kill_oncycle;
+	if (!(add & ~flags)) return;
+	CLJ_ASSERT(!(flags & CLJ_FLAG_SHARED) || atomic_load_explicit(&owner->rc, memory_order_relaxed) == 1,
+	           "reach bits into a published owner another reference can read");
+	// c == owner: the HEAPREF just written stays.
+	owner->flags |= add;
+}
+
 // ---- the local buffer of an execution
 
 static _Thread_local bool as_main;
