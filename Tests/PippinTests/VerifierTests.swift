@@ -210,7 +210,7 @@ extension CoreTests {
 			#expect(clj_no_opt_parse("1") == clj_no_opt_parse("all"))
 			#expect(clj_no_opt_parse("reuse,passes") == clj_no_opt_parse("passes,reuse"))
 			#expect(clj_no_opt_parse("reuse,nope") == UInt32.max)
-			var buf = [CChar](repeating: 0, count: 200)
+			var buf = [CChar](repeating: 0, count: 256)
 			#expect(String(cString: clj_no_opt_describe(clj_no_opt_parse("all"), &buf, buf.count)) == "reuse, passes, specialize, lazy-seq, layouts, compiled, emit, inline, beta, path, owned, lower, drop, scalar, fuse, acyclic, dispatch, unfiled, hint, grow, store-check, fields, known, proto-inline, raw-fields")
 		}
 
