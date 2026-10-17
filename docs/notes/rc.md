@@ -45,7 +45,11 @@
   every edge of every shared object that dies is seen once, at the price of a second `each_child` pass over it.
   (2) Each cutoff of `clj_share` — a root already shared, and the `continue` on a shared node — is the one place
   the walk relies on the invariant, and checks below that node (`assert_shared_below`): one cutoff in 256 per
-  thread, at most 256 children read and 64 descended into. `each_child` cannot stop early, so a check pays the
+  thread, at most 256 children read and 64 descended into. A node the walk meets shared is checked once the walk
+  has ended (`share_met`): it may be one the walk marked itself, met again through a cycle while its other children
+  are still on the stack. Checked at once, the ring `x = [big v]`, `v → x` of `CycleTests.aCheckPastItsBudget`
+  failed as "shared vector over unshared vector" whenever the sample fell on the return to `x` through `v` (run
+  38979724901; every time under `clj_debug_share_check_every(1)`, the walk itself having marked `x` a moment before). `each_child` cannot stop early, so a check pays the
   width of every node it visits, again at every cutoff (`ChanStressTests.stressSpawn`, measured while the walk
   entered a channel's 100k-value buffer: 0.34 s unchecked, 40 s with every cutoff checked 64 nodes deep, 1.6 s
   at one in 64, 0.56 s at one in 256), and an unbounded walk would not end on a cycle through a ref type. The sample leaves (2) an early warning; (1) is the exhaustive one. `clj_debug_all_shared` is the same
@@ -153,7 +157,8 @@
   (`CLJ_RC_ZOMBIE`, out of the live count by `clj_dealloc_dead`) until its entry gives it back (`clj_dealloc_cell`).
   The local collection runs in the owner — at 256 entries off the main carrier and only with no `clj_lock` or cmutex
   held, at finish (the epilogue borrows the finished coroutine's buffer, `clj_cc_local_borrow`; so does a blocking
-  job for its parked caller), in `clj_cc_collect`, and on the main carrier at `kCFRunLoopBeforeWaiting` with a 1 ms
+  job for its parked caller; a `thread` body, which runs as its pool thread's implicit coroutine, ends the same way
+  in `thread_run`), in `clj_cc_collect`, and on the main carrier at `kCFRunLoopBeforeWaiting` with a 1 ms
   budget in slices of 64 (`clj_cc_main_idle`); past 4096 the main carrier hands one entry per new candidate to the
   background by `clj_share`. The shared collection runs on a detached thread at QoS utility, woken by the first
   entry and collecting 500 ms later or at 1024 entries, its buffer in chunks of 1022 so a push never copies a grown

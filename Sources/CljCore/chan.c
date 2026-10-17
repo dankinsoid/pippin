@@ -1272,6 +1272,8 @@ static void thread_run(void *ctx) {
 	clj_release(j->f);
 	clj_release(j->chv);
 	free(j);
+	// The thread's buffer outlives the body: what it filed would wait for a later job's threshold or the retirement.
+	clj_cc_execution_done(c);
 }
 
 static clj_value chan_thread(clj_value f, bool detached) {

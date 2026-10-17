@@ -138,6 +138,20 @@
   before it returns (`onFreshThread`: a Foundation `Thread` frees its block's captures when its last reference
   goes, which may be the exiting thread's). A blocking-pool thread that retires frees nothing the count sees (its implicit coroutine
   and carrier are calloc'd, its heap is handed on), so the settle waits for jobs, not for threads.
+- **A pool thread's candidate buffer is collected at each `thread` body's end** (`thread_run`, chan.c). A body runs
+  as its pool thread's implicit coroutine, and a coroutine's epilogue is what collects an execution's buffer; the
+  body had none, so a ring it dropped stayed filed on that thread until a later job there passed the 256-entry
+  threshold or the thread retired after a minute idle. The settle's `clj_cc_collect` reaches its own thread's
+  buffer and the shared one only, so such a ring was counted live by every baseline after it and freed inside
+  whichever later test happened to put its 256th entry on that thread. That was `FutureTests.futureCancel` red on
+  main from `7dc6529` on, 5 objects under its baseline (runs 38932154725, 38956565511): its seventy `thread` bodies
+  are the jobs that pushed some pool thread past the threshold. Not an over-release: ASan (`test`,
+  `test-compiled-asan`) stayed clean over the same shard, and the per-type diff of a baseline around
+  `(<!! (thread (let [v (volatile! nil)] (vreset! v [v]) nil)))` was `vector: 1, volatile: 1` after the settle, and
+  `vector: 25, volatile: 25` after fifty such bodies, rings that went later out of another baseline (run
+  39024822959). Which pool thread takes which job decides the moment, so 20-odd dispatched runs of the same code
+  passed and three gate runs on main failed; `CycleTests.aRingDroppedInAThreadBody` fails every run without the
+  collection.
 - [ ] **Most in-test counts are not settled.** `BootedTrait` settles before a test, but a check at its end reads
   `clj_debug_live_objects()` at once, and a background collection in flight then (another test's candidates, a deep
   retry) holds or defers what the body just freed. Only the suites named above settle there. Trigger: the next

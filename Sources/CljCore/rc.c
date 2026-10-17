@@ -356,11 +356,31 @@ static _Thread_local uint32_t cutoff_every = SHARE_CUTOFF_EVERY;
 
 void clj_debug_share_check_every(uint32_t n) { cutoff_every = n ? n : SHARE_CUTOFF_EVERY; }
 
-static void assert_shared_below(clj_value v) {
+static bool cutoff_sampled(void) {
 	static _Thread_local uint32_t cutoffs;
-	if (cutoffs++ % cutoff_every) return;
+	return cutoffs++ % cutoff_every == 0;
+}
+
+static void check_shared_below(clj_value v) {
 	below_walk w;
 	if (!shared_below(v, SHARE_CUTOFF_READS, SHARE_CUTOFF_ROOM, false, &w)) fatal_unshared_child("share cutoff", w.bad_parent, w.bad_child);
+}
+
+static void assert_shared_below(clj_value v) {
+	if (cutoff_sampled()) check_shared_below(v);
+}
+
+// A node the walk meets shared may be one it marked itself, a cycle back to it whose other children are still on
+// the stack: it is checked once the walk has ended.
+#define SHARE_MET_DECL(name) VALUE_STACK_INIT(name)
+
+static void share_met(value_stack *met, clj_value v) {
+	if (cutoff_sampled()) stack_push(met, v);
+}
+
+static void share_met_check(value_stack *met) {
+	for (size_t i = 0; i < met->count; i++) check_shared_below(met->items[i]);
+	stack_free(met);
 }
 
 void clj_debug_slot_check(const clj_header *owner, clj_value v) {
@@ -384,6 +404,9 @@ void clj_debug_slot_store_check(const clj_header *owner, clj_value v) {
 	(void)v;
 }
 #define assert_shared_below(v) ((void)0)
+#define SHARE_MET_DECL(name)
+#define share_met(met, v) ((void)0)
+#define share_met_check(met) ((void)0)
 #endif
 
 void clj_share(clj_value v) {
@@ -394,12 +417,13 @@ void clj_share(clj_value v) {
 		return;
 	}
 	VALUE_STACK_INIT(st);
+	SHARE_MET_DECL(met);
 	stack_push(&st, v);
 	while (st.count) {
 		clj_value   cur = st.items[--st.count];
 		clj_header *h = clj_header_of(cur);
 		if (h->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL)) {
-			if (!(h->flags & CLJ_FLAG_IMMORTAL)) assert_shared_below(cur);
+			if (!(h->flags & CLJ_FLAG_IMMORTAL)) share_met(&met, cur);
 			continue;
 		}
 		// The flag is a plain write: only the owner may publish.
@@ -408,6 +432,7 @@ void clj_share(clj_value v) {
 		if (h->type->each_child) h->type->each_child(h, share_visit, &st);
 	}
 	stack_free(&st);
+	share_met_check(&met);
 }
 
 void clj_share_unowned(clj_value v) {

@@ -239,6 +239,13 @@ extension CoreTests {
 			""", cycles: 8 * 500)
 		}
 
+		// The pool thread's buffer outlives a `thread` body; the settle's collection never reaches it (docs/notes/gates.md).
+		// @ai-generated(solo)
+		@Test func aRingDroppedInAThreadBody() throws {
+			try collected("(a/<!! (a/thread (let [v (volatile! nil)] (vreset! v [v]) nil)))", cycles: 1)
+			try collected("(a/<!! (a/thread (let [o (object-array 1)] (aset o 0 o) nil)))", cycles: 1)
+		}
+
 		// The main carrier hands candidates past its bound to the background and collects the rest when idle.
 		@Test func theMainCarrierHandsOffAndCollectsWhenIdle() throws {
 			let base = CoroBaseline()
