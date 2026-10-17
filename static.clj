@@ -71,7 +71,7 @@
   (update cart ::lines
           (fn [lines]
             (if-let [i (index-where #(= (:sku %) (:sku line)) lines)]
-              (update-in lines [i :qty] #(Qty (+ % (:qty line))))
+              (update-in lines [i :qty] #(as Qty (+ % (:qty line))))
               (conj lines line)))))
 ;; => [:=> [[:map ::lines & r] Line] [:map ::lines & r]
 ;;     {:eff #{[Fail [:invalid Qty]]} :modes {cart :unique, line :borrowed}}]
@@ -100,7 +100,7 @@
         (title    [c] (str "cart, " ((default title) c))))   ; the default stays callable: it is a value
 
 (deftype CouponCode {:opaque true} [[:code :string]])
-(defn coupon [s] (CouponCode/make {:code (str/upper-case s)}))
+(defn coupon [s] (as CouponCode {:code (str/upper-case s)}))
 ;; opaque: no map view, no `as`; outside this module a CouponCode exists only through `coupon`
 
 (deftype AuditedCart (s/merge Cart [[:by ::p/id] [:at :instant]])
@@ -155,20 +155,20 @@
 
 (defn merge-pair [a :- Line, b :- Line] :- [:maybe Line]
   (match [a b]
-    [{:sku s :qty x} {:sku s :qty y}] (assoc a :qty (Qty (+ x y)))   ; a repeated name is equality
+    [{:sku s :qty x} {:sku s :qty y}] (assoc a :qty (as Qty (+ x y)))   ; a repeated name is equality
     _                                 nil))
 ;; => [:=> [Line Line] [:maybe Line] {:eff #{[Fail [:invalid Qty]]}}]
 
 (defn clamp-qty [n :- :int] :- Qty
   (match n
     (Qty q) q                             ; the checking constructor: a failed check goes to the next branch
-    (< 1)   (Qty 1)
-    _       (Qty 999)))
-;; => [:=> [:int] Qty {:eff #{}}]     the literals are checked in phase 1, so no Fail
+    (< 1)   1
+    _       999))
+;; => [:=> [:int] Qty {:eff #{}}]     the literals meet :- Qty and are checked in phase 1, so no Fail
 
 (defn parse-line [s :- :string] :- Line
   (let [[sku qty cents :or (fail [:bad-line s])] (str/split s #",")]   ; let-else
-    {:sku (Sku sku) :qty (Qty (parse-long qty)) :price {:cents (parse-long cents)}}))
+    {:sku (as Sku sku) :qty (as Qty (parse-long qty)) :price {:cents (parse-long cents)}}))
 ;; without :or it does not compile: [a b c] does not cover [:vector :string], use match or let-else
 ;; ? :or {cents "0"} beside :or (fail ...): one key, two meanings
 
@@ -206,7 +206,7 @@
 ;;; ── Fitting data: as, open types, entries ──────────────────────────────────
 
 (defn draft->cart [draft]
-  (-> draft (dissoc :debug) (assoc ::coupon "WELCOME") (as Cart)))
+  (-> draft (dissoc :debug) (assoc ::coupon "WELCOME") (as Cart $)))
 ;; as is strict: a leftover or missing field is a compile error that names it; the chain is one copy
 
 (deftype ApiCart {:open true} [::id ::lines])   ; unknown keys from the wire are kept in ext
