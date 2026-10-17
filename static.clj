@@ -71,7 +71,7 @@
   (update cart ::lines
           (fn [lines]
             (if-let [i (index-where #(= (:sku %) (:sku line)) lines)]
-              (update-in lines [i :qty] #(as Qty (+ % (:qty line))))
+              (update-in lines [i :qty] #(coerce Qty (+ % (:qty line))))
               (conj lines line)))))
 ;; => [:=> [[:map ::lines & r] Line] [:map ::lines & r]
 ;;     {:eff #{[Fail [:invalid Qty]]} :modes {cart :unique, line :borrowed}}]
@@ -101,7 +101,7 @@
 
 (deftype CouponCode {:opaque true} [[:code :string]])
 (defn coupon [s] (as CouponCode {:code (str/upper-case s)}))
-;; opaque: no map view, no `as`; outside this module a CouponCode exists only through `coupon`
+;; opaque: no map view, no `as` or `coerce`; outside this module a CouponCode exists only through `coupon`
 
 (deftype AuditedCart (s/merge Cart [[:by ::p/id] [:at :instant]])
   {:delegate {Describe Cart}})
@@ -155,7 +155,7 @@
 
 (defn merge-pair [a :- Line, b :- Line] :- [:maybe Line]
   (match [a b]
-    [{:sku s :qty x} {:sku s :qty y}] (assoc a :qty (as Qty (+ x y)))   ; a repeated name is equality
+    [{:sku s :qty x} {:sku s :qty y}] (assoc a :qty (coerce Qty (+ x y)))   ; a repeated name is equality
     _                                 nil))
 ;; => [:=> [Line Line] [:maybe Line] {:eff #{[Fail [:invalid Qty]]}}]
 
@@ -168,7 +168,7 @@
 
 (defn parse-line [s :- :string] :- Line
   (let [[sku qty cents :or (fail [:bad-line s])] (str/split s #",")]   ; let-else
-    {:sku (as Sku sku) :qty (as Qty (parse-long qty)) :price {:cents (parse-long cents)}}))
+    {:sku (coerce Sku sku) :qty (coerce Qty (parse-long qty)) :price {:cents (parse-long cents)}}))
 ;; without :or it does not compile: [a b c] does not cover [:vector :string], use match or let-else
 ;; ? :or {cents "0"} beside :or (fail ...): one key, two meanings
 
@@ -289,7 +289,7 @@
 ;; derived from the schema; two attributes mapped to one key would be an error here
 
 (defn handle-checkout [req]
-  (handle (checkout (as Cart (json/read cart-json (:body req))))
+  (handle (checkout (coerce Cart (json/read cart-json (:body req))))
           (return [id] {:status 201 :body {:reservation id}})
           (fail [e]    {:status (match e [:invalid & _] 400 _ 409) :body e})))
 ;; => [:=> [[:map [:body :string] & r]] Response {:eff #{Inventory Payments Async}}]
@@ -392,7 +392,7 @@
   user=> (def d (json/read-any (slurp "cart.json")))
   user=> (type-of d)
   ;; => Any
-  user=> (as Cart d)
+  user=> (coerce Cart d)
   ;; Fail: [:invalid Cart {:missing [::o/id]}]
 
   user=> (entry person ::p/email)
@@ -401,8 +401,8 @@
   user=> (attr ::p/email)
   ;; => {:ident :shop.person/email, :schema [:string {:pii true}], :module shop.person}
 
-  user=> (as? Describe d)
-  ;; => nil
+  user=> (satisfies? Describe d)
+  ;; => false
 
   user=> (compile-profile 'shop.order)
   ;; => {:phase-1-ms 41, :by {openapi/schema 30, s/merge 6}, :check-ms 12}
