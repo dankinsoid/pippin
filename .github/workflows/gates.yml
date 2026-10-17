@@ -345,8 +345,11 @@ jobs:
           path: ${{ runner.temp }}/shards
 
       # A shard that wrote nothing fails this step after the report, which names its workloads.
+      # download-artifact unpacks a lone artifact into the path itself, several each into its own directory.
       - name: Merge the shards
-        run: python3 scripts/corpus-bench.py --merge "$RUNNER_TEMP"/shards/*/
+        run: |
+          mapfile -t dirs < <(find "$RUNNER_TEMP/shards" -maxdepth 2 -name results.json -exec dirname {} \; 2>/dev/null)
+          python3 scripts/corpus-bench.py --merge "${dirs[@]:-$RUNNER_TEMP/shards}"
 
       - name: Corpus bench report
         if: ${{ !cancelled() }}
