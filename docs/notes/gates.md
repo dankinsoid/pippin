@@ -150,8 +150,8 @@
   `(<!! (thread (let [v (volatile! nil)] (vreset! v [v]) nil)))` was `vector: 1, volatile: 1` after the settle, and
   `vector: 25, volatile: 25` after fifty such bodies, rings that went later out of another baseline (run
   39024822959). Which pool thread takes which job decides the moment, so 20-odd dispatched runs of the same code
-  passed and three gate runs on main failed; `CycleTests.aRingDroppedInAThreadBody` fails every run without the
-  collection.
+  passed and three gate runs on main failed; `CycleTests.aRingDroppedInAThreadBody` fails without the
+  collection (run 39026195639).
 - [ ] **Most in-test counts are not settled.** `BootedTrait` settles before a test, but a check at its end reads
   `clj_debug_live_objects()` at once, and a background collection in flight then (another test's candidates, a deep
   retry) holds or defers what the body just freed. Only the suites named above settle there. Trigger: the next

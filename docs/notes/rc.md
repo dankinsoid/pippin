@@ -45,14 +45,16 @@
   every edge of every shared object that dies is seen once, at the price of a second `each_child` pass over it.
   (2) Each cutoff of `clj_share` — a root already shared, and the `continue` on a shared node — is the one place
   the walk relies on the invariant, and checks below that node (`assert_shared_below`): one cutoff in 256 per
-  thread, at most 256 children read and 64 descended into. A node the walk meets shared is checked once the walk
-  has ended (`share_met`): it may be one the walk marked itself, met again through a cycle while its other children
-  are still on the stack. Checked at once, the ring `x = [big v]`, `v → x` of `CycleTests.aCheckPastItsBudget`
-  failed as "shared vector over unshared vector" whenever the sample fell on the return to `x` through `v` (run
-  38979724901; every time under `clj_debug_share_check_every(1)`, the walk itself having marked `x` a moment before). `each_child` cannot stop early, so a check pays the
+  thread, at most 256 children read and 64 descended into. `each_child` cannot stop early, so a check pays the
   width of every node it visits, again at every cutoff (`ChanStressTests.stressSpawn`, measured while the walk
   entered a channel's 100k-value buffer: 0.34 s unchecked, 40 s with every cutoff checked 64 nodes deep, 1.6 s
-  at one in 64, 0.56 s at one in 256), and an unbounded walk would not end on a cycle through a ref type. The sample leaves (2) an early warning; (1) is the exhaustive one. `clj_debug_all_shared` is the same
+  at one in 64, 0.56 s at one in 256), and an unbounded walk would not end on a cycle through a ref type. A node
+  the walk meets shared is checked once the walk has ended (`share_met`): it may be one the walk marked itself,
+  met again through a cycle while its other children are still on the stack. Checked at once, the ring
+  `x = [big v]`, `v → x` of `CycleTests.aCheckPastItsBudget` failed as "shared vector over unshared vector"
+  whenever the sample fell on the return to `x` through `v` (run 38979724901; every time under
+  `clj_debug_share_check_every(1)`; none in 20 rounds of the store-check tests so checked once deferred, run
+  39026195639). The sample leaves (2) an early warning; (1) is the exhaustive one. `clj_debug_all_shared` is the same
   walk without bounds. Both this check and the owner check below compile out of release builds; together they
   cost the debug suite less than its run-to-run noise (`swift test` on the pool, 650 tests with the corpus, an
   Intel i9 under other load: 54.8 and 53.3 s against 70.6 and 54.2 s without them), stressSpawn above being the
