@@ -1,5 +1,5 @@
 ;; @ai-generated(guided)
-;; :int traps on overflow, as in docs/merry.md «Целые»; map, filter and reduce are eager over vectors.
+;; Int traps on overflow, as in docs/merry.md «Два целых типа»; map, filter and reduce are eager.
 (ns merry.builtins)
 
 (defn- add [a b] (Math/addExact (long a) (long b)))
@@ -7,43 +7,43 @@
 (defn- mul [a b] (Math/multiplyExact (long a) (long b)))
 
 (def table
-  {'+ {:type '[:=> [& :int] :int] :impl (fn [& xs] (reduce add 0 xs))}
-   '- {:type '[:=> [:int & :int] :int]
+  {'+ {:type '(Fn [& Int] Int) :impl (fn [& xs] (reduce add 0 xs))}
+   '- {:type '(Fn [Int & Int] Int)
        :impl (fn ([x] (Math/negateExact (long x))) ([x & ys] (reduce sub x ys)))}
-   '* {:type '[:=> [& :int] :int] :impl (fn [& xs] (reduce mul 1 xs))}
-   'quot {:type '[:=> [:int :int] :int] :impl quot}
-   'rem {:type '[:=> [:int :int] :int] :impl rem}
-   'mod {:type '[:=> [:int :int] :int] :impl mod}
-   'inc {:type '[:=> [:int] :int] :impl #(Math/incrementExact (long %))}
-   'dec {:type '[:=> [:int] :int] :impl #(Math/decrementExact (long %))}
-   'max {:type '[:=> [:int & :int] :int] :impl max}
-   'min {:type '[:=> [:int & :int] :int] :impl min}
-   '= {:type '[:=> [a & a] :bool] :impl =}
-   'not= {:type '[:=> [a & a] :bool] :impl not=}
-   '< {:type '[:=> [:int & :int] :bool] :impl <}
-   '> {:type '[:=> [:int & :int] :bool] :impl >}
-   '<= {:type '[:=> [:int & :int] :bool] :impl <=}
-   '>= {:type '[:=> [:int & :int] :bool] :impl >=}
-   'zero? {:type '[:=> [:int] :bool] :impl zero?}
-   'pos? {:type '[:=> [:int] :bool] :impl pos?}
-   'neg? {:type '[:=> [:int] :bool] :impl neg?}
-   'even? {:type '[:=> [:int] :bool] :impl even?}
-   'odd? {:type '[:=> [:int] :bool] :impl odd?}
-   'not {:type '[:=> [:bool] :bool] :impl not}
-   'nil? {:type '[:=> [a] :bool] :impl nil?}
-   'str {:type '[:=> [& :any] :string] :impl str}
-   'println {:type '[:=> [& :any] :nil {:eff #{Console}}] :impl println}
-   'print {:type '[:=> [& :any] :nil {:eff #{Console}}] :impl print}
-   'count {:type '[:=> [[:vector a]] :int] :impl count}
-   'conj {:type '[:=> [[:vector a] a] [:vector a]] :impl conj}
-   'nth {:type '[:=> [[:vector a] :int] a] :impl nth}
-   'first {:type '[:=> [[:vector a]] [:maybe a]] :impl first}
-   'rest {:type '[:=> [[:vector a]] [:vector a]] :impl #(vec (rest %))}
-   'map {:type '[:=> [[:=> [a] b {:eff e}] [:vector a]] [:vector b] {:eff e}] :impl mapv}
-   'filter {:type '[:=> [[:=> [a] :bool {:eff e}] [:vector a]] [:vector a] {:eff e}] :impl filterv}
-   'reduce {:type '[:=> [[:=> [b a] b {:eff e}] b [:vector a]] b {:eff e}] :impl reduce}
-   'range {:type '[:=> [:int] [:vector :int]] :impl #(vec (range %))}
-   'slurp {:type '[:=> [:string] :string {:eff #{Fs}}] :impl slurp}
-   'rand-int {:type '[:=> [:int] :int {:eff #{Random}}] :impl rand-int}})
+   '* {:type '(Fn [& Int] Int) :impl (fn [& xs] (reduce mul 1 xs))}
+   'quot {:type '(Fn [Int Int] Int) :impl quot}
+   'rem {:type '(Fn [Int Int] Int) :impl rem}
+   'mod {:type '(Fn [Int Int] Int) :impl mod}
+   'inc {:type '(Fn [Int] Int) :impl #(Math/incrementExact (long %))}
+   'dec {:type '(Fn [Int] Int) :impl #(Math/decrementExact (long %))}
+   'max {:type '(Fn [Int & Int] Int) :impl max}
+   'min {:type '(Fn [Int & Int] Int) :impl min}
+   '= {:type '(Fn [a & a] Bool) :impl =}
+   'not= {:type '(Fn [a & a] Bool) :impl not=}
+   '< {:type '(Fn [Int & Int] Bool) :impl <}
+   '> {:type '(Fn [Int & Int] Bool) :impl >}
+   '<= {:type '(Fn [Int & Int] Bool) :impl <=}
+   '>= {:type '(Fn [Int & Int] Bool) :impl >=}
+   'zero? {:type '(Fn [Int] Bool) :impl zero?}
+   'pos? {:type '(Fn [Int] Bool) :impl pos?}
+   'neg? {:type '(Fn [Int] Bool) :impl neg?}
+   'even? {:type '(Fn [Int] Bool) :impl even?}
+   'odd? {:type '(Fn [Int] Bool) :impl odd?}
+   'not {:type '(Fn [Bool] Bool) :impl not}
+   'nil? {:type '(Fn [a] Bool) :impl nil?}
+   'str {:type '(Fn [& Any] String) :impl str}
+   'println {:type '(Fn [& Any] nil {:eff #{Console}}) :impl println}
+   'print {:type '(Fn [& Any] nil {:eff #{Console}}) :impl print}
+   'count {:type '(Fn [[a]] Int) :impl count}
+   'conj {:type '(Fn [[a] a] [a]) :impl conj}
+   'nth {:type '(Fn [[a] Int] a) :impl nth}
+   'first {:type '(Fn [[a]] (or nil a)) :impl first}
+   'rest {:type '(Fn [[a]] [a]) :impl #(vec (rest %))}
+   'map {:type '(Fn [(Fn [a] b {:eff e}) [a]] [b] {:eff e}) :impl mapv}
+   'filter {:type '(Fn [(Fn [a] Bool {:eff e}) [a]] [a] {:eff e}) :impl filterv}
+   'reduce {:type '(Fn [(Fn [b a] b {:eff e}) b [a]] b {:eff e}) :impl reduce}
+   'range {:type '(Fn [Int] [Int]) :impl #(vec (range %))}
+   'slurp {:type '(Fn [String] String {:eff #{Fs}}) :impl slurp}
+   'rand-int {:type '(Fn [Int] Int {:eff #{Random}}) :impl rand-int}})
 
 (defn impl [sym] (get-in table [sym :impl]))

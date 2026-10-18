@@ -1,4 +1,4 @@
-;; :int traps on overflow instead of wrapping: `run` ends with a panic.
+;; Int traps on overflow instead of wrapping: `run` ends with a panic.
 
 (defn factorial [n]
   (loop [i n acc 1]

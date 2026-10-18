@@ -39,6 +39,23 @@
                   (if (instance? Recur r) (recur (:args r)) r))))]
       self)))
 
+(defn- match-pattern
+  "The bindings of pattern p against value v, or nil when it does not match."
+  [p v]
+  (letfn [(all [pairs]
+            (reduce (fn [env [sp sv]]
+                      (if-let [e (match-pattern sp sv)] (merge env e) (reduced nil)))
+                    {}
+                    pairs))]
+    (cond
+      (= '_ p) {}
+      (symbol? p) {p v}
+      (vector? p) (when (and (vector? v) (= (count p) (count v)) (= (first p) (first v)))
+                    (all (map vector (rest p) (rest v))))
+      (map? p) (when (and (map? v) (every? #(contains? v %) (keys p)))
+                 (all (map (fn [[k sp]] [sp (get v k)]) p)))
+      :else (when (= p v) {}))))
+
 (defn- bind-pairs [env pairs]
   (reduce (fn [e [s v]] (assoc e s (ev e v))) env pairs))
 
@@ -66,6 +83,15 @@
                              v (ev env x)]
                          (when (some? v) (ev (assoc env g v) body)))
         clojure.core/deref (deref (ev env (first args)))
+        merry/match (let [[x & branches] args
+                          v (ev env x)]
+                      ;; a one-element vector, so that a branch returning nil or false still counts as matched
+                      (if-let [[r] (some (fn [[p body]]
+                                           (when-let [binds (match-pattern p v)]
+                                             [(ev (merge env binds) body)]))
+                                         branches)]
+                        r
+                        (throw (ex-info (str "no branch matched " (pr-str v)) {}))))
         quote (first args)
         (if (keyword? h)
           (get (ev env (first args)) h)

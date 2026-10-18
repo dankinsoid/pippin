@@ -24,3 +24,31 @@
 
 (defn old-default [x]
   (cond (pos? x) 1 :else 0))
+
+(defn label [s]
+  (match s
+    [:paid amount] amount
+    [:refund]      0))
+
+(defn unhandled-variant []
+  (label [:void]))
+
+(defn flows-in [c]
+  (let [s (if c [:paid 1] [:void])]
+    (match s
+      [:paid n] n)))
+
+(defn not-covered [s]
+  (match s
+    [:paid 0] :free
+    [:refund] :back))
+
+(defn wrong-shape [s]
+  (match s
+    [:paid n]   n
+    [:paid n m] m))
+
+(defn bare-name-first [s]
+  (match s
+    x         x
+    [:paid n] n))

@@ -1,0 +1,41 @@
+;; match infers the type of the value it takes apart: closed without `_`, open with it.
+
+(defn label [s]
+  (match s
+    [:paid amount] (str "paid " amount)
+    [:refund]      "refunded"))
+
+(defn label-or-other [s]
+  (match s
+    [:paid amount] (str "paid " amount)
+    _              "other"))
+
+(defn color-name [c]
+  (match c
+    :red   "R"
+    :green "G"))
+
+(defn amount [s]
+  (match s
+    [:paid n]   n
+    [:refund n] (- n)
+    [:void]     0))
+
+(defn net [events]
+  (reduce + 0 (map amount events)))
+
+(defn first-paid [events]
+  (match (first events)
+    nil            0
+    [:paid n]      n
+    other          (amount other)))
+
+(defn total-of [order]
+  (match order
+    {:status :paid :total t} t
+    _                        0))
+
+(defn -main {:eff #{Console}} []
+  (println (label [:paid 10]) (label [:refund]) (label-or-other [:void]))
+  (println (color-name :green) (net [[:paid 30] [:refund 5] [:void]]))
+  (println (first-paid [[:refund 7]]) (total-of {:status :paid :total 12 :id 1})))

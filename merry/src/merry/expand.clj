@@ -107,6 +107,11 @@
         (and (symbol? h) (contains? macros h)) (expand (keep-meta form (apply (macros h) form (rest form))))
         ('#{quote comment ns} h) form
         ('#{fn fn* defn} h) (expand-fn-like form)
+        ;; patterns are data, not code: only the value and the branch bodies expand
+        (= 'match h) (let [[_ x & clauses] form]
+                       (keep-meta form (list* 'match (expand x)
+                                              (mapcat (fn [c] (if (= 2 (count c)) [(first c) (expand (second c))] c))
+                                                      (partition-all 2 clauses)))))
         ('#{let loop} h) (let [[_ bs & body] form]
                            (when-not (and (vector? bs) (even? (count bs)))
                              (fail form (str h " takes a vector of name/value pairs")))

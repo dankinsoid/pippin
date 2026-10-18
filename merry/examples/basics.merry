@@ -1,4 +1,4 @@
-;; Threading with `$`, some-> over [:maybe T], and/or/when as functions with :thunk parameters.
+;; Threading with `$`, some-> over (or nil T), and/or/when as functions with Thunk parameters.
 
 (defn square [x] (* x x))
 

@@ -1,6 +1,5 @@
 ;; @ai-generated(guided)
-;; Inference and elaboration: contracts with effect rows, :thunk parameters wrapped at the call site,
-;; the chain of calls behind an effect a closed row refuses.
+;; Inference and elaboration: effect rows, Thunk parameters, match over structural variants.
 (ns merry.check
   (:require [clojure.string :as str]
             [merry.builtins :as b]
@@ -38,13 +37,36 @@
         (mapcat (fn [{:keys [vars type]}] (remove vars (keys (t/free-vars type)))))
         (vals (:locals ctx))))
 
+(defn- enum?
+  "A variant of bare keywords only: it fits where Keyword is expected."
+  [t]
+  (and (= :variant (:tag t)) (every? nil? (vals (:labels (t/resolve-row (:row t)))))))
+
 (defn- unify-arg
-  "A value goes where [:maybe T] is expected without wrapping; elsewhere plain unification."
+  "A value goes where (or nil T) is expected without wrapping; elsewhere plain unification."
   [expected actual]
   (let [e (t/prune expected) a (t/prune actual)]
-    (if (and (t/maybe? e) (not (t/maybe? a)) (not (t/tv? a)))
+    (cond
+      (and (t/maybe? e) (not (t/maybe? a)) (not (t/tv? a)))
       (when-not (t/con? a :nil) (t/unify (first (:args e)) a))
-      (t/unify e a))))
+      (and (t/con? e :keyword) (enum? a)) nil
+      :else (t/unify e a))))
+
+(defn- join
+  "Branch results: a literal nil branch makes (or nil T), as in docs/merry.md «Запись объединения»."
+  [branches]
+  (let [non-nil (remove #(nil? (second %)) branches)
+        ty (reduce (fn [acc [tb _]]
+                     (cond
+                       (t/maybe? acc) (do (unify-arg acc tb) acc)
+                       (t/maybe? tb) (do (unify-arg tb acc) tb)
+                       :else (do (t/unify acc tb) acc)))
+                   (ffirst non-nil)
+                   (rest non-nil))]
+    (cond
+      (empty? non-nil) (t/tcon :nil)
+      (< (count non-nil) (count branches)) (t/tmaybe ty)
+      :else ty)))
 
 (defn- perform! [ctx eff]
   (t/unify-row (t/open-up eff) (:eff ctx) :effect))
@@ -56,15 +78,11 @@
       [(first (peek res)) (map second res)])))
 
 (defn- take-schema
-  "After a parameter: nothing, `:- T`, or `:- {props} T` (docs/merry.md «Аргументы»)."
+  "After a parameter: nothing or `:- T`; the type may be nil, so presence is :typed."
   [form xs]
   (if (= :- (first xs))
-    (let [[_ a & more] xs]
-      (if (map? a)
-        (let [[s & more] more]
-          (when (nil? s) (err form "a schema follows the property map"))
-          [{:props a :schema s} more])
-        [{:schema a} more]))
+    (do (when (< (count xs) 2) (err form "a type follows `:-`"))
+        [{:typed true :schema (second xs)} (nnext xs)])
     [nil xs]))
 
 (defn- parse-params [form params]
@@ -83,11 +101,8 @@
           :else (err form (str "destructuring in parameters arrives with patterns: " (pr-str x))))))))
 
 (defn- param-type [info names]
-  (if-let [s (:schema info)]
-    (let [ty (t/parse-schema s names :open)]
-      (if (and ((some-fn :thunk :delay) (:props info)) (not= :thunk (:tag (t/prune ty))))
-        (t/tthunk ty (t/open-row))
-        ty))
+  (if (:typed info)
+    (t/parse-schema (:schema info) names :open)
     (t/tvar)))
 
 (defn- infer-fn [ctx form]
@@ -95,18 +110,19 @@
         [fname more] (if (symbol? (first more)) [(first more) (rest more)] [nil more])
         [params & more] more
         _ (when-not (vector? params) (err form "fn takes a parameter vector"))
-        [ret-schema body] (if (= :- (first more)) [(second more) (drop 2 more)] [nil more])
+        typed-ret (= :- (first more))
+        [ret-schema body] (if typed-ret [(second more) (drop 2 more)] [nil more])
         {:keys [fixed rest]} (parse-params form params)
         names (atom {})
         ptypes (mapv #(param-type % names) fixed)
         rest-elem (when rest
-                    (if-let [s (:schema rest)]
-                      (let [ty (t/prune (t/parse-schema s names :open))]
+                    (if (:typed rest)
+                      (let [ty (t/prune (t/parse-schema (:schema rest) names :open))]
                         (if (and (= :app (:tag ty)) (= :vector (:name ty)))
                           (first (:args ty))
-                          (err form "the `&` parameter is a [:vector T]")))
+                          (err form "the `&` parameter is a vector, [T]")))
                       (t/tvar)))
-        ret (if ret-schema (t/parse-schema ret-schema names :open) (t/tvar))
+        ret (if typed-ret (t/parse-schema ret-schema names :open) (t/tvar))
         eff (t/open-row)
         self (t/tfn ptypes rest-elem ret eff)
         locals (cond-> (into (:locals ctx) (map (fn [p ty] [(:sym p) (t/mono ty)]) fixed ptypes))
@@ -125,15 +141,8 @@
         [tc c'] (infer ctx c)
         _ (t/unify (t/tcon :bool) tc)
         [ta a'] (infer ctx a)
-        [tb b'] (infer ctx b)
-        ;; only the literal (if c x nil) makes a union (docs/merry.md «nil и умолчания»)
-        ty (cond
-             (nil? b) (t/tmaybe ta)
-             (nil? a) (t/tmaybe tb)
-             (t/maybe? ta) (do (unify-arg ta tb) ta)
-             (t/maybe? tb) (do (unify-arg tb ta) tb)
-             :else (do (t/unify ta tb) ta))]
-    [ty (with-meta (list 'if c' a' b') (meta form))]))
+        [tb b'] (infer ctx b)]
+    [(join [[ta a'] [tb b']]) (with-meta (list 'if c' a' b') (meta form))]))
 
 (defn- infer-let [ctx form]
   (let [[_ bindings & body] form
@@ -203,6 +212,10 @@
         (t/unify p (t/tthunk ta eff))
         (list 'merry/thunk a'))
 
+      ;; an expected vector decides that a keyword-headed literal is a vector, not a variant
+      (and (vector? arg) (= :app (:tag p)) (= :vector (:name p)))
+      (mapv #(infer-arg ctx (first (:args p)) %) arg)
+
       ;; the expected type from above: a keyword where a function goes is its accessor
       (and (keyword? arg) (= :fn (:tag p)))
       (let [a (t/tvar)]
@@ -240,10 +253,140 @@
       (perform! ctx (:eff f))
       [(:ret f) (with-meta (apply list head' args') (meta form))])))
 
-(defn- infer-vector [ctx form]
-  (let [el (t/tvar)
-        elab (mapv (fn [x] (let [[tx x'] (infer ctx x)] (t/unify el tx) x')) form)]
-    [(t/tapp :vector el) elab]))
+(defn- infer-vector
+  "A keyword-headed literal is a variant `[:tag x ...]` unless a vector is expected (infer-arg)."
+  [ctx form]
+  (if (keyword? (first form))
+    (let [res (mapv #(infer ctx %) (rest form))]
+      [(t/tvariant (t/trow {(first form) (t/ttuple (map first res))} (t/rvar)))
+       (into [(first form)] (map second res))])
+    (let [el (t/tvar)
+          elab (mapv (fn [x] (let [[tx x'] (infer ctx x)] (t/unify el tx) x')) form)]
+      [(t/tapp :vector el) elab])))
+
+;;; match: the scrutinee's type comes from the patterns (docs/merry.md «Вывод типа проверяемого значения»)
+
+(defn- variant-pat? [p] (and (vector? p) (keyword? (first p))))
+
+(defn- pattern-kind [form p]
+  (cond
+    (nil? p) :nil
+    (or (keyword? p) (variant-pat? p)) :variant
+    (boolean? p) :bool
+    (int? p) :int
+    (string? p) :string
+    (map? p) :record
+    (vector? p) (err form "vector patterns over [T] arrive later; a keyword-headed vector is a variant")
+    :else (err form (str "unsupported pattern " (pr-str p)))))
+
+(defn- complete?
+  "Whether one branch covers its whole case: every sub-pattern is a name or `_`."
+  [p]
+  (cond
+    (keyword? p) true
+    (variant-pat? p) (every? symbol? (rest p))
+    (map? p) (every? symbol? (vals p))
+    :else false))
+
+(defn- bind-pattern
+  "The names a pattern binds, with their types; ty is the type of the value it meets."
+  [form pat ty]
+  (let [acc (volatile! {})]
+    (letfn [(b [p ty]
+              (cond
+                (= '_ p) nil
+                (symbol? p) (do (when (contains? @acc p)
+                                  (err form (str p " is bound twice; equality by repetition arrives later")))
+                                (vswap! acc assoc p ty))
+                (nil? p) (t/unify (t/tmaybe (t/tvar)) ty)
+                (boolean? p) (t/unify (t/tcon :bool) ty)
+                (int? p) (t/unify (t/tcon :int) ty)
+                (string? p) (t/unify (t/tcon :string) ty)
+                (keyword? p) (t/unify (t/tvariant (t/trow {p nil} (t/rvar))) ty)
+                (variant-pat? p) (let [vs (vec (repeatedly (dec (count p)) t/tvar))]
+                                   (t/unify (t/tvariant (t/trow {(first p) (t/ttuple vs)} (t/rvar))) ty)
+                                   (run! (fn [[sp v]] (b sp v)) (map vector (rest p) vs)))
+                (map? p) (let [vs (update-vals p (fn [_] (t/tvar)))]
+                           (doseq [k (keys p)]
+                             (when-not (keyword? k) (err form "a map pattern's keys are keywords")))
+                           (t/unify (t/trec (t/trow vs (t/rvar))) ty)
+                           (run! (fn [[k sp]] (b sp (vs k))) p))
+                :else (pattern-kind form p)))]
+      (b pat ty)
+      @acc)))
+
+(defn- variant-labels
+  "tag → field count (nil for a bare keyword), one shape per tag across the branches."
+  [form pats]
+  (reduce (fn [m p]
+            (let [[k n] (if (keyword? p) [p nil] [(first p) (dec (count p))])]
+              (when (and (contains? m k) (not= n (get m k)))
+                (err form (str k " has different shapes across the branches")))
+              (assoc m k n)))
+          {}
+          pats))
+
+(defn- not-covered [form missing]
+  (err form (str "not covered: " (str/join ", " missing)
+                 "; add a branch or `_`, which makes the matched type open")))
+
+(defn- check-coverage [form kind refutable labels with-nil]
+  (case kind
+    :variant (let [covered (set (keep #(cond (keyword? %) % (complete? %) (first %)) refutable))
+                   missing (for [[k n] (sort-by (comp str key) labels) :when (not (covered k))]
+                             (if n (str "[" (str/join " " (cons k (repeat n "_"))) "]") (str k)))]
+               (when (seq missing) (not-covered form missing)))
+    :bool (let [missing (remove (set refutable) [true false])]
+            (when (seq missing) (not-covered form missing)))
+    (:int :string) (err form (str "a match over " (if (= kind :int) "Int" "String")
+                                  " needs `_`: the prototype has no singleton number or string types"))
+    :record (when-not (some complete? refutable) (not-covered form ["a record whose fields fail these patterns"]))
+    nil (when with-nil (not-covered form ["a value that is not nil"]))))
+
+(defn- infer-match [ctx form]
+  (let [[_ x & clauses] form]
+    (when (or (empty? clauses) (odd? (count clauses)))
+      (err form "match takes a value and pattern/expression pairs"))
+    (let [pairs (partition 2 clauses)
+          pats (map first pairs)
+          n (count pats)
+          [tx x'] (infer ctx x)]
+      (doseq [[i p] (map-indexed vector pats)]
+        (when (= :when p) (err form "guards (:when) arrive later"))
+        (when (and (symbol? p) (< i (dec n)))
+          (err form (str "`" p "` matches everything, so it is the last branch"))))
+      (let [open? (symbol? (last pats))
+            refutable (if open? (butlast pats) pats)
+            kinds (set (map #(pattern-kind form %) refutable))
+            with-nil (contains? kinds :nil)
+            kinds (disj kinds :nil)
+            _ (when (> (count kinds) 1)
+                (err form (str "patterns of different kinds in one match: " (str/join ", " (map name kinds)))))
+            kind (first kinds)
+            labels (when (= kind :variant) (variant-labels form (remove nil? refutable)))
+            base (case kind
+                   :variant (t/tvariant (t/trow (update-vals labels #(when % (t/ttuple (repeatedly % t/tvar))))
+                                                (when open? (t/rvar))))
+                   :bool (t/tcon :bool)
+                   :int (t/tcon :int)
+                   :string (t/tcon :string)
+                   :record (t/trec (t/open-row))
+                   nil (t/tvar))
+            st (if with-nil (t/tmaybe base) base)]
+        (when-not open? (check-coverage form kind (remove nil? refutable) labels with-nil))
+        (t/unify st tx)
+        (let [branches (mapv (fn [[p body]]
+                               (let [binds (cond
+                                             (= '_ p) {}
+                                             ;; nil was handled by an earlier branch: the name sees the rest
+                                             (symbol? p) {p (if with-nil base tx)}
+                                             (nil? p) {}
+                                             :else (bind-pattern form p base))
+                                     [tb body'] (infer (update ctx :locals into (update-vals binds t/mono)) body)]
+                                 [tb [p body']]))
+                             pairs)]
+          [(join (map (fn [[tb [_ b]]] [tb b]) branches))
+           (with-meta (list* 'merry/match x' (map second branches)) (meta form))])))))
 
 (defn- infer-map [ctx form]
   (doseq [k (keys form)]
@@ -259,7 +402,7 @@
     (int? form) [(t/tcon :int) form]
     (double? form) [(t/tcon :double) form]
     (string? form) [(t/tcon :string) form]
-    (keyword? form) [(t/tcon :keyword) form]
+    (keyword? form) [(t/tvariant (t/trow {form nil} (t/rvar))) form]
     (instance? java.util.regex.Pattern form) [(t/tcon :regex) form]
     (symbol? form) [(lookup ctx form) form]
     (vector? form) (infer-vector ctx form)
@@ -276,6 +419,7 @@
         recur (infer-recur ctx form)
         clojure.core/deref (infer-deref ctx form)
         merry/some-let (infer-some-let ctx form)
+        match (infer-match ctx form)
         (def defn ns) (err form (str h " is a top-level form"))
         quote (err form "quote is not supported yet")
         (if (keyword? h) (infer-kw ctx form) (infer-call ctx form))))
