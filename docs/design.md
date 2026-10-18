@@ -55,7 +55,7 @@
   - «Генератор стабов» — [05-07-stub-generator.md](design/05-07-stub-generator.md): symbol graph на входе, перепечатка типов, боксы и их равенство, дженерики, отчёт, тихие риски, запасной выход; форма слота из форм частей (опционалы, коллекции, кортежи), перечисление кейвордом, структура мапой.
   - «`mutating`, `inout`, `borrowing`, `consuming`» — [05-08-mutating-inout.md](design/05-08-mutating-inout.md): одно правило для `inout`, включая `self`.
   - «`throws` — четыре формы» — [05-09-throws.md](design/05-09-throws.md): конкретный `throws(E)`, `any Error`, `Never` и `rethrows` — что стаб делает с каждой.
-  - «Объявленная граница, REPL, доставка стабов» — [05-10-declared-boundary.md](design/05-10-declared-boundary.md): `:host-call` как факт, `require-swift` в `ns`.
+  - «Объявленная граница, REPL, доставка стабов» — [05-10-declared-boundary.md](design/05-10-declared-boundary.md): `:host-call` как факт, `require-swift` в `ns`; прод-путь — стабы вызванных варов линкуются в приложение статически, без генератора и `dlopen`.
   - «Swift → Clojure» — [05-11-swift-to-clojure.md](design/05-11-swift-to-clojure.md): `Value` — один тип на границе, вызов Clojure из Swift.
   - «Замыкания через границу: цвет живёт в Swift» — [05-12-closures.md](design/05-12-closures.md): async-адаптация по Swift-сигнатуре, `@MainActor` как affinity, цена изоляции; замыкание любой переезжающей формы, протокол с одним методом над fn, актор.
   - «ABI» — [05-13-abi.md](design/05-13-abi.md): C ABI между сгенерированным C, ядром и Swift-частью.

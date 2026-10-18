@@ -268,9 +268,9 @@ file. 138 open, 120 partly done.
 - [ ] Boxes of two dynamic classes are never `=` — Trigger: a module whose `Equatable` base class means equality across its subclasses
 - [~] A refusal met outside those operations is dropped. — Trigger: fallible equals/hash slots (the same entry), or `clj_refusal_*_slow` in a profile.
 - [~] `Date`, `UUID` and `URL` are scalars of the generator, the core's inst, uuid and URI — Trigger: an application symbol taking or answering one.
-- [ ] What the generator does not generate. — Trigger: the first symbol of that list an application needs
-- [ ] Generation is per module, not per call site. — Trigger: a module whose surface makes the swiftc step slow, or `clj-compile --closed` of an application.
-- [ ] The dev path only. — Trigger: §10 step 9's application, or the first `clj-compile` of a file with `require-swift`.
+- [ ] What the generator does not generate. — Trigger: the first symbol of that list an application needs.
+- [ ] A closed compile hangs on a top-level hop. — Trigger: a program that needs such a form at its top level
+- [ ] A stub reached only by name is not generated. — Trigger: a program resolving a stub by name
 - [ ] Generation blocks the calling thread — Trigger: `require-swift` from the dev client's REPL on the main thread
 
 ### [Internal errors](notes/internal-errors.md)

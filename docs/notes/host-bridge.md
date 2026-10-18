@@ -169,8 +169,8 @@
 
 - **The chain.** `(:require-swift [M :as a :refer [...]])` in `ns` is `require-swift`
   (core.clj), which calls `require-swift*` (hostmodule.c), which calls the loader `clj_host_boot` installs
-  (`SwiftStubs.load`); a C-only host has none and refuses by name. `load` finds the module registered, or runs
-  `SwiftStubs.generator`: `python3 scripts/swift-stubgen.py`, which extracts the module's symbol graph, classifies
+  (`SwiftStubs.load`); a C-only host has none and refuses by name. `load` finds the module registered, calls the
+  register entry a closed build linked in (the production path, below), or runs `SwiftStubs.generator`: `python3 scripts/swift-stubgen.py`, which extracts the module's symbol graph, classifies
   it with `swift-reprint.py`'s own classifier (imported, so the measurement measures this classifier), prints
   `stubs.swift`, builds `lib<M>PippinStubs.dylib` with swiftc and writes `report.json`, all in a cache directory
   keyed by the module's and the runtime's `.swiftmodule`, both scripts, the module maps, the link arguments and
@@ -307,7 +307,9 @@
   a double optional, a labelled tuple, an enum case with a payload, closure results and isolated closure types,
   operators, subscripts, isolation other than `@MainActor` and an actor's own, `isolated`/`sending` parameters,
   types of other modules but Foundation's three, and the input slots of a map struct with no init taking its fields.
-  Trigger: the first symbol of that list an application needs; generics come with the call-site instantiation list.
+  Trigger: the first symbol of that list an application needs. Generics wait for the Swift type of an argument at the
+  call site: the closed world gives the vars a program calls, not the types it calls them at (design §5 «Генератор
+  стабов»), so they need the facts at a generic var's call site mapped to Swift types, and `#/(…)` where none is known.
 - **The classifier the generator shares with the measurement reads a declaration's own head and effects**
   (`decl_parts`): a closure parameter's `throws`, `async` or `@MainActor` is not the function's, `nonisolated` drops
   the owner's actor, the `>` of `->` closes no bracket, and a property's type stops before its `{ get }`.
@@ -315,13 +317,41 @@
   properties moved from handles to data, and SwiftUI's isolated share fell from 30.6 % to 1.9 %, its modifiers
   being `nonisolated` members of `@MainActor` protocols (design §5 «Цена изоляции»). The measurement builds for
   the host's architecture now.
-- [ ] **Generation is per module, not per call site.** The whole supported surface of a `require-swift`'d module is
-  generated (§5 wants the closure of the call sites, which the closed world gives); the cache makes a second load
-  free. Trigger: a module whose surface makes the swiftc step slow, or `clj-compile --closed` of an application.
-- [ ] **The dev path only.** `dlopen` of a dylib the generator builds; `clj-compile` and the nREPL server configure
-  no generator, so a file declaring `require-swift` loads there only when the module is already registered. The
-  production path — stubs linked into the app, entries called at start, `generator` nil — is designed (§5
-  «Объявленная граница») and not built. Trigger: §10 step 9's application, or the first `clj-compile` of a file
-  with `require-swift`.
+- **Generation is per module in dev and per var in a closed build.** The dev path generates a `require-swift`'d
+  module's whole supported surface, since a REPL has no closed world; the cache makes a second load free. A closed
+  build generates the vars its code names, each with every overload, since a label may be computed at run time.
+- **The production path** (design §5 «Объявленная граница», «Прод-путь»). The compile evaluates what it loads, so
+  `--swift-stubgen`, `--swift-cache`, `--swift-module` and `--swift-lib` give clj-compile the dev path's generator,
+  built against its own `Pippin.swiftmodule`: SwiftPM puts `Modules/` and `CljCore.build/module.modulemap` beside
+  the executable. After `cljc_end`, `--closed` reads the units' var pools (`cljc_unit_var_count`/`_at`, after the
+  shake) and every var `ns-refers` reaches, keeps those of each registered module, and maps each var to the Swift
+  symbols behind it (`SwiftStubs.symbols(of:)`); a var no stub binds is an error. `<out>/swift-stubs.json` holds
+  them. With `--core`, libs.c also defines `clj_compiled_swift_register`, one `clj_host_module_link(M,
+  pippin_stubs_register_M)` per module, which `clj_init` calls outside the kill switch (runtime.c's weak default does
+  nothing); the reference is what pulls the stub's object out of its static archive. The app's build runs
+  `swift-stubgen.py --static --needs swift-stubs.json` against the `Pippin.swiftmodule` it links: only the named
+  symbols, no refusals (report.json keeps them), `swiftc -static -O` into `lib<M>PippinStubs.a`, and an error naming
+  any symbol the target does not generate.
+- **`make swift-closed` proves it** (a gate; `scripts/swift-closed.sh`, `scripts/swift-app/main.swift`). PippinFixture
+  as a static library, `Fixtures/swift/app.clj` through `--core --closed`, the manifest against `app.stubs` (13
+  symbols, `Point.`'s three initializers among them), the tree's CljCore and Pippin built on that boot, the static
+  stubs against that Pippin, and a hand link like `scripts/ios-app.sh`'s. The app configures no generator and runs
+  `-main` from a directory where the entry file does not exist, so only the compiled unit answers; it prints
+  `app.out`, which `SwiftStubTests` checks interpreted, and `DYLD_PRINT_LIBRARIES` lists no stub or module image.
+  The module is linked statically there, which leaves `_typeByName` its metadata: `catch PippinFixture/FixtureError`
+  works. Cost on the arm64 runner, cold cache (run 39153097290): 13 of the 115 symbols the module generates are
+  linked, an archive of 35 KB; the dev stubs the compile needs take 36.1 s, most of it the first `swiftc` import of
+  Foundation filling the toolchain's module cache, and the static stubs then 2.9 s (two symbol graphs and
+  `swiftc -static -O`); `clj-compile --core --closed` itself 1.7 s with the stubs cached. The script prints them each
+  run. A compile that requires no Swift module runs none of this.
+- [ ] **A closed compile hangs on a top-level hop.** clj-compile loads on its main thread, so a top-level form whose
+  `@MainActor` stub hops from another thread, as `stubs.clj`'s `@(future (moved q :by 10))` does, waits on a main
+  queue the load holds. `app.clj` keeps its calls in `-main`. Trigger: a program that needs such a form at its top
+  level; then clj-compile loads off the main thread and serves the main queue, as `scripts/swift-app/main.swift` does.
+- [ ] **A stub reached only by name is not generated.** `resolve`, `ns-publics` of the module or a symbol in data name
+  a var the set's code does not, so the app has no such var and `resolve` answers nil where the dev path answers the
+  var (design §5). The shaker counts a literal symbol as a reference (NOTES "Compiler"); the stub set counts vars only.
+  Trigger: a program resolving a stub by name; then the literal symbols of the module's namespace join the set, and
+  a reflective site over it generates the module whole.
 - [ ] **Generation blocks the calling thread** for the generator and swiftc, seconds cold, under one lock per
   process. Trigger: `require-swift` from the dev client's REPL on the main thread; then the blocking pool.

@@ -51,7 +51,7 @@ Reading, analysis, evaluation
 - [Printer](docs/notes/printer.md) — map printing, `clj_pr_str_max`, print limits, `format`.
 
 Host bridges
-- [Host bridge](docs/notes/host-bridge.md) — the Swift side (`Value`, host errors, host fns), with subsections "The async bridge", "Typed closure adapters", "Host-defined vars and primitives", "Swift stubs" (level 2: the generator, the box, `require-swift`).
+- [Host bridge](docs/notes/host-bridge.md) — the Swift side (`Value`, host errors, host fns), with subsections "The async bridge", "Typed closure adapters", "Host-defined vars and primitives", "Swift stubs" (level 2: the generator, the box, `require-swift`, the production path).
 - [ObjC bridge](docs/notes/objc-bridge.md) — `objc_msgSend` prototypes, AAPCS64 structs, selectors, ownership, calling in (`objc-reify`, `objc-block`).
 - [C declarations](docs/notes/c-decls.md) — level 0: `require-c`, the clang value probe, the cache key, `c-global*` by `dlsym`, what the parse refuses.
 
