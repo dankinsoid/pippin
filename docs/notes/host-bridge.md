@@ -342,8 +342,9 @@
   works. Cost on the arm64 runner, cold cache (run 39153097290): 13 of the 115 symbols the module generates are
   linked, an archive of 35 KB; the dev stubs the compile needs take 36.1 s, most of it the first `swiftc` import of
   Foundation filling the toolchain's module cache, and the static stubs then 2.9 s (two symbol graphs and
-  `swiftc -static -O`); `clj-compile --core --closed` itself 1.7 s with the stubs cached. The script prints them each
-  run. A compile that requires no Swift module runs none of this. `make swift-closed-ios` is the same for the iOS
+  `swiftc -static -O`); `clj-compile --core --closed` itself 1.7 s with the stubs cached. On the x86_64 runner (run
+  39154150758): 121.4 s, 10.0 s and 3.5 s. The script prints them each run; the gate took 21 s of `make gates` on
+  arm64 (run 39153596339), the toolchain's module cache already warm from the suite. A compile that requires no Swift module runs none of this. `make swift-closed-ios` is the same for the iOS
   simulator (NOTES "iOS").
 - [ ] **A closed compile hangs on a top-level hop.** clj-compile loads on its main thread, so a top-level form whose
   `@MainActor` stub hops from another thread, as `stubs.clj`'s `@(future (moved q :by 10))` does, waits on a main
