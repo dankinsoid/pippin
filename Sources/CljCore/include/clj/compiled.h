@@ -99,6 +99,8 @@ int64_t clj_debug_tree_matches(bool matched);
 // boot/core.c and boot/libs_*.c: the compiled core.clj and the embedded libs, registered by path.
 clj_value clj_compiled_core_init(void);
 void      clj_compiled_libs_register(void);
+// The Swift modules whose stubs the binary links (clj_host_module_link); weak, so the plain boot needs none.
+void clj_compiled_swift_register(void);
 #endif
 
 #endif

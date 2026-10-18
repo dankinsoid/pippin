@@ -1,0 +1,13 @@
+Counter.shared
+Point.init(nonNegative:)
+Point.init(validating:)
+Point.init(x:y:)
+Point.sum
+describe(_:)
+frame(_:)
+later(_:)
+makePoint(x:y:)
+moved(_:by:)
+risky(_:)
+turn(_:)
+twice(_:_:)

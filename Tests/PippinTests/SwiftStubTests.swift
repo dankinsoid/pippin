@@ -288,6 +288,32 @@ extension CoreTests {
 			#expect(message?.contains("no NoSuchSwiftModule.swiftmodule") == true, "\(message ?? "no error")")
 		}
 
+		// make swift-closed links app.clj's stubs into a closed binary; under the dev path it must print the same.
+		@Test func theClosedAppFixturePrintsAlikeInterpreted() throws {
+			try fixture()
+			let file = fixtureDir.appendingPathComponent("app.clj").path
+			let source = try String(contentsOfFile: file, encoding: .utf8)
+			defer { clj_ns_set_current(clj_ns_user()) }
+			let out = try capturingOutput {
+				try loadFixtureSource(source, file: file)
+				_ = try cljEvalScoped("(fixture.swift-app/-main)")
+			}
+			if ProcessInfo.processInfo.environment["CLJ_FIXTURE_UPDATE"] != nil {
+				try out.write(to: fixtureDir.appendingPathComponent("app.out"), atomically: true, encoding: .utf8)
+			}
+			#expect(out == (try String(contentsOf: fixtureDir.appendingPathComponent("app.out"), encoding: .utf8)))
+		}
+
+		// The production path's lookup: a linked entry registers the module; a generator, were it asked, has no
+		// LinkedFixture.swiftmodule to build from.
+		@Test func aLinkedModuleRegistersThroughItsEntry() throws {
+			try fixture()
+			clj_host_module_link(linkedModule, { registerLinkedModule() })
+			_ = try cljEvalScoped("(require-swift '[LinkedFixture :refer [answer]])")
+			#expect(try cljEvalScoped("(LinkedFixture/answer)") == Value(42))
+			#expect(SwiftStubs.symbols(of: "LinkedFixture") == ["answer": ["answer()"]])
+		}
+
 		@Test func aHostWithoutTheBridgeRefusesRequireSwift() throws {
 			clj_host_module_install(nil)
 			defer { Runtime.installSwiftStubs() }
@@ -295,6 +321,15 @@ extension CoreTests {
 			#expect(message?.contains("this host has no Swift bridge") == true, "\(message ?? "no error")")
 		}
 	}
+}
+
+// The C side keeps the name's pointer, as libs.c's literal; a test's copy lives as long.
+nonisolated(unsafe) private let linkedModule = strdup("LinkedFixture")
+
+private func registerLinkedModule() {
+	SwiftStubs.register(module: "LinkedFixture", functions: [
+		SwiftStubs.Function(swiftName: "answer()", labels: []) { _ in Value(42) },
+	], refusals: [])
 }
 
 private final class Outcome: @unchecked Sendable {

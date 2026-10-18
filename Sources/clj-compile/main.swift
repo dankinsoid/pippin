@@ -22,12 +22,17 @@ struct Options {
 	var noShake = false
 	var shakeDrop: [String] = []
 	var noOpt: UInt32 = 0
+	var swiftStubgen: String?
+	var swiftCache: String?
+	var swiftModules: [String] = []
+	var swiftLibs: [String] = []
 }
 
 func usage() -> Never {
 	FileHandle.standardError.write(Data("""
 	usage: clj-compile [--out DIR] [--closed] [--instrument] [--no-line] [--lenient] [--load-path P]... [--features k,...]
 	                   [--core] [--with-embedded] [--allow-refused] [--stats] [--no-shake] [--shake-drop NS/NAME]... [--no-opt[=LIST]]
+	                   [--swift-stubgen SCRIPT --swift-cache DIR [--swift-module DIR]... [--swift-lib NAME]...]
 	                   (--file F | --ns NS)...
 	--instrument emits the profiler and signpost hooks in every fn (a plain unit has none; core.c takes -DCLJC_INSTRUMENT).
 	--closed with --core and a --file/--ns entry shakes the core and the embedded libs: a def of theirs that the
@@ -39,6 +44,11 @@ func usage() -> Never {
 	--stats reports per unit the frame slots the facts pass calls local, the ones emitted as C variables and as int64_t, the arithmetic nodes emitted unboxed or behind a tag check, the protocol sites by their dispatch (direct arm, switch, cache), and the slot arrays direct callers allocate against their callees' frames.
 	--core writes <out>/core.c and <out>/libs_*.c (the embedded libs) for -DCLJ_COMPILED_CORE builds; otherwise
 	one <out>/<munged path>.c per loaded file plus <out>/units.txt (cname<TAB>path per line, in load order).
+	--swift-stubgen runs scripts/swift-stubgen.py for a require-swift the compile evaluates (the dev path, against this
+	clj-compile's own Pippin); --swift-module is where a module's .swiftmodule and library are, --swift-lib links one.
+	With --closed, <out>/swift-stubs.json maps each Swift module the set requires to the symbols behind the vars its
+	code names, which scripts/swift-stubgen.py --static --needs builds into the app's link; with --core as well,
+	libs.c names each module's register entry (design §5 «Объявленная граница», the production path).
 
 	""".utf8))
 	exit(64)
@@ -66,6 +76,10 @@ while !args.isEmpty {
 	case "--stats": opts.stats = true
 	case "--no-shake": opts.noShake = true
 	case "--shake-drop": opts.shakeDrop.append(need())
+	case "--swift-stubgen": opts.swiftStubgen = need()
+	case "--swift-cache": opts.swiftCache = need()
+	case "--swift-module": opts.swiftModules.append(need())
+	case "--swift-lib": opts.swiftLibs.append(need())
 	case "--file": opts.inputs.append(("file", need()))
 	case "--ns": opts.inputs.append(("ns", need()))
 	case "--no-opt": opts.noOpt = clj_no_opt_parse("all")
@@ -76,6 +90,7 @@ while !args.isEmpty {
 	}
 }
 if !opts.core && opts.inputs.isEmpty { usage() }
+if (opts.swiftStubgen == nil) != (opts.swiftCache == nil) { usage() }
 
 clj_no_opt_set(opts.noOpt)
 // The hook must be in place before clj_init so that core.clj's own forms pass through it.
@@ -104,6 +119,17 @@ if opts.core && opts.inputs.isEmpty {
 	}
 }
 Runtime.loadPath = opts.loadPath
+if let script = opts.swiftStubgen, let cache = opts.swiftCache {
+	// The compile evaluates what it loads, so a require-swift needs the stubs in this process: SwiftPM's layout puts
+	// the Pippin.swiftmodule they are built against, and CljCore's module map, beside this executable.
+	let bin = Bundle.main.executableURL!.resolvingSymlinksInPath().deletingLastPathComponent()
+	let dirs = opts.swiftModules.map { URL(fileURLWithPath: $0) }
+	SwiftStubs.generator = SwiftStubs.Generator(
+		script: URL(fileURLWithPath: script), cache: URL(fileURLWithPath: cache),
+		moduleSearchPaths: dirs, librarySearchPaths: dirs, libraries: opts.swiftLibs,
+		runtimeModules: bin.appendingPathComponent("Modules"),
+		moduleMaps: [bin.appendingPathComponent("CljCore.build/module.modulemap")])
+}
 Runtime.readerFeatures = opts.features
 clj_load_set_lenient(opts.lenient)
 for input in opts.inputs {
@@ -196,6 +222,44 @@ func write(_ text: String, to path: String) {
 }
 
 let n = cljc_unit_count(compiler)
+
+// The closed world's call sites into each Swift module the set requires: the vars its code names, and the names a
+// :refer binds, which the app's require-swift refers again. Empty, and free, for a set requiring none.
+var swiftNeeds: [(module: String, symbols: [String])] = []
+if opts.closed && !SwiftStubs.registeredModules.isEmpty {
+	var referred: [String] = []
+	do {
+		let text = try rt.eval("(->> (all-ns) (mapcat (comp vals ns-refers)) (map str) distinct vec)")
+		referred = (text.array ?? []).compactMap(\.string)
+	} catch {
+		FileHandle.standardError.write(Data("clj-compile: reading the :refer lists: \(error)\n".utf8))
+		exit(1)
+	}
+	for module in SwiftStubs.registeredModules {
+		let bound = SwiftStubs.symbols(of: module) ?? [:]
+		let prefix = "\(module)/"
+		var used = Set(referred.filter { $0.hasPrefix("#'\(prefix)") }.map { String($0.dropFirst(2 + prefix.count)) })
+		for i in 0..<n {
+			for k in 0..<cljc_unit_var_count(compiler, i) {
+				let q = String(cString: cljc_unit_var_at(compiler, i, k))
+				if q.hasPrefix(prefix) { used.insert(String(q.dropFirst(prefix.count))) }
+			}
+		}
+		var symbols: [String] = []
+		for name in used.sorted() {
+			guard let behind = bound[name] else {
+				FileHandle.standardError.write(Data("clj-compile: the closed set names \(module)/\(name), which no stub of \(module) binds\n".utf8))
+				exit(1)
+			}
+			symbols += behind
+		}
+		swiftNeeds.append((module, symbols.sorted()))
+	}
+	let manifest = Dictionary(uniqueKeysWithValues: swiftNeeds.map { ($0.module, $0.symbols) })
+	let json = try! JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
+	write(String(decoding: json, as: UTF8.self) + "\n", to: "\(opts.out)/swift-stubs.json")
+}
+
 if opts.core {
 	let bootDir = opts.out
 	// An entry unit is registered too, so clj_load_file of the program runs it against the core written beside it.
@@ -226,7 +290,18 @@ if opts.core {
 	for reg in registrations { libs += "clj_value \(reg.initName)(void);\n" }
 	libs += "\nvoid clj_compiled_libs_register(void) {\n"
 	for reg in registrations { libs += "\tclj_compiled_register(\"\(reg.path)\", \(reg.initName));\n" }
-	libs += "}\n#else\ntypedef int cljc_libs_disabled;\n#endif\n"
+	libs += "}\n"
+	if !swiftNeeds.isEmpty {
+		// The production path of design §5: the app links each module's stubs, and require-swift calls the entry.
+		libs += "\n#include \"clj/hostmodule.h\"\n\n"
+		for need in swiftNeeds { libs += "void pippin_stubs_register_\(need.module)(void);\n" }
+		libs += "\nvoid clj_compiled_swift_register(void) {\n"
+		for need in swiftNeeds {
+			libs += "\tclj_host_module_link(\"\(need.module)\", pippin_stubs_register_\(need.module));\n"
+		}
+		libs += "}\n"
+	}
+	libs += "#else\ntypedef int cljc_libs_disabled;\n#endif\n"
 	write(libs, to: "\(bootDir)/libs.c")
 } else {
 	var manifest = ""

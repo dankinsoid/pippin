@@ -5588,6 +5588,8 @@ char *cljc_unit_cname(const cljc_compiler *c, size_t i) {
 	return xstrdup(name);
 }
 
+size_t      cljc_unit_var_count(const cljc_compiler *c, size_t i) { return c->units[i]->vars.n; }
+const char *cljc_unit_var_at(const cljc_compiler *c, size_t i, size_t k) { return c->units[i]->vars.keys[k]; }
 
 size_t              cljc_refusal_count(const cljc_compiler *c) { return c->nrefusals; }
 const cljc_refusal *cljc_refusal_at(const cljc_compiler *c, size_t i) { return &c->refusals[i]; }

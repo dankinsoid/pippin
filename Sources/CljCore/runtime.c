@@ -219,6 +219,8 @@ static void init(void) {
 		}
 		clj_compiled_libs_register();
 	}
+	// Outside the kill switch: linked stubs are Swift, not compiled Clojure, and the interpreted entry needs them too.
+	clj_compiled_swift_register();
 #else
 	load_core();
 #endif
@@ -231,6 +233,11 @@ static void init(void) {
 }
 
 __attribute__((weak)) void clj_compiled_eval_boot(void) {}
+
+#ifdef CLJ_COMPILED_CORE
+// A closed build that links Swift stubs defines it in libs.c (clj-compile --core --closed); the boot defines none.
+__attribute__((weak)) void clj_compiled_swift_register(void) {}
+#endif
 
 void clj_init(void) { pthread_once(&init_once, init); }
 

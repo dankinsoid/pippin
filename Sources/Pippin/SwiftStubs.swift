@@ -127,6 +127,7 @@ public enum SwiftStubs {
 			groups[f.varName, default: []].append(f)
 		}
 		var refused = refusals
+		var bound: [String: [String]] = [:]
 		for name in order {
 			var overloads = groups[name]!.map(Overload.init)
 			// All refused, none picked (design §5); the generator refuses those it sees, kebab spelling makes the rest.
@@ -140,10 +141,24 @@ public enum SwiftStubs {
 			}
 			overloads.removeAll { clashes[$0.spelling] != nil }
 			if overloads.isEmpty { continue }
+			bound[name] = overloads.map(\.function.swiftName)
 			let doc = overloads.map(\.function.signature).joined(separator: "\n")
 			Runtime.bind(name, in: module, doc: "Swift: \(doc)", dispatcher("\(module)/\(name)", overloads))
 		}
-		registry.withLock { registry.modules[module] = refused }
+		registry.withLock {
+			registry.modules[module] = refused
+			if registry.symbols[module] == nil { registry.order.append(module) }
+			registry.symbols[module] = bound
+		}
+	}
+
+	/// The modules registered so far, in the order they were first registered.
+	public static var registeredModules: [String] { registry.withLock { registry.order } }
+
+	/// The Swift symbols behind each var of a registered module, by var name (`make-point`, `Point.scaled`);
+	/// nil for a module not registered. What a closed build turns its call sites into (design §5).
+	public static func symbols(of module: String) -> [String: [String]]? {
+		registry.withLock { registry.symbols[module] }
 	}
 
 	/// What the generator reported as not bridged for a registered module; nil for a module not registered.
@@ -151,10 +166,18 @@ public enum SwiftStubs {
 		registry.withLock { registry.modules[module] }
 	}
 
-	/// Makes the module's namespace exist with its stubs bound: `require-swift`'s host side.
+	/// Makes the module's namespace exist with its stubs bound: `require-swift`'s host side. Stubs linked into the
+	/// binary come first (the production path); the generator is the dev path's.
 	public static func load(_ module: String) throws {
 		try registry.loading.withLock {
 			if refusals(of: module) != nil { return }
+			if let entry = module.withCString({ clj_host_module_linked($0) }) {
+				entry()
+				if refusals(of: module) == nil {
+					throw ClojureError(thrown: Value(exInfo: "The linked stubs of \(module) returned without registering it"))
+				}
+				return
+			}
 			guard let generator else {
 				throw ClojureError(thrown: Value(exInfo: "No stubs for Swift module \(module): nothing registered them and no generator is configured (SwiftStubs.generator, design §5)"))
 			}
@@ -529,6 +552,8 @@ public enum SwiftStubs {
 		// Held across a load: the generator and dlopen run once per module even when two callers race.
 		let loading = NSLock()
 		var modules: [String: [Refusal]] = [:]
+		var order: [String] = []
+		var symbols: [String: [String: [String]]] = [:]
 		var boxTypes: [ObjectIdentifier: AnyBoxKind] = [:]
 		// Keyed by the dynamic class; the descriptors tell a class box from a struct box of the same payload shape.
 		var objectTypes: [ObjectIdentifier: ObjectBoxKind] = [:]

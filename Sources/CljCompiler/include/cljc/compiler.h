@@ -55,6 +55,11 @@ char *cljc_unit_cname(const cljc_compiler *c, size_t i);
 // One form as a unit of its own (compiled eval); the init returns its value under eval_result. Owned text.
 char *cljc_form_text(cljc_compiler *c, const clj_load_form *form, const clj_node *node);
 
+// The vars unit i's emitted code names, as "ns/name", after cljc_end: what a closed set takes from outside itself,
+// such as the Swift stubs it calls (design §5 «Объявленная граница»). A dropped def names only its own var.
+size_t      cljc_unit_var_count(const cljc_compiler *c, size_t i);
+const char *cljc_unit_var_at(const cljc_compiler *c, size_t i, size_t k);
+
 size_t              cljc_refusal_count(const cljc_compiler *c);
 const cljc_refusal *cljc_refusal_at(const cljc_compiler *c, size_t i);
 

@@ -1,4 +1,4 @@
-.PHONY: model-long bench-ab corpus-bench corpus-bench-plan port-audit c-only-audit cmutex-audit park-audit slot-audit open-items open-items-audit load-asan build boot bench facts-report shake test test-pool test-ubsan test-tsan test-seeded test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint ios-probe ios-app gates gates-full
+.PHONY: model-long bench-ab corpus-bench corpus-bench-plan swift-closed port-audit c-only-audit cmutex-audit park-audit slot-audit open-items open-items-audit load-asan build boot bench facts-report shake test test-pool test-ubsan test-tsan test-seeded test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint ios-probe ios-app gates gates-full
 
 # A test that crashes ends with its trace and a nonzero exit; the default death waits on the crash reporter, which
 # can leave the helper unkillable (NOTES.md, "Guard").
@@ -126,6 +126,12 @@ shake:
 	swift build --scratch-path $(PLAIN) --product clj-compile --product clj-load
 	sh scripts/shake.sh
 
+# Level 2's production path (design §5 «Объявленная граница»): Tests/PippinTests/Fixtures/swift/app.clj closed, with
+# the Swift stubs of only the vars it names linked in statically, run with no generator and no dlopen.
+swift-closed:
+	swift build --scratch-path $(PLAIN) --product clj-compile
+	sh scripts/swift-closed.sh
+
 # The type-coverage metric of design §10 step 3b: loads core.clj, the embedded libs and every corpus library,
 # analyzes every form again and runs the facts pass over it. Rewrites docs/facts-coverage.md, which is committed;
 # the wall-clock half goes to $(BUILD_ROOT)/facts-cost.md, which is not, so a gate run leaves the tree clean.
@@ -235,11 +241,11 @@ ios-app:
 
 # @ai-generated(solo)
 gates:
-	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled fuzz shake facts-report port-audit c-only-audit cmutex-audit park-audit slot-audit open-items-audit api-diff
+	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled fuzz shake swift-closed facts-report port-audit c-only-audit cmutex-audit park-audit slot-audit open-items-audit api-diff
 
 # @ai-generated(solo)
 gates-full:
-	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled fuzz shake facts-report port-audit c-only-audit cmutex-audit park-audit slot-audit open-items-audit api-diff test-isolated test-compiled-asan
+	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled fuzz shake swift-closed facts-report port-audit c-only-audit cmutex-audit park-audit slot-audit open-items-audit api-diff test-isolated test-compiled-asan
 
 # ---- the differential fuzzer (fuzz/, docs/notes/fuzzing.md)
 

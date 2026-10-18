@@ -1,10 +1,37 @@
 // @ai-generated(solo)
+#include <stdatomic.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include "clj/core.h"
 #include "clj/hostmodule.h"
 
 static clj_host_module_loader loader;
 
+typedef struct linked {
+	const char           *module;
+	clj_host_module_entry entry;
+	struct linked        *next;
+} linked;
+
+// Prepended, never removed: a reader walks whatever head it loaded.
+static _Atomic(linked *) links;
+
 void clj_host_module_install(clj_host_module_loader load) { loader = load; }
+
+CLJ_UNIT_ENTRY void clj_host_module_link(const char *module, clj_host_module_entry entry) {
+	linked *l = malloc(sizeof *l);
+	if (!l) clj_fatal("out of memory");
+	*l = (linked){module, entry, atomic_load_explicit(&links, memory_order_relaxed)};
+	while (!atomic_compare_exchange_weak_explicit(&links, &l->next, l, memory_order_release, memory_order_relaxed)) {}
+}
+
+clj_host_module_entry clj_host_module_linked(const char *module) {
+	for (linked *l = atomic_load_explicit(&links, memory_order_acquire); l; l = l->next) {
+		if (strcmp(l->module, module) == 0) return l->entry;
+	}
+	return NULL;
+}
 
 static clj_value b_require_swift_star(const clj_value *args, size_t n) {
 	(void)n;

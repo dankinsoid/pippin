@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # @ai-generated(solo)
-"""Generate the level-2 stubs of one Swift module: symbol graph -> classification -> Swift -> swiftc -> dylib.
+"""Generate the level-2 stubs of one Swift module: symbol graph -> classification -> Swift -> swiftc -> library.
 
 Design §5 «Объявленная граница»: the generator is a build tool, `require-swift` runs it in dev through
 `SwiftStubs.generator`, and the dylib it builds registers the module's functions with the runtime through one
@@ -9,12 +9,16 @@ docs/swift-reprint.md measures the classifier that prints the stubs.
 
 Usage:
 	scripts/swift-stubgen.py --module NAME --cache DIR --runtime-modules DIR [-I DIR]... [-L DIR]... [-l LIB]...
-		[--module-map FILE]...
+		[--module-map FILE]... [--static --needs FILE] [--target TRIPLE --sdk PATH]
 
-Prints the dylib's path as the last line. A cache entry is keyed by a fingerprint of the module's `.swiftmodule`,
+Prints the library's path as the last line. A cache entry is keyed by a fingerprint of the module's `.swiftmodule`,
 the runtime's `Pippin.swiftmodule`, both scripts, the module maps, the link arguments and the compiler; a hit
 prints the path and does nothing else. Every public symbol of the module is either generated or listed with its
-reason in report.json beside the dylib and in the dylib's own registration.
+reason in report.json beside the library and, for the dev dylib, in its own registration.
+
+--static is the production path: `lib<Module>PippinStubs.a` for the app's link, holding only the symbols the
+closed build named (`--needs`, the swift-stubs.json clj-compile --closed writes), and no refusals; a named symbol
+this target does not generate is an error. --target and --sdk build for another triple, such as the iOS simulator.
 """
 
 import argparse
@@ -96,9 +100,11 @@ def add_path(h, path):
 			h.update(f.read())
 
 
-def fingerprint(args, module_file, compiler):
+def fingerprint(args, module_file, compiler, needs):
 	h = hashlib.sha256()
 	h.update(f"{args.module}\0{compiler}\0{args.L}\0{args.l}\0".encode())
+	if args.static:
+		h.update(("static\0" + "\0".join(needs) + "\0").encode())
 	for p in [module_file, os.path.join(args.runtime_modules, "Pippin.swiftmodule"), __file__,
 			os.path.join(HERE, "swift-reprint.py")] + args.module_map:
 		add_path(h, p)
@@ -946,18 +952,31 @@ def main():
 	ap.add_argument("-L", action="append", default=[])
 	ap.add_argument("-l", action="append", default=[])
 	ap.add_argument("--module-map", action="append", default=[], help="a module map of a C module Pippin imports")
+	ap.add_argument("--static", action="store_true", help="a static archive of the --needs symbols for the app's link")
+	ap.add_argument("--needs", help="swift-stubs.json of clj-compile --closed: the symbols the closed build names")
+	ap.add_argument("--target", help="the triple to build for; the host's when absent")
+	ap.add_argument("--sdk", help="the SDK of --target; the host's when absent")
 	args = ap.parse_args()
 	module = args.module
+	if args.static != bool(args.needs):
+		sys.exit("swift-stubgen: --static and --needs go together")
+	needs = None
+	if args.needs:
+		with open(args.needs) as f:
+			manifest = json.load(f)
+		if module not in manifest:
+			sys.exit(f"swift-stubgen: {args.needs} does not name {module}")
+		needs = sorted(manifest[module])
 
-	info = json.loads(run(["xcrun", "swiftc", "-print-target-info"]).stdout)
+	info = json.loads(run(["xcrun", "swiftc", "-print-target-info"] + (["-target", args.target] if args.target else [])).stdout)
 	compiler = info["compilerVersion"]
 	target = info["target"]["triple"]
-	sdk = run(["xcrun", "--show-sdk-path"]).stdout.strip()
+	sdk = args.sdk or run(["xcrun", "--show-sdk-path"]).stdout.strip()
 	module_file = find_swiftmodule(module, args.I)
-	key = fingerprint(args, module_file, compiler + target + sdk)
+	key = fingerprint(args, module_file, compiler + target + sdk, needs)
 	home = os.path.join(os.path.abspath(args.cache), module)
 	final = os.path.join(home, key)
-	dylib_name = f"lib{module}PippinStubs.dylib"
+	dylib_name = f"lib{module}PippinStubs.{'a' if args.static else 'dylib'}"
 	if os.path.exists(os.path.join(final, "report.json")):
 		print(os.path.join(final, dylib_name))
 		return
@@ -1016,21 +1035,30 @@ def main():
 	rejected = list(uncallable)
 	while True:
 		generated, refused = build(recs, idx, types, shapes, cases, rejected)
-		text, lines = emit(module, generated, refused, shapes, idx)
+		if needs is not None:
+			generated = [g for g in generated if g["swift"] in needs]
+		# The app carries no refusals: its closed build named none, and report.json keeps them.
+		text, lines = emit(module, generated, [] if needs is not None else refused, shapes, idx)
 		with open(source, "w") as f:
 			f.write(text)
 		cmd = ["xcrun", "swiftc", "-emit-library", "-parse-as-library", "-swift-version", "5",
 			"-module-name", f"{module}PippinStubs", source, "-o", dylib, "-I", args.runtime_modules]
+		if args.target:
+			cmd += ["-target", target, "-sdk", sdk]
 		for d in args.I:
 			cmd += ["-I", d]
 		for m in args.module_map:
 			cmd += ["-Xcc", f"-fmodule-map-file={m}"]
-		for d in args.L:
-			cmd += ["-L", d, "-Xlinker", "-rpath", "-Xlinker", os.path.abspath(d)]
-		for l in args.l:
-			cmd += [f"-l{l}"]
-		# Pippin and the core are the host process's own: the stub binds to the copy that loads it.
-		cmd += ["-Xlinker", "-undefined", "-Xlinker", "dynamic_lookup"]
+		if args.static:
+			# The app's own link resolves Pippin, the core and the module; it ships optimized.
+			cmd += ["-static", "-O"]
+		else:
+			for d in args.L:
+				cmd += ["-L", d, "-Xlinker", "-rpath", "-Xlinker", os.path.abspath(d)]
+			for l in args.l:
+				cmd += [f"-l{l}"]
+			# Pippin and the core are the host process's own: the stub binds to the copy that loads it.
+			cmd += ["-Xlinker", "-undefined", "-Xlinker", "dynamic_lookup"]
 		res = run(cmd)
 		if res.returncode == 0:
 			break
@@ -1055,8 +1083,17 @@ def main():
 		shapes.settle(types)
 		shapes.settle_protocols(types)
 
+	if needs is not None:
+		missing = sorted(set(needs) - {g["swift"] for g in generated})
+		if missing:
+			why = dict(refused)
+			shutil.rmtree(work, ignore_errors=True)
+			sys.exit(f"swift-stubgen: the closed build names symbols of {module} that {target} does not generate:\n"
+				+ "\n".join(f"  {m}: {why.get(m, 'not a public symbol of the module')}" for m in missing))
+
 	report = {
 		"module": module, "fingerprint": key, "compiler": compiler, "target": target,
+		"needs": needs,
 		"generated": [{"swift": s["swift"], "owner": s["owner"], "base": var_base(s), "labels": labels_of(s),
 			"isolation": s["isolation"], "effects": effects_text(s)} for s in generated],
 		"keywords": sorted(".".join(idx.by_usr[u]["path"]) for u in shapes.keywords),
