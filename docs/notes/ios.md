@@ -169,6 +169,20 @@
   interpreted and 39.5–39.7 MB compiled**: UIKit's own ~26 MB for a window, a view controller and a text layout
   dwarfs the 6 MB the two core modes differ by. The number §10 asks for is still the boot one; the number that
   matters for jetsam is that a trivial screen is already 39 MB, and almost none of it is ours.
+- **A closed unit with `require-swift` runs on the simulator** (`make swift-closed-ios`, not a gate; run
+  39153598678; NOTES "Host bridge", the production path). `scripts/swift-closed.sh ios` compiles
+  `Fixtures/swift/app.clj` on the Mac, which evaluates the file, so PippinFixture is built twice: for the host and
+  for `arm64-apple-ios15.0-simulator`. Then CljCore and Pippin for the simulator on the closed boot, the static stubs
+  against that Pippin (`swift-stubgen.py --target --sdk`), a link with `swiftc -target`, and the bare Mach-O under
+  `simctl spawn`: it prints `app.out`, and `DYLD_PRINT_LIBRARIES` (through `SIMCTL_CHILD_`) lists no stub or module
+  image. The static stubs took 36.3 s there against 2.9 s for macOS: the first `swiftc` import against the
+  simulator SDK fills that SDK's module cache.
+- [ ] **The `.app` does not take a closed unit yet.** `scripts/ios-app.sh` links a C shell (`main.c`, with its own
+  empty `clj_host_boot`) and loads `screen.clj` interpreted over a compiled core. A closed screen with
+  `require-swift` needs a Swift host in place of that shell (Pippin's `clj_host_boot`), `clj-compile --core --closed`
+  of the screen with its `require-c` parse on the compile's load path, and the stubs as above: `swift-closed.sh ios`
+  runs every piece, but outside a bundle. Trigger: the first screen that requires a Swift module, or the App Store
+  build of design §10.
 - [~] **No device run, and the only thing still missing is a profile.** The bundle exists now, installs and
   launches on the simulator (above); the device slice of the same `.app` comes out of
   `sh scripts/ios-app.sh <mode> iphoneos` unsigned, and `sign_device` there embeds a profile, takes the

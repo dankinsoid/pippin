@@ -343,7 +343,8 @@
   linked, an archive of 35 KB; the dev stubs the compile needs take 36.1 s, most of it the first `swiftc` import of
   Foundation filling the toolchain's module cache, and the static stubs then 2.9 s (two symbol graphs and
   `swiftc -static -O`); `clj-compile --core --closed` itself 1.7 s with the stubs cached. The script prints them each
-  run. A compile that requires no Swift module runs none of this.
+  run. A compile that requires no Swift module runs none of this. `make swift-closed-ios` is the same for the iOS
+  simulator (NOTES "iOS").
 - [ ] **A closed compile hangs on a top-level hop.** clj-compile loads on its main thread, so a top-level form whose
   `@MainActor` stub hops from another thread, as `stubs.clj`'s `@(future (moved q :by 10))` does, waits on a main
   queue the load holds. `app.clj` keeps its calls in `-main`. Trigger: a program that needs such a form at its top
