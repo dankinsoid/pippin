@@ -301,7 +301,9 @@
   code of the runtime names by address (the next entry) —; the interpreter's frames on the ring
   (`clj_shadow_frame.frame`): each one's owned slots, every one from 64 slots on with the count before the slots,
   and the argument buffers on it (`clj_frame.args`, `clj_argbuf`: put on from an owned value before an argument
-  that may park — not a read, nor an intrinsic over reads — and held through a call but an intrinsic's builtin), a
+  that may park — not a read, nor an intrinsic or a leaf builtin over reads — and held through a call but an
+  intrinsic's or a leaf builtin's, `clj_fn.leaf` from the facts' pure names; a frame of a bare thread's execution or
+  a top-level form takes none, `ARGS_OFF`), a
   fused program's unrecorded frame through its buffer; every read through `clj_coro_parked_bytes` when evacuated; and the unshared objects those reach or `alts!`
   lends its waiter (`clj_waiter.ports`), each entered once, whose references to shared objects are the coroutine's
   too. A ring that ever went past its capacity (`wrapped`, set at the push) is not read: an entry below its depth

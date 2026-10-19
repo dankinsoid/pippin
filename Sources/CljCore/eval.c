@@ -438,7 +438,7 @@ static inline __attribute__((always_inline)) bool eval_all(const clj_node *const
                                                             clj_argbuf *rb, bool *on) {
 	uint64_t mask = 0;
 	bool     borrow = owned && n <= 64;
-	bool     track = rb && n <= 64;
+	bool     track = rb && n <= 64 && f->args != ARGS_OFF;
 	for (uint32_t i = 0; i < n; i++) {
 		if (track && mask && !*on && may_park_node(nodes[i])) argrec_put(f, rb, on, out, mask, NULL);
 		bool      own = true;
@@ -1427,7 +1427,7 @@ static clj_value eval_map_shaped(const clj_node *n, clj_frame *f) {
 	for (uint32_t i = 0; i < nkeys; i++) {
 		const clj_node *item = n->u.seq.items[2 * i + 1];
 		// the values so far are the map's, which only this buffer names
-		if (!aon && i && may_park_node(item)) argrec_put(f, &ab, &aon, &m, 1, NULL);
+		if (!aon && i && f->args != ARGS_OFF && may_park_node(item)) argrec_put(f, &ab, &aon, &m, 1, NULL);
 		clj_value v = eval_child(item, f);
 		if (v == CLJ_THROWN) {
 			argrec_end(f, &ab, &aon);
