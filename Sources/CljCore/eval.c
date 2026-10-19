@@ -60,7 +60,7 @@ static void buf_free(clj_value *small, clj_value *p) {
 }
 
 // From 64 slots on, the count sits in the word before them: the collector reads it for a frame owning every slot.
-static clj_value *slots_alloc(clj_value *small, uint32_t n) {
+static inline clj_value *slots_alloc(clj_value *small, uint32_t n) {
 	if (n <= SMALL_SLOTS) return small;
 	bool       big = n >= 64;
 	clj_value *p = malloc((n + big) * sizeof *p);
@@ -70,7 +70,7 @@ static clj_value *slots_alloc(clj_value *small, uint32_t n) {
 	return p + 1;
 }
 
-static void slots_free(clj_value *small, clj_value *slots, uint32_t n) {
+static inline void slots_free(clj_value *small, clj_value *slots, uint32_t n) {
 	if (slots != small) free(n >= 64 ? slots - 1 : slots);
 }
 
@@ -367,29 +367,26 @@ static inline void release_owned(const clj_value *vals, uint32_t n, uint64_t own
 static void slots_release(const clj_frame *f, uint32_t n) { release_owned(f->slots, n, f->owned); }
 
 // On its frame from an owned value before an argument that may park, and through a call (design §7, «Фаза 3»).
-typedef struct {
-	clj_argbuf b;
-	bool       on;
-} argrec;
-
-static inline void argrec_put(clj_frame *f, argrec *r, const clj_value *v, uint64_t owned, const clj_frame *inner) {
-	r->b.vals = v;
-	r->b.owned = owned;
-	r->b.frame = inner;
-	r->b.prev = f->args;
-	f->args = &r->b;
-	r->on = true;
+// Whether it is on is a separate local, kept in a register: the buffer's address escapes, the flag's never does.
+static inline __attribute__((always_inline)) void argrec_put(clj_frame *f, clj_argbuf *b, bool *on, const clj_value *v, uint64_t owned,
+                                                             const clj_frame *inner) {
+	b->vals = v;
+	b->owned = owned;
+	b->frame = inner;
+	b->prev = f->args;
+	f->args = b;
+	*on = true;
 }
 
-static inline void argrec_end(clj_frame *f, argrec *r) {
-	if (r->on) f->args = r->b.prev;
-	r->on = false;
+static inline __attribute__((always_inline)) void argrec_end(clj_frame *f, clj_argbuf *b, bool *on) {
+	if (*on) f->args = b->prev;
+	*on = false;
 }
 
 // Through a call that may park, while v holds what owned says.
-static inline void argrec_hold(clj_frame *f, argrec *r, const clj_value *v, uint64_t owned) {
-	if (r->on) r->b.owned = owned;
-	else if (owned) argrec_put(f, r, v, owned, NULL);
+static inline __attribute__((always_inline)) void argrec_hold(clj_frame *f, clj_argbuf *b, bool *on, const clj_value *v, uint64_t owned) {
+	if (*on) b->owned = owned;
+	else if (owned) argrec_put(f, b, on, v, owned, NULL);
 }
 
 // A read of a slot, a capture, a constant or a var's root: no park between, so nothing before needs the buffer.
@@ -410,23 +407,23 @@ static inline bool may_park_node(const clj_node *n) {
 // @ai-generated(guided)
 // Always inlined: the borrow/owned branch folds away per call site.
 static inline __attribute__((always_inline)) bool eval_all(const clj_node *const *nodes, uint32_t n, clj_frame *f, clj_value *out, uint64_t *owned,
-                                                            argrec *r) {
+                                                            clj_argbuf *rb, bool *on) {
 	uint64_t mask = 0;
 	bool     borrow = owned && n <= 64;
-	bool     track = r && n <= 64;
+	bool     track = rb && n <= 64;
 	for (uint32_t i = 0; i < n; i++) {
-		if (track && mask && !r->on && may_park_node(nodes[i])) argrec_put(f, r, out, mask, NULL);
+		if (track && mask && !*on && may_park_node(nodes[i])) argrec_put(f, rb, on, out, mask, NULL);
 		bool      own = true;
 		clj_value v = borrow ? eval_borrowed(nodes[i], f, &own) : eval_child(nodes[i], f);
 		if (v == CLJ_THROWN) {
-			if (r) argrec_end(f, r);
+			if (rb) argrec_end(f, rb, on);
 			if (borrow) release_owned(out, i, mask);
 			else release_all(out, i);
 			return false;
 		}
 		if (own && (borrow || track)) mask |= (uint64_t)1 << i;
 		out[i] = v;
-		if (track && r->on) r->b.owned = mask;
+		if (track && *on) rb->owned = mask;
 	}
 	if (owned) *owned = borrow ? mask : UINT64_MAX;
 	return true;
@@ -509,11 +506,11 @@ static clj_value eval_loop(const clj_node *n, clj_frame *f) {
 static clj_value eval_recur(const clj_node *n, clj_frame *f) {
 	clj_value  small[SMALL_ARGS];
 	clj_value *vals = buf_alloc(small, n->u.recur.n);
-	argrec     r;
-	r.on = false;
-	bool ok = eval_all(n->u.recur.args, n->u.recur.n, f, vals, NULL, &r);
+	clj_argbuf     rb;
+	bool ron = false;
+	bool ok = eval_all(n->u.recur.args, n->u.recur.n, f, vals, NULL, &rb, &ron);
 	if (ok) {
-		argrec_end(f, &r);
+		argrec_end(f, &rb, &ron);
 		for (uint32_t i = 0; i < n->u.recur.n; i++) slot_set(f, n->u.recur.slots[i], vals[i]);
 	}
 	buf_free(small, vals);
@@ -832,11 +829,11 @@ static clj_value eval_invoke(const clj_node *n, clj_frame *f) {
 	if (__builtin_expect(arity != NULL, 1) && arity->nslots <= SMALL_SLOTS) {
 		IC_COUNT(site, hits);
 		clj_value slots[SMALL_SLOTS];
-		argrec    r;
-		r.on = false;
-		if (eval_all(n->u.invoke.args, nargs, f, slots, &owned, &r)) {
+		clj_argbuf    rb;
+		bool ron = false;
+		if (eval_all(n->u.invoke.args, nargs, f, slots, &owned, &rb, &ron)) {
 			// the callee's frame from here, which its ring entry records
-			argrec_end(f, &r);
+			argrec_end(f, &rb, &ron);
 			for (uint32_t i = nargs; i < arity->nslots; i++) slots[i] = CLJ_NIL;
 			if (arity->self_slot >= 0) slots[arity->self_slot] = fn;
 			result = run_frame(fn, arity, slots, owned, n);
@@ -844,10 +841,10 @@ static clj_value eval_invoke(const clj_node *n, clj_frame *f) {
 	} else {
 		clj_value  small[SMALL_ARGS];
 		clj_value *args = buf_alloc(small, nargs);
-		argrec     r;
-		r.on = false;
-		if (eval_all(n->u.invoke.args, nargs, f, args, &owned, &r)) {
-			argrec_hold(f, &r, args, owned);
+		clj_argbuf     rb;
+		bool ron = false;
+		if (eval_all(n->u.invoke.args, nargs, f, args, &owned, &rb, &ron)) {
+			argrec_hold(f, &rb, &ron, args, owned);
 			if (fnp && fnp->kind == CLJ_FN_NATIVE) {
 				IC_COUNT(site, hits);
 				result = call_native(fnp, fn, args, nargs);
@@ -857,7 +854,7 @@ static clj_value eval_invoke(const clj_node *n, clj_frame *f) {
 				IC_COUNT(site, misses);
 				result = invoke_at(fn, args, nargs, n);
 			}
-			argrec_end(f, &r);
+			argrec_end(f, &rb, &ron);
 			release_owned(args, nargs, owned);
 		}
 		buf_free(small, args);
@@ -929,10 +926,10 @@ static clj_value eval_direct_call(const clj_node *n, clj_frame *f) {
 	clj_value          *slots = slots_alloc(small, arity->nslots);
 	uint64_t            owned;
 	clj_value           result = CLJ_THROWN;
-	argrec              r;
-	r.on = false;
-	if (eval_all(n->u.direct.args, nargs, f, slots, &owned, &r)) {
-		argrec_end(f, &r);
+	clj_argbuf              rb;
+	bool ron = false;
+	if (eval_all(n->u.direct.args, nargs, f, slots, &owned, &rb, &ron)) {
+		argrec_end(f, &rb, &ron);
 		if (arity->nslots >= 64) {
 			for (uint32_t i = 0; i < nargs; i++) {
 				if (!((owned >> i) & 1)) clj_retain(slots[i]);
@@ -958,7 +955,7 @@ static inline bool intrinsic_guard(const clj_node *n) {
 
 // The table's function or the var's current root over evaluated arguments; the consuming bit leaves the mask.
 // The buffer is held through the call: a lazy seq's realization or a rebound var's fn may park.
-static clj_value intrinsic_apply(const clj_node *n, clj_value *args, uint64_t *owned, clj_frame *f, argrec *r) {
+static clj_value intrinsic_apply(const clj_node *n, clj_value *args, uint64_t *owned, clj_frame *f, clj_argbuf *rb, bool on) {
 	const clj_intrinsic *op = n->u.intrinsic.op;
 	clj_value            result;
 	if (__builtin_expect(intrinsic_guard(n), 1)) {
@@ -966,29 +963,29 @@ static clj_value intrinsic_apply(const clj_node *n, clj_value *args, uint64_t *o
 		// it is updated in place, and the bit leaves the mask since the core took the reference.
 		if (__builtin_expect(clj_intrinsic_consumes(op), 0) && (*owned & 1)) {
 			*owned &= ~(uint64_t)1;
-			argrec_hold(f, r, args, *owned);
+			argrec_hold(f, rb, &on, args, *owned);
 			result = clj_intrinsic_call_consuming(op, args);
 		} else {
-			argrec_hold(f, r, args, *owned);
+			argrec_hold(f, rb, &on, args, *owned);
 			result = clj_intrinsic_call(op, args);
 		}
 	} else {
 		clj_value fn = clj_var_deref(n->u.intrinsic.var.v);
-		argrec_hold(f, r, args, *owned);
+		argrec_hold(f, rb, &on, args, *owned);
 		result = fn == CLJ_THROWN ? CLJ_THROWN : invoke_at(fn, args, n->u.intrinsic.n, n);
 		clj_release(fn);
 	}
-	argrec_end(f, r);
+	argrec_end(f, rb, &on);
 	return result;
 }
 
 static clj_value eval_intrinsic(const clj_node *n, clj_frame *f) {
 	clj_value args[3];
 	uint64_t  owned;
-	argrec    r;
-	r.on = false;
-	if (!eval_all(n->u.intrinsic.args, n->u.intrinsic.n, f, args, &owned, &r)) return CLJ_THROWN;
-	clj_value result = intrinsic_apply(n, args, &owned, f, &r);
+	clj_argbuf    rb;
+	bool ron = false;
+	if (!eval_all(n->u.intrinsic.args, n->u.intrinsic.n, f, args, &owned, &rb, &ron)) return CLJ_THROWN;
+	clj_value result = intrinsic_apply(n, args, &owned, f, &rb, ron);
 	release_owned(args, n->u.intrinsic.n, owned);
 	return result;
 }
@@ -1003,15 +1000,15 @@ static clj_value eval_intrinsic(const clj_node *n, clj_frame *f) {
 	static clj_value name(const clj_node *n, clj_frame *f) {                                                   \
 		clj_value args[nargs];                                                                                 \
 		uint64_t  owned;                                                                                       \
-		argrec    r;                                                                                           \
-		r.on = false;                                                                                          \
-		if (!eval_all(n->u.intrinsic.args, nargs, f, args, &owned, &r)) return CLJ_THROWN;                     \
+		clj_argbuf    rb;                                                                                           \
+		bool ron = false;                                                                                          \
+		if (!eval_all(n->u.intrinsic.args, nargs, f, args, &owned, &rb, &ron)) return CLJ_THROWN;                     \
 		clj_value result;                                                                                      \
 		if (__builtin_expect((check) && intrinsic_guard(n), 1)) {                                              \
-			argrec_end(f, &r);                                                                                 \
+			argrec_end(f, &rb, &ron);                                                                                 \
 			body                                                                                               \
 		} else {                                                                                               \
-			result = intrinsic_apply(n, args, &owned, f, &r);                                                 \
+			result = intrinsic_apply(n, args, &owned, f, &rb, ron);                                                 \
 		}                                                                                                      \
 		release_owned(args, nargs, owned);                                                                     \
 		return result;                                                                                         \
@@ -1149,16 +1146,16 @@ static clj_value eval_fused(const clj_node *n, clj_frame *f) {
 	clj_value *vals = buf_alloc(small, nargs);
 	uint64_t   owned;
 	clj_value  result = CLJ_THROWN;
-	argrec     r;
-	r.on = false;
-	if (eval_all(n->u.fused.args, nargs, f, vals, &owned, &r)) {
+	clj_argbuf     rb;
+	bool ron = false;
+	if (eval_all(n->u.fused.args, nargs, f, vals, &owned, &rb, &ron)) {
 		bool      fuse = clj_fusion_guard(n->u.fused.guards, n->u.fused.nguards);
 		clj_frame inner = {vals, NULL, f->exec, 0, NULL, NULL};
 		// inner, which no ring entry records, is read through the buffer, its own buffers with it
-		argrec_end(f, &r);
-		argrec_put(f, &r, vals, owned, &inner);
+		argrec_end(f, &rb, &ron);
+		argrec_put(f, &rb, &ron, vals, owned, &inner);
 		result = eval_child(fuse ? n->u.fused.fused : n->u.fused.original, &inner);
-		argrec_end(f, &r);
+		argrec_end(f, &rb, &ron);
 		release_owned(vals, nargs, owned);
 	}
 	buf_free(small, vals);
@@ -1211,10 +1208,10 @@ static clj_value eval_lowered(const clj_node *n, clj_frame *f) {
 	clj_value *ops = buf_alloc(small_ops, nops);
 	uint64_t   owned;
 	clj_value  result = CLJ_THROWN;
-	argrec     r;
-	r.on = false;
-	if (eval_all(n->u.lowered.args, nops, f, ops, &owned, &r)) {
-		argrec_hold(f, &r, ops, owned);
+	clj_argbuf     rb;
+	bool ron = false;
+	if (eval_all(n->u.lowered.args, nops, f, ops, &owned, &rb, &ron)) {
+		argrec_hold(f, &rb, &ron, ops, owned);
 		clj_value *args = buf_alloc(small_args, nargs), *env = buf_alloc(small_env, code->u.fn.ncaptures);
 		// after the operands, where the call would already hold the closure: nothing between rebinds what it captures
 		gather_env(code, f, env);
@@ -1230,7 +1227,7 @@ static clj_value eval_lowered(const clj_node *n, clj_frame *f) {
 			lf.split = &sf;
 		}
 		result = clj_lowered_call(n->u.lowered.how, args, nargs, &l);
-		argrec_end(f, &r);
+		argrec_end(f, &rb, &ron);
 		release_owned(ops, nops, owned);
 		buf_free(small_env, env);
 		buf_free(small_args, args);
@@ -1298,10 +1295,10 @@ static inline clj_value kw_lookup(kw_ic *ic, clj_value m, clj_value key, clj_val
 static clj_value eval_kw_invoke(const clj_node *n, clj_frame *f) {
 	clj_value args[2];
 	uint64_t  owned;
-	argrec    a;
-	a.on = false;
-	if (!eval_all(n->u.invoke.args, n->u.invoke.n, f, args, &owned, &a)) return CLJ_THROWN;
-	argrec_end(f, &a);
+	clj_argbuf    ab;
+	bool aon = false;
+	if (!eval_all(n->u.invoke.args, n->u.invoke.n, f, args, &owned, &ab, &aon)) return CLJ_THROWN;
+	argrec_end(f, &ab, &aon);
 	clj_value r = kw_lookup(f->exec->nodes[n->id].ic, args[0], n->u.invoke.fn->u.value.v, n->u.invoke.n == 2 ? args[1] : CLJ_NIL);
 	release_owned(args, n->u.invoke.n, owned);
 	return r;
@@ -1311,15 +1308,15 @@ static clj_value eval_kw_invoke(const clj_node *n, clj_frame *f) {
 static clj_value eval_get_kw(const clj_node *n, clj_frame *f) {
 	clj_value args[3];
 	uint64_t  owned;
-	argrec    a;
-	a.on = false;
-	if (!eval_all(n->u.intrinsic.args, n->u.intrinsic.n, f, args, &owned, &a)) return CLJ_THROWN;
+	clj_argbuf    ab;
+	bool aon = false;
+	if (!eval_all(n->u.intrinsic.args, n->u.intrinsic.n, f, args, &owned, &ab, &aon)) return CLJ_THROWN;
 	clj_value r;
 	if (__builtin_expect(intrinsic_guard(n), 1)) {
-		argrec_end(f, &a);
+		argrec_end(f, &ab, &aon);
 		r = kw_lookup(f->exec->nodes[n->id].ic, args[0], args[1], n->u.intrinsic.n == 3 ? args[2] : CLJ_NIL);
 	} else {
-		r = intrinsic_apply(n, args, &owned, f, &a);
+		r = intrinsic_apply(n, args, &owned, f, &ab, aon);
 	}
 	release_owned(args, n->u.intrinsic.n, owned);
 	return r;
@@ -1371,10 +1368,10 @@ static clj_value eval_vector(const clj_node *n, clj_frame *f) {
 	clj_value *items = buf_alloc(small, n->u.seq.n);
 	clj_value  result = CLJ_THROWN;
 	uint64_t   owned;
-	argrec a;
-	a.on = false;
-	if (eval_all(n->u.seq.items, n->u.seq.n, f, items, &owned, &a)) {
-		argrec_end(f, &a);
+	clj_argbuf ab;
+	bool aon = false;
+	if (eval_all(n->u.seq.items, n->u.seq.n, f, items, &owned, &ab, &aon)) {
+		argrec_end(f, &ab, &aon);
 		result = clj_vector_from_array(items, n->u.seq.n);
 		release_owned(items, n->u.seq.n, owned);
 	}
@@ -1395,21 +1392,21 @@ static clj_value eval_map_shaped(const clj_node *n, clj_frame *f) {
 	uint32_t       nkeys = n->u.seq.n / 2;
 	clj_value      m = clj_shape_map_alloc(ic->shape);
 	clj_shape_map *sm = clj_shape_map_of(m);
-	argrec         a;
-	a.on = false;
+	clj_argbuf         ab;
+	bool aon = false;
 	for (uint32_t i = 0; i < nkeys; i++) {
 		const clj_node *item = n->u.seq.items[2 * i + 1];
 		// the values so far are the map's, which only this buffer names
-		if (!a.on && i && may_park_node(item)) argrec_put(f, &a, &m, 1, NULL);
+		if (!aon && i && may_park_node(item)) argrec_put(f, &ab, &aon, &m, 1, NULL);
 		clj_value v = eval_child(item, f);
 		if (v == CLJ_THROWN) {
-			argrec_end(f, &a);
+			argrec_end(f, &ab, &aon);
 			clj_release(m);
 			return CLJ_THROWN;
 		}
 		clj_slot_init(&sm->h, &sm->slots[ic->slot[i]], v);
 	}
-	argrec_end(f, &a);
+	argrec_end(f, &ab, &aon);
 	return m;
 }
 
@@ -1437,10 +1434,10 @@ static clj_value eval_map(const clj_node *n, clj_frame *f) {
 	clj_value *items = buf_alloc(small, n->u.seq.n);
 	clj_value  result = CLJ_THROWN;
 	uint64_t   owned;
-	argrec a;
-	a.on = false;
-	if (eval_all(n->u.seq.items, n->u.seq.n, f, items, &owned, &a)) {
-		argrec_end(f, &a);
+	clj_argbuf ab;
+	bool aon = false;
+	if (eval_all(n->u.seq.items, n->u.seq.n, f, items, &owned, &ab, &aon)) {
+		argrec_end(f, &ab, &aon);
 		result = clj_map_empty();
 		for (uint32_t i = 0; i < n->u.seq.n; i += 2) {
 			if (clj_map_contains(result, items[i])) {
@@ -1464,10 +1461,10 @@ static clj_value eval_set(const clj_node *n, clj_frame *f) {
 	clj_value *items = buf_alloc(small, n->u.seq.n);
 	clj_value  result = CLJ_THROWN;
 	uint64_t   owned;
-	argrec a;
-	a.on = false;
-	if (eval_all(n->u.seq.items, n->u.seq.n, f, items, &owned, &a)) {
-		argrec_end(f, &a);
+	clj_argbuf ab;
+	bool aon = false;
+	if (eval_all(n->u.seq.items, n->u.seq.n, f, items, &owned, &ab, &aon)) {
+		argrec_end(f, &ab, &aon);
 		result = clj_set_empty();
 		for (uint32_t i = 0; i < n->u.seq.n; i++) {
 			if (clj_set_contains(result, items[i])) {
@@ -1495,10 +1492,10 @@ static clj_value eval_objc_send(const clj_node *n, clj_frame *f) {
 	clj_value *args = buf_alloc(small, nargs);
 	clj_value  result = CLJ_THROWN;
 	uint64_t   owned;
-	argrec a;
-	a.on = false;
-	if (eval_all(n->u.objc.args, nargs, f, args, &owned, &a)) {
-		argrec_end(f, &a);
+	clj_argbuf ab;
+	bool aon = false;
+	if (eval_all(n->u.objc.args, nargs, f, args, &owned, &ab, &aon)) {
+		argrec_end(f, &ab, &aon);
 		result = clj_objc_send(target, n->u.objc.selector.v, args, nargs, false);
 		release_owned(args, nargs, owned);
 	}
