@@ -49,7 +49,8 @@ item 2. `fuzz/` holds it; `make fuzz` is the bounded pass, `make fuzz-long` the 
   "Unicode data"): every code point's case over planes 0 and 1 and a sample beyond, what each category,
   property, script and block keeps of a sample of every plane, the special casings, the final sigma's contexts,
   Java's three case folds and the Unicode pattern flags. A form whose full answer would be megabytes prints a
-  count and the JVM's hash of what was kept. Its first replay found the one divergence it was written for, a
+  count and the JVM's hash of what was kept. It replays in 15 s on arm64 CI with the three runners (run
+  39239116623), 52 s while the property passes read every code point of planes 0 and 1. Its first replay found the one divergence it was written for, a
   quantified `\R` backtracking where `Pattern`'s does not.
 - **The generator is typed**, and its types are what keeps the exclusions enforceable: a map or a set never
   reaches an order-exposing position (the bridge is `(sort (map pr-str (keys m)))`), a ratio lives in its own
