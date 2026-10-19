@@ -303,8 +303,9 @@
   and the argument buffers on it (`clj_frame.args`, `clj_argbuf`: put on from an owned value before an argument
   that may park — not a read, nor an intrinsic or a leaf builtin over reads — and held through a call but an
   intrinsic's or a leaf builtin's, `clj_fn.leaf` from the facts' pure names; a frame of a bare thread's execution or
-  a top-level form takes none, `ARGS_OFF`), a
-  fused program's unrecorded frame through its buffer; every read through `clj_coro_parked_bytes` when evacuated; and the unshared objects those reach or `alts!`
+  a top-level form takes none, `ARGS_OFF`, and a frame a collection may read evaluates its arguments out of line,
+  `eval_all_tracked`, so a bare thread's loop is the plain one), a fused program's unrecorded frame through its
+  buffer; every read through `clj_coro_parked_bytes` when evacuated; and the unshared objects those reach or `alts!`
   lends its waiter (`clj_waiter.ports`), each entered once, whose references to shared objects are the coroutine's
   too. A ring that ever went past its capacity (`wrapped`, set at the push) is not read: an entry below its depth
   may be a returned frame's. Debug builds stop on `cc/overcount` when a graph with no lost node counts more edges
@@ -327,6 +328,10 @@
   facts call pure that realizes a lazy seq whose thunk parks, a literal's hashing, a `def`'s watches, a top-level
   form's frame, the interpreter's keyword lookup into a program's `ILookup` type and its protocol dispatch's impl, a
   coroutine whose ring wrapped. Trigger: the stale-park report naming one, or the corpus's residue (NOTES "Corpus").
+- [ ] **The interpreter pays about 4 % for reading a parked frame's buffers** (design §7, «Фаза 3», «Цена»): A/B
+  against main's `eval.c` over the branch, run 39299367250, interp 1.041 and core+interp 1.028, bare threads
+  1.01–1.05 though they put no buffer on. Left: the `args` store and the `wrapped` test in `run_body`, the hold on
+  the slow call path and in `intrinsic_apply`, a frame one word wider. Trigger: interpreter speed becoming a goal.
 - **C code of the runtime names what it owns across a call of the program's code** (design §7, «Фаза 3», «Код
   рантайма»; `roots_internal.h`, `scripts/roots-audit.py`). `CLJ_ROOTS(&a, &b)` puts the tagged addresses of the
   function's owned `clj_value` variables on the execution's frame-reference list for the rest of the block (the
