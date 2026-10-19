@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "clj/core.h"
+#include "unicode_internal.h"
 
 typedef struct {
 	char  *data;
@@ -338,6 +339,9 @@ static clj_value format_text(buf *b, const spec *s, clj_value v) {
 		}
 		len = pos;
 	}
+	// Formatter cuts to the precision, then upper-cases, then pads what that made: "ß" is two wide as %S.
+	char *upper = s->upper ? clj_uc_upper_utf8(bytes, len, &len) : NULL;
+	if (upper) bytes = upper;
 	size_t width = s->width > 0 ? (size_t)s->width : 0, chars = 0;
 	for (size_t pos = 0; pos < len;) {
 		uint32_t cp;
@@ -346,15 +350,9 @@ static clj_value format_text(buf *b, const spec *s, clj_value v) {
 	}
 	size_t pad = width > chars ? width - chars : 0;
 	if (!s->left) put_repeat(b, ' ', pad);
-	if (s->upper) {
-		for (size_t i = 0; i < len; i++) {
-			char c = bytes[i] >= 'a' && bytes[i] <= 'z' ? (char)(bytes[i] - 'a' + 'A') : bytes[i];
-			put(b, &c, 1);
-		}
-	} else {
-		put(b, bytes, len);
-	}
+	put(b, bytes, len);
 	if (s->left) put_repeat(b, ' ', pad);
+	free(upper);
 	clj_release(text);
 	return CLJ_NIL;
 }

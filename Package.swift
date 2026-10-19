@@ -21,8 +21,9 @@ let package = Package(
 		.target(
 			name: "CljCore",
 			// boot/core.clj and boot/clojure/*.clj reach the binary through the generated .inc files (make boot);
-			// boot/*.c are the compiled units, empty unless CLJ_COMPILED_CORE is defined.
-			exclude: ["boot/core.clj", "boot/clojure", "core_clj.inc", "libs_clj.inc"],
+			// boot/*.c are the compiled units, empty unless CLJ_COMPILED_CORE is defined. unicode_data.inc is unicode.c's
+			// tables (scripts/unicode-gen.py).
+			exclude: ["boot/core.clj", "boot/clojure", "core_clj.inc", "libs_clj.inc", "unicode_data.inc"],
 			cSettings: [
 				.headerSearchPath("."),
 				// unsafeFlags makes the package unusable as a dependency; fine while it is a root package.

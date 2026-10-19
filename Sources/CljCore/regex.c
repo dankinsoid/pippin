@@ -8,6 +8,7 @@
 #include "clj/core.h"
 #include "clj/ice.h"
 #include "clj/regex.h"
+#include "unicode_internal.h"
 
 // ---- input text
 
@@ -56,10 +57,16 @@ static clj_value text_slice(const re_text *t, clj_value s, uint32_t from, uint32
 
 // ---- character classes
 
+// A class's lone character, as against a range: Java folds the two differently (BitClass and single, CIRange).
+#define RE_SINGLE 0x80000000u
+
 typedef struct re_class {
 	bool             negate;
+	bool             exact; // a property or a predefined class: Java's predicates are never case-folded
+	bool             has_pred;
+	clj_uc_pred      pred;
 	uint32_t         nranges, rcap;
-	uint32_t        *ranges; // lo, hi pairs
+	uint32_t        *ranges; // lo, hi pairs; lo may carry RE_SINGLE
 	struct re_class *nested; // union members, linked through next
 	struct re_class *next;
 	struct re_class *isect; // the right side of &&
@@ -93,30 +100,79 @@ static void class_range(re_class *c, uint32_t lo, uint32_t hi) {
 	c->nranges++;
 }
 
-static uint32_t swap_case(uint32_t cp) {
-	if (cp >= 'a' && cp <= 'z') return cp - 32;
-	if (cp >= 'A' && cp <= 'Z') return cp + 32;
-	return cp;
+// Case-insensitivity is CASE_INSENSITIVE (ci) over ASCII, and over Unicode's simple mappings with UNICODE_CASE (uc).
+static inline uint32_t ascii_lower(uint32_t cp) { return cp >= 'A' && cp <= 'Z' ? cp + 32 : cp; }
+static inline uint32_t ascii_upper(uint32_t cp) { return cp >= 'a' && cp <= 'z' ? cp - 32 : cp; }
+static inline uint32_t unicode_fold(uint32_t cp) { return clj_uc_lower(clj_uc_upper(cp)); }
+
+// Pattern.single: whether x, other than c, matches the lone character c.
+static bool single_fold(uint32_t c, uint32_t x, bool uc) {
+	if (uc) {
+		uint32_t up = clj_uc_upper(c), low = clj_uc_lower(up);
+		return up != low && (x == low || unicode_fold(x) == low);
+	}
+	return c < 0x80 && ascii_lower(c) != ascii_upper(c) && (x == ascii_lower(c) || x == ascii_upper(c));
 }
 
-// Folding belongs inside the range test: (?i)[^a] must still refuse A.
-static bool range_hit(uint32_t lo, uint32_t hi, uint32_t cp, bool ci) {
-	if (cp >= lo && cp <= hi) return true;
+// Pattern's SliceI and SliceU: a character of a literal run folds both sides, which single() does not.
+static bool slice_fold(uint32_t c, uint32_t x, bool uc) {
+	if (uc) return unicode_fold(x) == unicode_fold(c);
+	return ascii_lower(x) == ascii_lower(c);
+}
+
+// Folding belongs inside the item test: (?i)[^a] must still refuse A.
+static bool item_hit(uint32_t lo, uint32_t hi, uint32_t x, bool ci, bool uc) {
+	bool single = (lo & RE_SINGLE) != 0;
+	lo &= ~RE_SINGLE;
+	if (x >= lo && x <= hi) return true;
 	if (!ci) return false;
-	uint32_t other = swap_case(cp);
-	return other != cp && other >= lo && other <= hi;
+	if (single) {
+		// Pattern.bitsOrSingle: Latin-1 goes into a BitClass, except where Unicode case leaves Latin-1.
+		bool leaves = lo == 0xFF || lo == 0xB5 || lo == 'I' || lo == 'i' || lo == 'S' || lo == 's' || lo == 'K' || lo == 'k' ||
+		              lo == 0xC5 || lo == 0xE5;
+		if (lo >= 0x100 || (uc && leaves)) return single_fold(lo, x, uc);
+		if (lo < 0x80) return x == ascii_lower(lo) || x == ascii_upper(lo);
+		return uc && (x == clj_uc_lower(lo) || x == clj_uc_upper(lo));
+	}
+	if (uc) {
+		uint32_t up = clj_uc_upper(x), down = clj_uc_lower(up);
+		return (up >= lo && up <= hi) || (down >= lo && down <= hi);
+	}
+	if (x >= 0x80) return false;
+	uint32_t up = ascii_upper(x), down = ascii_lower(x);
+	return (up >= lo && up <= hi) || (down >= lo && down <= hi);
 }
 
-static bool class_member(const re_class *c, uint32_t cp, bool ci) {
-	bool in = false;
-	for (uint32_t i = 0; i < c->nranges && !in; i++) in = range_hit(c->ranges[2 * i], c->ranges[2 * i + 1], cp, ci);
-	for (const re_class *n = c->nested; n && !in; n = n->next) in = class_member(n, cp, ci);
-	if (in && c->isect) in = class_member(c->isect, cp, ci);
+static bool class_member(const re_class *c, uint32_t cp, bool ci, bool uc) {
+	if (c->exact) ci = false;
+	bool in = c->has_pred && clj_uc_pred_test(&c->pred, cp);
+	for (uint32_t i = 0; i < c->nranges && !in; i++) in = item_hit(c->ranges[2 * i], c->ranges[2 * i + 1], cp, ci, uc);
+	for (const re_class *n = c->nested; n && !in; n = n->next) in = class_member(n, cp, ci, uc);
+	if (in && c->isect) in = class_member(c->isect, cp, ci, uc);
 	return c->negate ? !in : in;
 }
 
-static bool is_word(uint32_t cp) {
-	return (cp >= 'a' && cp <= 'z') || (cp >= 'A' && cp <= 'Z') || (cp >= '0' && cp <= '9') || cp == '_';
+// Pattern.hasBaseCharacter steps back by UTF-16 unit, so a supplementary character reads as its low surrogate,
+// neither letter nor mark, unless the walk starts on its high one.
+static bool has_base(const re_text *t, uint32_t k, bool from_high) {
+	for (bool first = true;; first = false) {
+		uint32_t cp = t->cp[k];
+		if (cp >= 0x10000 && !(first && from_high)) return false;
+		if (clj_uc_letter_or_digit(cp)) return true;
+		if (clj_uc_gc(cp) != CLJ_GC_Mn || k == 0) return false;
+		k--;
+	}
+}
+
+// Pattern.Bound's side of a boundary: a word character, or a non-spacing mark on a letter or digit even outside (?U).
+static bool word_at(const re_text *t, uint32_t i, bool before, bool unicode_class) {
+	uint32_t cp = t->cp[i];
+	if (cp < 0x80) return (cp >= 'a' && cp <= 'z') || (cp >= 'A' && cp <= 'Z') || (cp >= '0' && cp <= '9') || cp == '_';
+	if (unicode_class) {
+		clj_uc_pred word = clj_uc_pred_fn(CLJ_UC_FN_WORD);
+		if (clj_uc_pred_test(&word, cp)) return true;
+	}
+	return clj_uc_gc(cp) == CLJ_GC_Mn && has_base(t, i, !before);
 }
 
 // ---- instructions
@@ -143,18 +199,24 @@ enum {
 	RE_LOOKAHEAD,
 	RE_LOOKBEHIND,
 	RE_ATOMIC,
+	RE_GRAPHEME,
 };
 
 enum {
-	RE_F_I = 1,   // case-insensitive
-	RE_F_S = 2,   // . takes a newline
-	RE_F_M = 4,   // ^ and $ match at a line terminator
-	RE_F_X = 8,   // whitespace and # comments ignored
-	RE_F_NEG = 16 // negative lookaround
+	RE_F_I = 1,      // case-insensitive
+	RE_F_S = 2,      // . takes a newline
+	RE_F_M = 4,      // ^ and $ match at a line terminator
+	RE_F_X = 8,      // whitespace and # comments ignored
+	RE_F_NEG = 16,   // negative lookaround
+	RE_F_U = 32,     // UNICODE_CASE: case-insensitivity over Unicode
+	RE_F_UU = 64,    // UNICODE_CHARACTER_CLASS: \w \d \s \b and the POSIX names over Unicode
+	RE_F_D = 128,    // UNIX_LINES: \n alone ends a line, as the matcher has it in every mode (docs/jvm-differences.md)
+	RE_F_SLICE = 256 // a character of a literal run, which folds as Pattern's slices do
 };
 
 typedef struct {
-	uint8_t  op, flags;
+	uint8_t  op;
+	uint16_t flags;
 	uint32_t a;    // code point, class index, slot, group or width
 	int32_t  x, y; // jump targets, relative to the instruction's own index
 } re_inst;
@@ -187,7 +249,7 @@ static void prog_reserve(re_prog *p, uint32_t extra) {
 	p->cap = cap;
 }
 
-static re_inst *emit(re_prog *p, uint8_t op, uint8_t flags) {
+static re_inst *emit(re_prog *p, uint8_t op, uint16_t flags) {
 	prog_reserve(p, 1);
 	re_inst *i = &p->inst[p->n++];
 	memset(i, 0, sizeof *i);
@@ -292,57 +354,50 @@ static bool hex_digits(comp *c, int n, uint32_t *out) {
 	return true;
 }
 
-// Every property here is ASCII, as the runtime's case tables are (NOTES.md).
-static re_class *property_class(const char *name, size_t n) {
-	static const struct {
-		const char *name;
-		uint32_t    lo[3], hi[3];
-	} table[] = {
-		{"L", {'A', 'a'}, {'Z', 'z'}},        {"IsL", {'A', 'a'}, {'Z', 'z'}},
-		{"Alpha", {'A', 'a'}, {'Z', 'z'}},    {"IsAlphabetic", {'A', 'a'}, {'Z', 'z'}},
-		{"Lu", {'A'}, {'Z'}},                 {"Upper", {'A'}, {'Z'}},
-		{"IsUppercase", {'A'}, {'Z'}},        {"Ll", {'a'}, {'z'}},
-		{"Lower", {'a'}, {'z'}},              {"IsLowercase", {'a'}, {'z'}},
-		{"N", {'0'}, {'9'}},                  {"Nd", {'0'}, {'9'}},
-		{"Digit", {'0'}, {'9'}},              {"IsDigit", {'0'}, {'9'}},
-		{"Alnum", {'0', 'A', 'a'}, {'9', 'Z', 'z'}},
-		{"XDigit", {'0', 'A', 'a'}, {'9', 'F', 'f'}},
-		{"Blank", {'\t', ' '}, {'\t', ' '}},
-		{"Space", {'\t', ' '}, {'\r', ' '}},  {"IsWhite_Space", {'\t', ' '}, {'\r', ' '}},
-		{"Punct", {'!', ':', '{'}, {'/', '@', '~'}},
-		{"Graph", {'!'}, {'~'}},              {"Print", {' '}, {'~'}},
-		{"ASCII", {0}, {0x7F}},               {"Cntrl", {0, 0x7F}, {0x1F, 0x7F}},
-	};
-	for (size_t i = 0; i < sizeof table / sizeof *table; i++) {
-		if (strlen(table[i].name) != n || memcmp(table[i].name, name, n) != 0) continue;
-		re_class *c = class_new();
-		class_range(c, table[i].lo[0], table[i].hi[0]);
-		// A zero hi is an unused slot: no property here ends at U+0000.
-		for (size_t k = 1; k < 3 && table[i].hi[k]; k++) class_range(c, table[i].lo[k], table[i].hi[k]);
-		// Punct's fourth range sits between @ and {, which the three slots cannot hold.
-		if (n == 5 && memcmp(name, "Punct", 5) == 0) class_range(c, '[', '`');
-		return c;
-	}
-	return NULL;
+static re_class *pred_class(clj_uc_pred pred) {
+	re_class *c = class_new();
+	c->exact = true;
+	c->has_pred = true;
+	c->pred = pred;
+	return c;
 }
 
-// \d \w \s as ranges; the uppercase spelling is the same class negated.
-static re_class *shorthand_class(char kind, bool negated) {
-	re_class *c = class_new();
-	c->negate = negated;
-	switch (kind) {
-	case 'd': class_range(c, '0', '9'); break;
-	case 'w':
-		class_range(c, '0', '9');
-		class_range(c, 'A', 'Z');
-		class_range(c, 'a', 'z');
-		class_range(c, '_', '_');
-		break;
-	default:
-		class_range(c, '\t', '\r');
-		class_range(c, ' ', ' ');
-		break;
+// \p{name}, resolved as Pattern.family does under the flags in force.
+static re_class *property_class(const char *name, size_t n, uint32_t flags) {
+	clj_uc_pred pred;
+	if (!clj_uc_family(name, n, (flags & RE_F_I) != 0, (flags & RE_F_UU) != 0, &pred)) return NULL;
+	return pred_class(pred);
+}
+
+static bool is_shorthand(char e) { return e && strchr("dDwWsShHvV", e); }
+
+// \d \w \s \h \v; the uppercase spelling is the same class negated.
+static re_class *shorthand_class(char kind, bool negated, uint32_t flags) {
+	bool      unicode = (flags & RE_F_UU) != 0;
+	re_class *c;
+	if (kind == 'h') c = pred_class(clj_uc_pred_fn(CLJ_UC_FN_HORIZ_WS));
+	else if (kind == 'v') c = pred_class(clj_uc_pred_fn(CLJ_UC_FN_VERT_WS));
+	else if (unicode && kind == 'd') c = pred_class(clj_uc_pred_gc(CLJ_GC(Nd)));
+	else if (unicode && kind == 'w') c = pred_class(clj_uc_pred_fn(CLJ_UC_FN_WORD));
+	else if (unicode) c = pred_class(clj_uc_pred_fn(CLJ_UC_FN_WHITE_SPACE));
+	else {
+		c = class_new();
+		c->exact = true;
+		switch (kind) {
+		case 'd': class_range(c, '0', '9'); break;
+		case 'w':
+			class_range(c, '0', '9');
+			class_range(c, 'A', 'Z');
+			class_range(c, 'a', 'z');
+			class_range(c, '_', '_');
+			break;
+		default:
+			class_range(c, '\t', '\r');
+			class_range(c, ' ', ' ');
+			break;
+		}
 	}
+	c->negate = negated;
 	return c;
 }
 
@@ -414,9 +469,15 @@ static re_class *parse_class_body(comp *c, bool allow_caret);
 static bool class_escape(comp *c, uint32_t *cp, re_class **cls) {
 	*cls = NULL;
 	char e = peek(c);
-	if (e == 'd' || e == 'D' || e == 'w' || e == 'W' || e == 's' || e == 'S') {
+	// Java reads \v before a '-' as VT, the range start it was before JDK 8 made it a class.
+	if (e == 'v' && peek2(c) == '-') {
 		c->pos++;
-		*cls = shorthand_class((char)(e | 0x20), e < 'a');
+		*cp = 0x0B;
+		return true;
+	}
+	if (is_shorthand(e)) {
+		c->pos++;
+		*cls = shorthand_class((char)(e | 0x20), e < 'a', c->flags);
 		return true;
 	}
 	if (e == 'p' || e == 'P') {
@@ -434,7 +495,7 @@ static bool class_escape(comp *c, uint32_t *cp, re_class **cls) {
 			c->pos++;
 			n = 1;
 		}
-		*cls = property_class(c->src + start, n);
+		*cls = property_class(c->src + start, n, c->flags);
 		if (!*cls) return fail(c, "Unknown character property name", start);
 		(*cls)->negate = e == 'P';
 		return true;
@@ -467,7 +528,7 @@ static bool class_item(comp *c, re_class *cls) {
 		cls->nested = sub;
 		return true;
 	}
-	uint32_t hi = lo;
+	uint32_t hi = lo | RE_SINGLE;
 	if (peek(c) == '-' && c->pos + 1 < c->len && peek2(c) != ']') {
 		size_t at = c->pos;
 		c->pos++;
@@ -482,7 +543,8 @@ static bool class_item(comp *c, re_class *cls) {
 		} else hi = next_cp(c);
 		if (hi < lo) return fail(c, "Illegal character range", at);
 	}
-	class_range(cls, lo, hi);
+	if (hi & RE_SINGLE) class_range(cls, lo | RE_SINGLE, lo);
+	else class_range(cls, lo, hi);
 	return true;
 }
 
@@ -543,6 +605,9 @@ static bool parse_flags(comp *c, uint32_t *on, uint32_t *off, char *terminator) 
 		case 's': bit = RE_F_S; break;
 		case 'm': bit = RE_F_M; break;
 		case 'x': bit = RE_F_X; break;
+		case 'u': bit = RE_F_U; break;
+		case 'U': bit = RE_F_UU | RE_F_U; break;
+		case 'd': bit = RE_F_D; break;
 		case '-':
 			c->pos++;
 			negating = true;
@@ -566,6 +631,7 @@ typedef struct {
 	uint32_t at; // where the atom's instructions start
 	re_width w;
 	bool     quantifiable;
+	uint32_t literals; // RE_CHARs of literal characters it is made of, 0 for any other atom
 } atom;
 
 static bool parse_group(comp *c, atom *a) {
@@ -646,7 +712,7 @@ static bool parse_group(comp *c, atom *a) {
 	return eat(c, ')') ? true : fail(c, "Unclosed group", c->pos);
 }
 
-static bool zero_width(comp *c, atom *a, uint8_t op, uint8_t flags) {
+static bool zero_width(comp *c, atom *a, uint8_t op, uint16_t flags) {
 	emit(c->p, op, flags);
 	a->w.min = 0;
 	a->w.max = 0;
@@ -654,23 +720,43 @@ static bool zero_width(comp *c, atom *a, uint8_t op, uint8_t flags) {
 	return true;
 }
 
-static bool emit_class(comp *c, re_class *cls, uint8_t flags) {
+static bool emit_class(comp *c, re_class *cls, uint16_t flags) {
 	emit(c->p, RE_CLASS, flags)->a = prog_class(c->p, cls);
 	return true;
 }
 
-static bool parse_escaped_atom(comp *c, atom *a, uint8_t fl, size_t start) {
+// \R as Pattern.LineEnding matches it: \r\n, or one vertical space, backtracking from the pair to the \r alone.
+static bool line_ending(comp *c, atom *a) {
+	re_prog *p = c->p;
+	uint32_t at = p->n;
+	emit(p, RE_SPLIT, 0);
+	emit(p, RE_CHAR, 0)->a = '\r';
+	emit(p, RE_CHAR, 0)->a = '\n';
+	emit(p, RE_JMP, 0)->x = 2;
+	emit_class(c, shorthand_class('v', false, 0), 0);
+	p->inst[at].x = 1;
+	p->inst[at].y = 4;
+	a->w.min = 1;
+	a->w.max = 2;
+	return true;
+}
+
+static bool parse_escaped_atom(comp *c, atom *a, uint16_t fl, size_t start) {
 	re_prog *p = c->p;
 	char     e = peek(c);
-	switch (e) {
-	case 'd':
-	case 'D':
-	case 'w':
-	case 'W':
-	case 's':
-	case 'S':
+	if (is_shorthand(e)) {
 		c->pos++;
-		return emit_class(c, shorthand_class((char)(e | 0x20), e < 'a'), fl);
+		return emit_class(c, shorthand_class((char)(e | 0x20), e < 'a', c->flags), fl);
+	}
+	switch (e) {
+	case 'R':
+		c->pos++;
+		return line_ending(c, a);
+	case 'X':
+		c->pos++;
+		emit(p, RE_GRAPHEME, fl);
+		a->w.max = RE_INF;
+		return true;
 	case 'p':
 	case 'P': {
 		uint32_t  cp;
@@ -705,6 +791,7 @@ static bool parse_escaped_atom(comp *c, atom *a, uint8_t fl, size_t start) {
 		a->w.min = n;
 		a->w.max = n;
 		a->quantifiable = n == 1;
+		a->literals = n;
 		return true;
 	}
 	case 'k': {
@@ -745,6 +832,7 @@ static bool parse_escaped_atom(comp *c, atom *a, uint8_t fl, size_t start) {
 	if (!escape_char(c, &cp, &is_char)) return false;
 	if (!is_char) return fail(c, "Illegal/unsupported escape sequence", start);
 	emit(p, RE_CHAR, fl)->a = cp;
+	a->literals = 1;
 	return true;
 }
 
@@ -754,9 +842,10 @@ static bool parse_atom(comp *c, atom *a) {
 	a->quantifiable = true;
 	a->w.min = 1;
 	a->w.max = 1;
-	uint8_t fl = (uint8_t)(c->flags & (RE_F_I | RE_F_S | RE_F_M));
-	size_t  start = c->pos;
-	char    ch = peek(c);
+	a->literals = 0;
+	uint16_t fl = (uint16_t)(c->flags & (RE_F_I | RE_F_S | RE_F_M | RE_F_U | RE_F_UU));
+	size_t   start = c->pos;
+	char     ch = peek(c);
 	switch (ch) {
 	case '(':
 		c->pos++;
@@ -784,10 +873,18 @@ static bool parse_atom(comp *c, atom *a) {
 	}
 	if (ch != '\\') {
 		emit(p, RE_CHAR, fl)->a = next_cp(c);
+		a->literals = 1;
 		return true;
 	}
 	c->pos++;
 	return parse_escaped_atom(c, a, fl, start);
+}
+
+// Pattern.atom gathers a run of literal characters into one slice, and a lone one is single(): under (?iu) the two
+// fold differently, so a run's characters are marked.
+static void close_run(re_prog *p, uint32_t at, uint32_t n) {
+	if (n < 2) return;
+	for (uint32_t i = at; i < at + n; i++) p->inst[i].flags |= RE_F_SLICE;
 }
 
 // Rebuilds the block at `at` as n to m copies; relative jumps make a copy a memcpy.
@@ -905,11 +1002,15 @@ static bool apply_quantifier(comp *c, uint32_t at, uint32_t n, uint32_t m, bool 
 
 static bool parse_concat(comp *c, re_width *w) {
 	re_prog *p = c->p;
+	uint32_t run_at = 0, run = 0;
 	w->min = 0;
 	w->max = 0;
 	for (;;) {
 		skip_x(c);
-		if (at_end(c) || peek(c) == '|' || peek(c) == ')') return true;
+		if (at_end(c) || peek(c) == '|' || peek(c) == ')') {
+			close_run(p, run_at, run);
+			return true;
+		}
 		atom a;
 		if (!parse_atom(c, &a)) return false;
 		skip_x(c);
@@ -927,6 +1028,13 @@ static bool parse_concat(comp *c, re_width *w) {
 			n = q == '+' ? 1 : 0;
 			m = q == '?' ? 1 : RE_INF;
 		} else quantified = false;
+		if (!quantified && a.literals) {
+			if (!run) run_at = a.at;
+			run += a.literals;
+		} else {
+			close_run(p, run_at, run);
+			run = 0;
+		}
 		if (!quantified) {
 			w->min = width_add(w->min, a.w.min);
 			w->max = width_add(w->max, a.w.max);
@@ -1033,6 +1141,18 @@ static void bt_push(re_ctx *c, uint32_t pc, uint32_t sp) {
 	c->bt_n++;
 }
 
+static bool char_fold(const re_inst *i, uint32_t x) {
+	bool uc = (i->flags & RE_F_U) != 0;
+	return i->flags & RE_F_SLICE ? slice_fold(i->a, x, uc) : single_fold(i->a, x, uc);
+}
+
+// Pattern.CIBackRef.
+static bool backref_fold(uint32_t x, uint32_t y, bool uc) {
+	if (!uc) return ascii_lower(x) == ascii_lower(y);
+	uint32_t ux = clj_uc_upper(x), uy = clj_uc_upper(y);
+	return ux == uy || clj_uc_lower(ux) == clj_uc_lower(uy);
+}
+
 static bool re_run(re_ctx *c, uint32_t pc, uint32_t sp, uint32_t *end) {
 	const uint32_t base = c->bt_n, ubase = c->undo_n;
 	for (;;) {
@@ -1040,13 +1160,13 @@ static bool re_run(re_ctx *c, uint32_t pc, uint32_t sp, uint32_t *end) {
 		bool           bad = false;
 		switch (i->op) {
 		case RE_CHAR:
-			if (sp < c->t->n && (c->t->cp[sp] == i->a || ((i->flags & RE_F_I) && swap_case(c->t->cp[sp]) == i->a))) {
+			if (sp < c->t->n && (c->t->cp[sp] == i->a || ((i->flags & RE_F_I) && char_fold(i, c->t->cp[sp])))) {
 				sp++;
 				pc++;
 			} else bad = true;
 			break;
 		case RE_CLASS:
-			if (sp < c->t->n && class_member(c->p->classes[i->a], c->t->cp[sp], (i->flags & RE_F_I) != 0)) {
+			if (sp < c->t->n && class_member(c->p->classes[i->a], c->t->cp[sp], (i->flags & RE_F_I) != 0, (i->flags & RE_F_U) != 0)) {
 				sp++;
 				pc++;
 			} else bad = true;
@@ -1108,8 +1228,9 @@ static bool re_run(re_ctx *c, uint32_t pc, uint32_t sp, uint32_t *end) {
 			break;
 		case RE_WORDB:
 		case RE_NWORDB: {
-			bool before = sp > 0 && is_word(c->t->cp[sp - 1]);
-			bool after = sp < c->t->n && is_word(c->t->cp[sp]);
+			bool unicode = (i->flags & RE_F_UU) != 0;
+			bool before = sp > 0 && word_at(c->t, sp - 1, true, unicode);
+			bool after = sp < c->t->n && word_at(c->t, sp, false, unicode);
 			if ((before != after) == (i->op == RE_WORDB)) pc++;
 			else bad = true;
 			break;
@@ -1125,7 +1246,7 @@ static bool re_run(re_ctx *c, uint32_t pc, uint32_t sp, uint32_t *end) {
 			bool     ok = sp + len <= c->t->n;
 			for (uint32_t k = 0; ok && k < len; k++) {
 				uint32_t x = c->t->cp[sp + k], y = c->t->cp[(uint32_t)from + k];
-				ok = x == y || ((i->flags & RE_F_I) && swap_case(x) == y);
+				ok = x == y || ((i->flags & RE_F_I) && backref_fold(x, y, (i->flags & RE_F_U) != 0));
 			}
 			if (ok) {
 				sp += len;
@@ -1164,6 +1285,13 @@ static bool re_run(re_ctx *c, uint32_t pc, uint32_t sp, uint32_t *end) {
 			pc = (uint32_t)((int32_t)pc + i->x);
 			break;
 		}
+		case RE_GRAPHEME:
+			// Grapheme.nextBoundary is deterministic: \X never gives back part of its cluster.
+			if (sp < c->t->n) {
+				sp = clj_uc_grapheme_end(c->t->cp, sp, c->t->n);
+				pc++;
+			} else bad = true;
+			break;
 		default: clj_ice("regex/instruction", NULL, "unknown regex instruction");
 		}
 		if (!bad) continue;

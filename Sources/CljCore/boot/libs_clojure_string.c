@@ -4443,8 +4443,8 @@ static const clj_compiled_tree XR[18] = {
 	{clojure_string_replace, {0xc240c0d1b77e00efULL, 0x906e51d4193088b4ULL}},
 	{clojure_string_replace_first, {0xe69456b579535e24ULL, 0x48f5618eee66a9cfULL}},
 	{clojure_string_join, {0x90f5ada5d98d21b7ULL, 0xc7b7c9eaec24bcc1ULL}},
-	{clojure_string_upper_case, {0x101218163990446bULL, 0x5901fb2997f6178fULL}},
-	{clojure_string_lower_case, {0x42bed07c53313ce7ULL, 0xce3542ba6db58c67ULL}},
+	{clojure_string_upper_case, {0xf626927f5c80252dULL, 0x283a96c6e6a80e82ULL}},
+	{clojure_string_lower_case, {0x68f95b0c5b24480dULL, 0xab84c48507c12cd0ULL}},
 	{clojure_string_split, {0x0260429dea4478e6ULL, 0xce51b56f54d4f0cfULL}},
 	{clojure_string_split_lines, {0x32e8af63b6799913ULL, 0x92da3c0136ed9473ULL}},
 	{clojure_string_trim, {0x3c81674a3ced2a35ULL, 0xe6bca30694755bf4ULL}},
@@ -4611,13 +4611,13 @@ static void unit_pools(void) {
 	K[49] = clj_c_const("clojure.string/text", 19);
 	K[50] = clj_c_const("\"Cannot convert nil to a string\"", 32);
 	K[51] = clj_c_const("{}", 2);
-	K[52] = clj_c_const("{:arglists ([s]), :column 1, :doc \"Converts s to upper-case (ASCII letters only, NOTES.md).\", :file \"<embedded>/clojure/string.clj\", :line 55, :name upper-case, :ns clojure.string}", 180);
+	K[52] = clj_c_const("{:arglists ([s]), :column 1, :doc \"Converts string to all upper-case.\", :file \"<embedded>/clojure/string.clj\", :line 55, :name upper-case, :ns clojure.string}", 158);
 	K[53] = clj_c_const("lower-case", 10);
 	K[54] = clj_c_const("clojure.string/lower-case", 25);
 	K[55] = clj_c_const("clojure.string/text", 19);
 	K[56] = clj_c_const("\"Cannot convert nil to a string\"", 32);
 	K[57] = clj_c_const("{}", 2);
-	K[58] = clj_c_const("{:arglists ([s]), :column 1, :doc \"Converts s to lower-case (ASCII letters only, NOTES.md).\", :file \"<embedded>/clojure/string.clj\", :line 56, :name lower-case, :ns clojure.string}", 180);
+	K[58] = clj_c_const("{:arglists ([s]), :column 1, :doc \"Converts string to all lower-case.\", :file \"<embedded>/clojure/string.clj\", :line 56, :name lower-case, :ns clojure.string}", 158);
 	K[59] = clj_c_const("split", 5);
 	K[60] = clj_c_const("clojure.string/split", 20);
 	K[61] = clj_c_const("{:arglists ([s separator] [s separator limit]), :column 1, :doc \"Splits s on separator, a pattern or a literal string or char; limit caps the number of parts.\", :file \"<embedded>/clojure/string.clj\", :line 59, :name split, :ns clojure.string}", 242);

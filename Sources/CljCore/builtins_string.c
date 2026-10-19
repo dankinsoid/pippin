@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "clj/core.h"
+#include "unicode_internal.h"
 
 // Java's Character.isWhitespace: the space separators minus the non-breaking ones, plus the ASCII controls.
 static bool is_whitespace(uint32_t cp) {
@@ -28,12 +29,17 @@ static clj_value b_subs(const clj_value *args, size_t n) {
 	return clj_string_new(CLJ_STR(args[0]).bytes + from, (size_t)(to - from));
 }
 
+// A string that maps to itself is returned as it is, as String.toUpperCase returns this.
 static clj_value map_ascii(clj_value s, bool upper) {
-	uint32_t len = clj_string_len(s);
-	char    *text = malloc(len + 1);
+	uint32_t    len = clj_string_len(s), first = 0;
+	const char *bytes = CLJ_STR(s).bytes;
+	char        lo = upper ? 'a' : 'A', hi = upper ? 'z' : 'Z';
+	while (first < len && (bytes[first] < lo || bytes[first] > hi)) first++;
+	if (first == len) return clj_retain(s);
+	char *text = malloc(len + 1);
 	if (!text) clj_fatal("out of memory");
-	memcpy(text, CLJ_STR(s).bytes, len + 1);
-	for (uint32_t i = 0; i < len; i++) {
+	memcpy(text, bytes, len + 1);
+	for (uint32_t i = first; i < len; i++) {
 		char c = text[i];
 		if (upper && c >= 'a' && c <= 'z') text[i] = (char)(c - 32);
 		if (!upper && c >= 'A' && c <= 'Z') text[i] = (char)(c + 32);
@@ -43,17 +49,28 @@ static clj_value map_ascii(clj_value s, bool upper) {
 	return r;
 }
 
-// ASCII only: the runtime carries no Unicode case tables (NOTES.md).
+// Root-locale case mapping, which the JVM's default locale gives outside tr, az and lt (docs/jvm-differences.md).
+static clj_value map_case(clj_value s, bool upper) {
+	if (clj_string_is_ascii(s)) return map_ascii(s, upper);
+	clj_str text = CLJ_STR(s);
+	size_t  len;
+	char   *mapped = upper ? clj_uc_upper_utf8(text.bytes, text.len, &len) : clj_uc_lower_utf8(text.bytes, text.len, &len);
+	if (!mapped) return clj_retain(s);
+	clj_value r = clj_string_new(mapped, len);
+	free(mapped);
+	return r;
+}
+
 static clj_value b_upper(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_string(args[0])) return not_a_string("upper-case", args[0]);
-	return map_ascii(args[0], true);
+	return map_case(args[0], true);
 }
 
 static clj_value b_lower(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_string(args[0])) return not_a_string("lower-case", args[0]);
-	return map_ascii(args[0], false);
+	return map_case(args[0], false);
 }
 
 // The needle as UTF-8 bytes: a string as is, a char encoded; owned string.

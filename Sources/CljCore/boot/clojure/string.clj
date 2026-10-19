@@ -52,8 +52,8 @@
       (str-upper* s)
       (str (str-upper* (subs s 0 1)) (str-lower* (subs s 1))))))
 
-(defn upper-case "Converts s to upper-case (ASCII letters only, NOTES.md)." [s] (str-upper* (text s)))
-(defn lower-case "Converts s to lower-case (ASCII letters only, NOTES.md)." [s] (str-lower* (text s)))
+(defn upper-case "Converts string to all upper-case." [s] (str-upper* (text s)))
+(defn lower-case "Converts string to all lower-case." [s] (str-lower* (text s)))
 
 ;; Clojure's split takes only a pattern; the literal string and char are a deviation (NOTES.md).
 (defn split
