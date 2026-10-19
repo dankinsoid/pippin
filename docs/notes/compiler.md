@@ -867,6 +867,18 @@
   entry) and a lazy-seq thunk lets its captures go at its tail cons (the next entry); any other literal fn's or a let-bound direct fn's
   parameters and a variadic arity stay +0 — triggers: a closure called per element in a profile (a literal given to
   `mapv` or `filterv`, a `FUSED` site's reducing fn). The interpreter keeps +0 throughout but for that accumulator.
+- [~] **A frame names its own references across a call that may park** (design §7, «Фаза 3», «Кадры перечисляются»;
+  `emit_frefs_push`, `emit_frefs_decl`, compiled_internal.h `clj_c_frefs`). Every frame fn declares `clj_frefs *FR`
+  and `uint32_t F0`; before an invoke or a direct call the facts say may park (`clj_facts_may_park`: the call's own
+  effects once its arguments are in, recorded by the facts pass per call node) it stores its owned temps but the
+  arguments the call takes over, and its owned C-variable slots in `bound`, into the execution's list at `F0`, sets
+  the length, and sets it back to `F0` right after the call, with nothing between that jumps. `bound` is the slots a
+  binding may have filled: set by `emit_set`, every let, loop and catch slot of a loop's body at its head (and of a
+  fn body a recur re-enters), cleared by a take, a consume or a drop, the two arms of an `if` (and of an inlined
+  call's guard) merged, a `try`'s handlers given the body's start. A bit left set only names a nil; a bit cleared on
+  one path only leaves a reference out, a leak. `--stats` prints the sites and the references: core.clj 984 and 3953.
+  Not wrapped, so not named: intrinsic calls, the worker arm, lowered, fused and outlined sites, an inlined copy's
+  fallback call, and the array slots. Trigger: a leak report through one of them.
 - [~] **A lazy-seq thunk lets its captures go at its tail cons** (design §7 «Владеющие параметры»; `thunk.c`
   `cljc_thunk_let_go`, compiler.c `emit_let_go`, compiled_internal.h `clj_c_thunk_let_go`, seq.c
   `clj_lazy_seq_let_go`; `CLJ_NO_OPT=owned` turns it off, at emission and, for the boot units, at run time). *Not at

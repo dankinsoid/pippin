@@ -110,9 +110,10 @@
   ended when a run returns, so a coroutine still parked is the library's leftover. `reclaimAbandoned` lets the cycle
   collector judge them first — `clj_cc_collect` until neither the count it cancelled nor the live count moves — which
   cancels the fillers, the futures and the `mult` loops: their cycles run through heap edges and their watchdog
-  deadline counts as their own. What is left is a park whose cycle a frame's own reference holds: the two `mix` loops,
-  whose `alts!` port vector the loop owns, and the ASYNC-127 `mult` when its race leaves a tap's `put!` pending with
-  the tap in the loop's own `chs`. Those it cancels (`clj_debug_cancel_live_coros`) before the memory check, and
+  deadline counts as their own. Since a parked coroutine's frames name their own references (NOTES "Coroutines"),
+  the two `mix` loops, whose `alts!` port vector the loop owns, and the ASYNC-127 `mult`, whose tap sits in the loop's
+  own `chs`, are judged too: 0 left for the cancel in both runs, interpreted and compiled (run 39237792615), where
+  main left 3. What is left elsewhere it cancels (`clj_debug_cancel_live_coros`) before the memory check, and
   `:abandoned-coroutines` in the allowlist bounds that residue: 0 for every library but this one, so the old "nothing
   may be left" check holds everywhere else, and 4 here (3 until the far timer stopped being coalesced, run
   37833744893, when one more park was left for the cancel). Measured (arm64 CI, run 37767954601, both runs alike): by the

@@ -294,17 +294,26 @@
   cancelled once (`cc_collected`, `CLJ_CC_STAT_COROUTINES`), its white roots are filed again, and its unwind releases
   the rest through RC, `finally` and `with-open` included. `go` and `future` keep their channel for `on_done` in the
   coroutine's `done_value` slot, so the walk sees that edge; `resume` clears the watch bit of a coroutine it wakes.
+  A parked one's frames are read as its edges (`visit_frames`, design §7 «Фаза 3», «Кадры перечисляются»): the
+  compiled frames' list (`clj_frefs` on the ring header, which a compiled frame fills before a call the facts say
+  may park and empties after it, `emit_frefs_push`), the interpreter's frames on the ring (`clj_shadow_frame.frame`,
+  each one's owned slots, read through `clj_coro_parked_bytes` when evacuated), and the unshared objects those reach
+  or `alts!` lends its waiter (`clj_waiter.ports`), each entered once, whose references to shared objects are the
+  coroutine's too.
   Triggers: a channel released to nonzero, as for any cycle; the evacuation sweep, which files a park two passes saw and
   again after 2, 4 … 256 passes while it lasts (`cc_sweep_file`); `clj_cc_collect`, which files every parked coroutine
   (`clj_coro_cc_file_parked`). `clj_debug_runtime_settle` collects every 20 ms while more coroutines live than it
   waits for, so a baseline waits out a collected park's unwind. `CoroCollectTests`: a dropped `go-loop` (resident and
   evacuated), a `mult` with no taps, `onto-chan!` into an undrained buffer, a `future` on an undelivered promise, a park
-  inside `with-open`, one under a pending deadline and one at a suspend gate are collected and unwind; `alts!` over a
-  dropped channel and a live `timeout` waits for the timeout; a channel Swift holds keeps its park. Not collected, as
-  before: a cycle a frame's own reference holds — `alts!`'s port vector, which the caller owns as a temporary
-  (`(go-loop [] (alts! [in stop]) …)`, `mix`), a channel made in the go body's own `let` — and a park of a pinned kind.
-  Trigger: a leak report of that kind or the corpus's residue (NOTES "Corpus"); the fix is design §7's option 2 with 1
-  or 4, the user's choice.
+  inside `with-open`, one under a pending deadline and one at a suspend gate are collected and unwind, and so are
+  the shapes only a frame's own reference holds — `alts!` over dropped ports, a dropped `mix` with an input, a channel
+  of the go body's own `let`, interpreted and compiled (dev and closed); `alts!` over a dropped channel and a live
+  `timeout` waits for the timeout; a channel Swift holds keeps its park. Not collected: a park of a pinned kind, and a
+  cycle through a reference none of the three kinds names — one C code of the runtime holds across the park (option
+  3), a compiled frame's array slot (captured, read through the static link, a direct fn's parameter), a call the
+  compiler does not wrap (an intrinsic calling a user fn, a worker arm, a lowered or fused site, an inlined copy's
+  fallback), the interpreter's argument buffer but `alts!`'s ports, a frame of more than 64 slots. Trigger: a leak
+  report of that kind or the corpus's residue (NOTES "Corpus").
 - **Uncaught errors**: a coroutine whose body throws reports through `clj_coro_set_uncaught_handler`, by default
   the message and the trace on stderr with `write(2)` (design §4 reserves stderr for fatal and crash; this is
   the JVM's uncaught-exception report and a host replaces it). A `go` channel then closes with nothing put.
