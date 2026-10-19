@@ -24,6 +24,7 @@
 #include "cc_internal.h"
 #include "coro_internal.h"
 #include "profile_internal.h"
+#include "roots_internal.h"
 
 // ---- the run queue and the carriers
 
@@ -534,7 +535,9 @@ void clj_park(clj_waiter *w, clj_wake wake) {
 	pthread_mutex_unlock(&c->lock);
 }
 
+// The callback and its value are the waiter's.
 static void run_callback(clj_waiter *w) {
+	CLJ_ROOTS_NONE;
 	if (clj_is_nil(w->callback)) return;
 	clj_value r = clj_invoke(w->callback, &w->value, 1);
 	if (r == CLJ_THROWN) {
@@ -970,6 +973,7 @@ bool clj_coro_suspended(clj_coro *c) {
 // It defers rather than fails — the request came from another coroutine, there is no caller here to fail.
 // @ai-generated(guided)
 bool clj_coro_suspend_point(void) {
+	CLJ_ROOTS_NONE;
 	clj_coro *c = clj_coro_current();
 	if (c->host_depth || c->locks_held || c->cmutex_held || c->forcing_held) {
 		// Every call until the hold is over, not one per 1024: a loop of a fixed length would otherwise meet the
@@ -1270,6 +1274,7 @@ static void sleep_fire(void *ctx) {
 }
 
 clj_value clj_sched_sleep_ms(int64_t ms) {
+	CLJ_ROOTS_NONE;
 	if (!clj_park_allowed()) return CLJ_THROWN;
 	clj_coro   *c = clj_coro_current();
 	clj_waiter *w = clj_waiter_new(c, CLJ_NIL);
@@ -1393,6 +1398,7 @@ static job *submit(pool *p, void (*fn)(void *ctx), void *ctx, size_t copy, clj_w
 
 // The job works on a heap copy of ctx, written back here: the parker's frame is nobody else's (design §4).
 void clj_blocking(void (*fn)(void *ctx), void *ctx, size_t size) {
+	CLJ_ROOTS_NONE;
 	clj_coro *c = clj_coro_current();
 	// Seeded, the job is done in place: a pool thread's completion would land in the schedule at a real moment.
 	if (c->implicit || c->host_depth || c->locks_held || clj_sched_seed_on) {
@@ -1946,6 +1952,7 @@ void clj_sched_seed_settling(int delta) {
 
 // Where parking is refused the execution goes on, as it would have; a cancelled one meets its cancel at the park.
 void clj_sched_point_slow(void) {
+	CLJ_ROOTS_NONE;
 	clj_coro *c = clj_coro_here();
 	if (!c || c->locks_held) return;
 	if (c->implicit) {

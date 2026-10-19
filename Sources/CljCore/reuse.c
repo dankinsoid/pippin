@@ -9,6 +9,7 @@
 #include "clj/string.h"
 #include "clj/vector.h"
 #include "rc_internal.h"
+#include "roots_internal.h"
 #include "stats_internal.h"
 
 #if CLJ_DEBUG
@@ -95,7 +96,9 @@ static clj_value cons_at(clj_reuse_token tok, const clj_type *type, clj_value fi
 }
 
 // The type and tail clj_seq_cons picks: a nil tail makes a list, a seq tail a cons, anything else is seq'd.
+// Its seq is made before it holds anything.
 clj_value clj_seq_cons_into(clj_reuse_token tok, clj_value x, clj_value coll) {
+	CLJ_ROOTS_NONE;
 	if (clj_is_nil(coll)) return cons_at(tok, &clj_list_type, x, coll);
 	if (clj_is_seq(coll)) return cons_at(tok, &clj_cons_type, x, coll);
 	clj_value s = clj_seq(coll);
@@ -167,8 +170,10 @@ clj_value clj_next_owned_slow(clj_value s) {
 		clj_release(s);
 		return CLJ_NIL;
 	}
+	CLJ_ROOTS(&s);
 	clj_value r = clj_next(s);
 	clj_release(s);
+	s = CLJ_NIL;
 	return r;
 }
 
@@ -180,7 +185,9 @@ clj_value clj_rest_owned_slow(clj_value s) {
 		clj_release(s);
 		return clj_list_empty();
 	}
+	CLJ_ROOTS(&s);
 	clj_value r = clj_rest(s);
 	clj_release(s);
+	s = CLJ_NIL;
 	return r;
 }

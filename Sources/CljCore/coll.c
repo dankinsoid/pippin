@@ -14,12 +14,15 @@
 #include "clj/string.h"
 #include "clj/vector.h"
 #include "ice_internal.h"
+#include "roots_internal.h"
 
 static clj_value not_a_seq(clj_value v) { return clj_throw_msg("Don't know how to create ISeq from: %s", clj_type_name(v)); }
 
 static const clj_type *type_or_null(clj_value v) { return clj_is_ptr(v) ? clj_type_of(v) : NULL; }
 
+// The accessors: what a walk holds across one is the walker's to name.
 clj_value clj_seq(clj_value coll) {
+	CLJ_ROOTS_NONE;
 	if (clj_is_nil(coll)) return CLJ_NIL;
 	const clj_type *t = type_or_null(coll);
 	if (!t || !t->seq) return not_a_seq(coll);
@@ -30,6 +33,7 @@ clj_value clj_seq(clj_value coll) {
 static clj_value via_seq(clj_value coll, bool first) {
 	clj_value s = clj_seq(coll);
 	if (s == CLJ_THROWN || clj_is_nil(s)) return s;
+	CLJ_ROOTS(&s);
 	const clj_type *t = clj_type_of(s);
 	CLJ_ASSERT(t->first && t->next, "a seq type must implement first and next");
 	clj_value r = first ? t->first(s) : t->next(s);
@@ -38,6 +42,7 @@ static clj_value via_seq(clj_value coll, bool first) {
 }
 
 clj_value clj_first(clj_value coll) {
+	CLJ_ROOTS_NONE;
 	if (clj_is_nil(coll)) return CLJ_NIL;
 	const clj_type *t = type_or_null(coll);
 	if (t && t->first) return t->first(coll);
@@ -45,6 +50,7 @@ clj_value clj_first(clj_value coll) {
 }
 
 clj_value clj_next(clj_value coll) {
+	CLJ_ROOTS_NONE;
 	if (clj_is_nil(coll)) return CLJ_NIL;
 	const clj_type *t = type_or_null(coll);
 	if (t && t->next) return t->next(coll);
@@ -57,6 +63,7 @@ clj_value clj_rest(clj_value coll) {
 	clj_value s = clj_seq(coll);
 	if (s == CLJ_THROWN) return s;
 	if (clj_is_nil(s)) return clj_list_empty();
+	CLJ_ROOTS(&s);
 	clj_value r;
 	if (clj_type_of(s)->rest) {
 		r = clj_type_of(s)->rest(s);
@@ -69,7 +76,8 @@ clj_value clj_rest(clj_value coll) {
 }
 
 clj_value clj_seq_cons(clj_value x, clj_value coll) {
-	// RT.cons: a nil tail makes a PersistentList, an ISeq tail a Cons.
+	// RT.cons: a nil tail makes a PersistentList, an ISeq tail a Cons. Its seq is made before it holds anything.
+	CLJ_ROOTS_NONE;
 	if (clj_is_nil(coll)) return clj_list_new(x, coll);
 	if (clj_is_seq(coll)) return clj_cons_new(x, coll);
 	clj_value s = clj_seq(coll);
@@ -89,6 +97,7 @@ clj_value clj_count(clj_value coll) {
 	clj_seq_iter it = clj_seq_iter_start(s);
 	clj_value    item;
 	intptr_t     n = 0;
+	CLJ_ROOTS(&s, &it.held, &it.item);
 	while (clj_seq_iter_next(&it, &item)) n++;
 	clj_release(s);
 	return it.thrown ? CLJ_THROWN : clj_fixnum(n);
@@ -210,6 +219,7 @@ clj_value clj_nth(clj_value coll, clj_value index, bool has_not_found, clj_value
 		clj_seq_iter it = clj_seq_iter_start(s);
 		clj_value    item;
 		count = 0;
+		CLJ_ROOTS(&s, &it.held, &it.item);
 		while (clj_seq_iter_next(&it, &item)) {
 			if ((intptr_t)count == i) {
 				clj_retain(item);
@@ -288,7 +298,9 @@ static void hold(clj_seq_iter *it, clj_value owned) {
 	clj_release(old);
 }
 
+// held and item are owned or nil at each call it makes: its walker names them (CLJ_ROOTS(&it.held, &it.item)).
 bool clj_seq_iter_next(clj_seq_iter *it, clj_value *out) {
+	CLJ_ROOTS_NONE;
 	for (;;) {
 		clj_value cur = it->cur;
 		if (!clj_is_ptr(cur)) return done(it, false);
@@ -373,12 +385,14 @@ bool clj_seq_iter_next(clj_seq_iter *it, clj_value *out) {
 clj_value *clj_seq_items(clj_value coll, size_t *n, clj_value *keep) {
 	clj_value seq = clj_seq(coll);
 	if (seq == CLJ_THROWN) return NULL;
-	size_t     cap = 8, count = 0;
+	size_t     cap = 8, count = 0, owned = 0;
 	clj_value *items = malloc(cap * sizeof *items);
 	if (!items) clj_fatal("out of memory");
 	clj_seq_iter it = clj_seq_iter_start(seq);
 	clj_value    item;
 	bool         own = false; // slot-yielded items outlive their step only if retained here
+	CLJ_ROOTS(&seq, &it.held, &it.item);
+	CLJ_ROOTS_SPAN(&items, &owned);
 	while (clj_seq_iter_next(&it, &item)) {
 		if (it.slots && !own) {
 			own = true;
@@ -391,7 +405,9 @@ clj_value *clj_seq_items(clj_value coll, size_t *n, clj_value *keep) {
 			if (!items) clj_fatal("out of memory");
 		}
 		items[count++] = item;
+		if (own) owned = count;
 	}
+	owned = 0;
 	if (it.thrown) {
 		if (own) {
 			for (size_t i = 0; i < count; i++) clj_release(items[i]);
@@ -423,6 +439,7 @@ bool clj_seq_equals(clj_value a, clj_value b) {
 	clj_seq_iter ia = clj_seq_iter_start(a), ib = clj_seq_iter_start(b);
 	clj_value    x, y;
 	bool         eq;
+	CLJ_ROOTS(&ia.held, &ia.item, &ib.held, &ib.item);
 	for (;;) {
 		bool ma = clj_seq_iter_next(&ia, &x), mb = clj_seq_iter_next(&ib, &y);
 		if (ia.thrown || ib.thrown) {
@@ -449,6 +466,7 @@ uint32_t clj_seq_hash(clj_value seq) {
 	uint32_t     h = 1, n = 0;
 	clj_seq_iter it = clj_seq_iter_start(seq);
 	clj_value    item;
+	CLJ_ROOTS(&it.held, &it.item);
 	while (clj_seq_iter_next(&it, &item)) {
 		h = 31 * h + clj_hash(item);
 		n++;

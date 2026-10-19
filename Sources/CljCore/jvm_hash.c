@@ -10,6 +10,7 @@
 #include "clj/ratio.h"
 #include "clj/record.h"
 #include "guard_internal.h"
+#include "roots_internal.h"
 
 // ---- clojure.lang.Murmur3, seed 0
 
@@ -174,12 +175,14 @@ static bool refuse(clj_value v, const char *why) {
 // Murmur3.hashOrdered and hashUnordered over a seq of v.
 static bool hash_coll(walk *w, clj_value v, bool ordered, uint32_t *out) {
 	uint32_t  h = ordered ? 1 : 0, n = 0;
-	clj_value s = clj_seq(v);
+	clj_value s = clj_seq(v), x = CLJ_NIL;
+	CLJ_ROOTS(&s, &x);
 	while (s != CLJ_THROWN && !clj_is_nil(s)) {
-		clj_value x = clj_first(s);
-		uint32_t  xh;
-		bool      ok = x != CLJ_THROWN && jvm_hasheq(w, x, &xh);
+		x = clj_first(s);
+		uint32_t xh;
+		bool     ok = x != CLJ_THROWN && jvm_hasheq(w, x, &xh);
 		clj_release(x);
+		x = CLJ_NIL;
 		if (!ok) {
 			clj_release(s);
 			return false;

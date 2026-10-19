@@ -11,6 +11,7 @@
 #include "clj/hosttype.h"
 #include "clj/record.h"
 #include "clj/shaken.h"
+#include "roots_internal.h"
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
 static clj_value      kw_message, kw_data, kw_cause, kw_type, kw_tag;
@@ -292,8 +293,10 @@ static bool print_hook(buf *b, clj_value v, bool *thrown) {
 	}
 	clj_value f = core_root("print-with-method*");
 	if (f == CLJ_UNBOUND) return false;
+	CLJ_ROOTS(&f);
 	clj_value text = clj_invoke(f, &v, 1);
 	clj_release(f);
+	f = CLJ_NIL;
 	if (text == CLJ_THROWN) {
 		*thrown = true;
 		return true;
@@ -573,7 +576,10 @@ static bool elide(buf *b, const limits *lim, size_t printed, const char *sep) {
 }
 
 // Yields the next child of the top frame, or closes it. false when the frame is done.
+// Not named: the print stack's iterators, the printer's own, read as held from outside while a printed lazy seq
+// parks in its realization.
 static bool next_child(buf *b, frame_stack *stack, clj_value *out, bool *thrown, const limits *lim) {
+	CLJ_ROOTS_NONE;
 	frame *f = &stack->items[stack->count - 1];
 	switch (f->kind) {
 	case F_SEQ:

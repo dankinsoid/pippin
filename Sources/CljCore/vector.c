@@ -9,6 +9,7 @@
 #include "clj/seq.h"
 #include "clj/vector.h"
 #include "rc_internal.h"
+#include "roots_internal.h"
 
 enum { BITS = 5, WIDTH = 32, MASK = 31 };
 
@@ -264,6 +265,7 @@ static clj_value vector_count(clj_value self) { return clj_fixnum(vector_of(self
 clj_value clj_vector_reduce_from(clj_value vec, uint32_t from, clj_value f, clj_value init) {
 	const clj_vector *v = vector_of(vec);
 	clj_reducer       r = clj_reducer_start(f, init, 2);
+	CLJ_ROOTS(&r.acc);
 	for (uint32_t i = from, start, end; i < v->count;) {
 		const clj_slot *run = run_at(v, i, &start, &end);
 		for (; i < end; i++) {
@@ -276,6 +278,7 @@ clj_value clj_vector_reduce_from(clj_value vec, uint32_t from, clj_value f, clj_
 clj_value clj_vector_reduce_kv(clj_value vec, clj_value f, clj_value init) {
 	const clj_vector *v = vector_of(vec);
 	clj_reducer       r = clj_reducer_start(f, init, 3);
+	CLJ_ROOTS(&r.acc);
 	for (uint32_t i = 0, start, end; i < v->count;) {
 		const clj_slot *run = run_at(v, i, &start, &end);
 		for (; i < end; i++) {

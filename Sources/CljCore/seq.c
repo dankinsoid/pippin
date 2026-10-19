@@ -20,6 +20,7 @@
 #include "force_internal.h"
 #include "ice_internal.h"
 #include "rc_internal.h"
+#include "roots_internal.h"
 #include "shadow_internal.h"
 
 // ---- view metadata
@@ -136,6 +137,7 @@ static clj_value rvector_seq_count(clj_value self) { return clj_fixnum((intptr_t
 static clj_value rvector_seq_reduce(clj_value self, clj_value f, clj_value init) {
 	const clj_vector_seq *s = clj_vector_seq_of(self);
 	clj_reducer           red = clj_reducer_start(f, init, 2);
+	CLJ_ROOTS(&red.acc);
 	for (uint32_t i = s->i + 1; i > 0; i--) {
 		if (!clj_reducer_step(&red, clj_vector_nth(s->vec.v, i - 1))) break;
 	}
@@ -265,6 +267,7 @@ static clj_value range_count(clj_value self) {
 static clj_value range_reduce(clj_value self, clj_value f, clj_value init) {
 	const clj_range *r = clj_range_of(self);
 	clj_reducer      red = clj_reducer_start(f, init, 2);
+	CLJ_ROOTS(&red.acc);
 	for (int64_t at = r->start;;) {
 		clj_value item = clj_long_new(at);
 		bool      more = clj_reducer_step(&red, item);
@@ -417,6 +420,7 @@ static bool still_forcing(const void *key, void *ctx) {
 // A one-shot wait for the forcer, on the lot: a park, or a block on a bare thread (design §4, lazy seq under the
 // coroutine mutex).
 void clj_force_wait(clj_value obj, _Atomic uint32_t *state) {
+	CLJ_ROOTS_NONE;
 	clj_lot_park(clj_to_ptr(obj), still_forcing, (void *)state, clj_wake_holder());
 }
 
@@ -548,7 +552,9 @@ CLJ_UNIT_ENTRY void clj_lazy_seq_let_go(const clj_value *captured, uint64_t mask
 
 // Runs the thunk of a claimed object. Owned result. The deadline is checked per cell: a compiled thunk has no check
 // of its own, and an infinite lazy seq is realized one cell per turn here.
+// The thunk is the cell's, which its forcer holds.
 static clj_value run_thunk(clj_coro *co, clj_value v) {
+	CLJ_ROOTS_NONE;
 	if (co->shadow && clj_deadline_tick_on(co->shadow)) return CLJ_THROWN;
 	clj_forcing frame = {v, co->forcing_top};
 	co->forcing_top = &frame;
@@ -592,19 +598,32 @@ clj_value clj_lazy_seq_force(clj_value ls) {
 	chain inner = {.n = 0, .cap = 16};
 	inner.items = inner.small;
 	clj_value r = run_thunk(co, ls);
-	while (r != CLJ_THROWN && clj_is_lazy_seq(r)) {
-		if (!claim(co, r, &thrown)) {
-			clj_value v = thrown ? CLJ_THROWN : clj_retain(clj_lazy_seq_of(r)->value.v);
-			clj_release(r);
-			r = v;
-			break;
+	if (r != CLJ_THROWN && clj_is_lazy_seq(r)) {
+		// the cells claimed so far are this force's while the next one's thunk runs
+		CLJ_ROOTS_SPAN(&inner.items, &inner.n);
+		while (r != CLJ_THROWN && clj_is_lazy_seq(r)) {
+			if (!claim(co, r, &thrown)) {
+				clj_value v = thrown ? CLJ_THROWN : clj_retain(clj_lazy_seq_of(r)->value.v);
+				clj_release(r);
+				r = v;
+				break;
+			}
+			clj_value cell = r;
+			r = CLJ_NIL;
+			chain_push(&inner, cell);
+			r = run_thunk(co, cell);
 		}
-		chain_push(&inner, r);
-		r = run_thunk(co, r);
 	}
 	// A thunk may return any seqable, an empty one included; the cache holds its seq, so () becomes nil (RT.seq).
 	if (r != CLJ_THROWN && !clj_is_nil(r)) {
-		clj_value v = clj_seq(r);
+		clj_value v;
+		if (clj_is_instance(r)) {
+			// a program's seqable: its seq is a call of its own
+			CLJ_ROOTS(&r);
+			v = clj_seq(r);
+		} else {
+			v = clj_seq(r);
+		}
 		clj_release(r);
 		r = v;
 	}

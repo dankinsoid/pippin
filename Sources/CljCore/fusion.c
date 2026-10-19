@@ -22,6 +22,7 @@
 #include "clj/symbol.h"
 #include "clj/var.h"
 #include "clj/vector.h"
+#include "roots_internal.h"
 
 #define STAGE(n, a) {"clojure.core/" n, CLJ_FUSION_STAGE, a}
 #define OTHER(n, r) {"clojure.core/" n, r, 0}
@@ -147,6 +148,7 @@ typedef struct {
 // the driver's new one. Nothing a consuming core returns is a `reduced` box.
 static clj_value step_consuming(bottom *b, clj_value x) {
 	clj_value in[2] = {b->acc, x};
+	b->acc = CLJ_NIL;
 	clj_value r = clj_intrinsic_call_consuming(b->call.consuming, in);
 	b->acc = r == CLJ_THROWN ? CLJ_NIL : r;
 	return r == CLJ_THROWN ? CLJ_THROWN : CLJ_NIL;
@@ -157,13 +159,17 @@ static clj_value bottom_fn(void *ctx, const clj_value *args, size_t n) {
 	bottom *b = ctx;
 	if (n == 1) return b->kind == BOTTOM_COUNT ? clj_fixnum((intptr_t)b->count) : b->acc == CLJ_UNBOUND ? CLJ_NIL : clj_retain(b->acc);
 	if (b->done) return clj_throw_msg("reducing fn called after its reduce finished");
+	// acc is named by drive; a hand-over clears it first
+	CLJ_ROOTS_NONE;
 	clj_value x = args[1];
 	switch (b->kind) {
 	case BOTTOM_COUNT:
 		b->count++;
 		return CLJ_NIL;
 	case BOTTOM_INTO: {
-		clj_value acc = clj_conj(b->acc, x);
+		clj_value in = b->acc;
+		b->acc = CLJ_NIL;
+		clj_value acc = clj_conj(in, x);
 		b->acc = acc == CLJ_THROWN ? CLJ_NIL : acc;
 		return acc == CLJ_THROWN ? CLJ_THROWN : CLJ_NIL;
 	}
@@ -198,22 +204,25 @@ static bool run(clj_value bot, clj_value coll, clj_value xfs, clj_value *done) {
 		clj_throw_msg("fused driver expects a vector of transducers, got: %s", clj_type_name(xfs));
 		return false;
 	}
-	clj_value rf = clj_retain(bot);
+	clj_value rf = clj_retain(bot), r = CLJ_NIL;
+	CLJ_ROOTS(&rf, &r);
 	for (uint32_t i = 0, n = clj_vector_count(xfs); i < n; i++) {
 		clj_value next = clj_invoke(clj_vector_nth(xfs, i), &rf, 1);
 		clj_release(rf);
 		rf = next;
 		if (rf == CLJ_THROWN) return false;
 	}
-	clj_value r = clj_reduce(rf, CLJ_NIL, coll);
-	bool      ok = r != CLJ_THROWN;
+	r = clj_reduce(rf, CLJ_NIL, coll);
+	bool ok = r != CLJ_THROWN;
 	if (ok) {
 		*done = clj_invoke(rf, &r, 1);
 		clj_release(r);
+		r = CLJ_NIL;
 		ok = *done != CLJ_THROWN;
 		if (!ok) *done = CLJ_NIL;
 	}
 	clj_release(rf);
+	rf = CLJ_NIL;
 	return ok;
 }
 
@@ -234,7 +243,12 @@ static clj_value drive(bottom *b, clj_value coll, clj_value xfs) {
 	}
 	clj_value done = CLJ_NIL;
 	clj_value bot = clj_fn_native_ctx(CLJ_NIL, bottom_fn, b, free, 1, 2);
-	bool      ok = run(bot, coll, xfs, &done);
+	bool      ok;
+	{
+		// b lives while bot does, which it outlives here
+		CLJ_ROOTS(&b->acc);
+		ok = run(bot, coll, xfs, &done);
+	}
 	b->done = true;
 	clj_value acc = b->acc;
 	b->acc = CLJ_NIL;
@@ -252,6 +266,7 @@ clj_value clj_fused_reduce(const clj_value *args, size_t n) {
 	bottom *b = bottom_new(BOTTOM_REDUCE);
 	b->call = clj_call_prepare(args[0], 2);
 	b->acc = n == 4 ? clj_retain(args[1]) : CLJ_UNBOUND;
+	CLJ_ROOTS_NONE;
 	clj_value acc = drive(b, args[n - 2], args[n - 1]);
 	return acc == CLJ_UNBOUND ? clj_invoke(args[0], NULL, 0) : acc;
 }
@@ -316,6 +331,7 @@ typedef struct {
 static clj_value body_call(int fn, const clj_value *args, size_t n) {
 	clj_value f = clj_var_deref(clj_fusion_var_of(body[fn]));
 	if (f == CLJ_THROWN) return CLJ_THROWN;
+	CLJ_ROOTS(&f);
 	clj_value r = clj_invoke(f, args, n);
 	clj_release(f);
 	return r;
@@ -325,7 +341,9 @@ static clj_value body_call(int fn, const clj_value *args, size_t n) {
 static int body_assoc(out *o, clj_value k, clj_value v) {
 	clj_value r;
 	if (o->boot) {
-		r = clj_assoc_owned(o->acc, k, v);
+		clj_value acc = o->acc;
+		o->acc = CLJ_NIL;
+		r = clj_assoc_owned(acc, k, v);
 		o->acc = r == CLJ_THROWN ? CLJ_NIL : r;
 		return r == CLJ_THROWN ? CLJ_FUSED_THROWN : CLJ_FUSED_GO;
 	}
@@ -337,7 +355,9 @@ static int body_assoc(out *o, clj_value k, clj_value v) {
 }
 
 // frequencies: (assoc! counts x (inc (get counts x 0))); group-by: (let [k (f x)] (assoc! ret k (conj (get ret k []) x)))
+// The key fn runs before it holds anything; what follows are the body's core fns over the walk's own map.
 static int body_step(out *o, clj_value y) {
+	CLJ_ROOTS_NONE;
 	clj_value k = y;
 	if (o->mode == CLJ_FUSED_MODE_GROUP_BY && (k = clj_call_invoke(&o->call, &y)) == CLJ_THROWN) return CLJ_FUSED_THROWN;
 	clj_value none = o->mode == CLJ_FUSED_MODE_GROUP_BY ? clj_vector_empty() : clj_fixnum(0);
@@ -375,7 +395,11 @@ static int consume(out *o, clj_value y) {
 	case CLJ_FUSED_MODE_COUNT: o->count++; return CLJ_FUSED_GO;
 	case CLJ_FUSED_MODE_INTO:
 	case CLJ_FUSED_MODE_SEQ_INTO: {
-		clj_value acc = clj_conj(o->acc, y);
+		// acc is named by clj_fused_run_step; a hand-over clears it first
+		CLJ_ROOTS_NONE;
+		clj_value in = o->acc;
+		o->acc = CLJ_NIL;
+		clj_value acc = clj_conj(in, y);
 		o->acc = acc == CLJ_THROWN ? CLJ_NIL : acc;
 		return acc == CLJ_THROWN ? CLJ_FUSED_THROWN : CLJ_FUSED_GO;
 	}
@@ -388,6 +412,7 @@ static int consume(out *o, clj_value y) {
 		}
 		clj_value in[2] = {o->acc, y};
 		if (o->call.consuming) {
+			o->acc = CLJ_NIL;
 			clj_value r = clj_intrinsic_call_consuming(o->call.consuming, in);
 			o->acc = r == CLJ_THROWN ? CLJ_NIL : r;
 			return r == CLJ_THROWN ? CLJ_FUSED_THROWN : CLJ_FUSED_GO;
@@ -431,6 +456,7 @@ static int drain(out *o) {
 	for (; i < o->nbuf && r == CLJ_FUSED_GO; i++) {
 		r = consume(o, o->buf[i]);
 		clj_release(o->buf[i]);
+		o->buf[i] = CLJ_NIL;
 	}
 	for (; i < o->nbuf; i++) clj_release(o->buf[i]);
 	o->nbuf = 0;
@@ -478,6 +504,8 @@ static int walk_one(out *o, const clj_fused_site *site, clj_value coll) {
 		}
 		return CLJ_FUSED_GO;
 	}
+	// its fn holds no value: the walk's state is the driver's
+	CLJ_ROOTS_NONE;
 	source_rf *s = malloc(sizeof *s);
 	if (!s) clj_fatal("out of memory");
 	*s = (source_rf){o, site, CLJ_FUSED_GO, true};
@@ -494,10 +522,13 @@ enum { SOURCES_MAX = 3 };
 
 // As map's 2- and 3-coll arities: each coll seq'd per step before the check, so a longer one realizes one item more.
 static int walk_many(out *o, const clj_fused_site *site, const clj_value *colls, size_t n) {
-	clj_value    seqs[SOURCES_MAX];
-	clj_seq_iter it[SOURCES_MAX];
+	clj_value    seqs[SOURCES_MAX], *sp = seqs;
+	clj_seq_iter it[SOURCES_MAX] = {{0}};
 	size_t       k = 0;
 	int          r = CLJ_FUSED_GO;
+	_Static_assert(SOURCES_MAX == 3, "the walk names three iterators");
+	CLJ_ROOTS(&it[0].held, &it[0].item, &it[1].held, &it[1].item, &it[2].held, &it[2].item);
+	CLJ_ROOTS_SPAN(&sp, &k);
 	for (; k < n; k++) {
 		seqs[k] = clj_seq(colls[k]);
 		if (seqs[k] == CLJ_THROWN) {
@@ -571,6 +602,8 @@ CLJ_UNIT_ENTRY int clj_fused_cat(void *ctx, clj_value coll, clj_fused_step cont,
 		}
 		return CLJ_FUSED_GO;
 	}
+	// its fn holds no value: the walk's state is the driver's
+	CLJ_ROOTS_NONE;
 	out *o = (out *)sink;
 	if (!o->cat || o->cat->cont != cont || o->cat->ctx != ctx) {
 		cat_drop(o);
@@ -595,6 +628,8 @@ CLJ_UNIT_ENTRY clj_value clj_fused_run_step(clj_fused_mode mode, const clj_value
 	if (clj_deadline_tick()) return CLJ_THROWN;
 	bool seq = seq_mode(mode);
 	out  o = {.sink = {seq ? emit_buffered : emit_direct}, .mode = mode, .f = CLJ_NIL, .acc = CLJ_NIL, .catfn = CLJ_NIL};
+	CLJ_ROOTS(&o.acc, &o.catfn);
+	CLJ_ROOTS_SPAN(&o.buf, &o.nbuf);
 	switch (mode) {
 	case CLJ_FUSED_MODE_REDUCE:
 	case CLJ_FUSED_MODE_SEQ_REDUCE:
@@ -642,6 +677,8 @@ CLJ_UNIT_ENTRY clj_value clj_fused_run_step(clj_fused_mode mode, const clj_value
 #endif
 	for (size_t i = 0; i < o.nbuf; i++) clj_release(o.buf[i]);
 	free(o.buf);
+	o.buf = NULL;
+	o.nbuf = 0;
 	cat_drop(&o);
 	if (r == CLJ_FUSED_THROWN) {
 		if (o.acc != CLJ_UNBOUND) clj_release(o.acc);
@@ -651,12 +688,14 @@ CLJ_UNIT_ENTRY clj_value clj_fused_run_step(clj_fused_mode mode, const clj_value
 	if (mode == CLJ_FUSED_MODE_FREQUENCIES || mode == CLJ_FUSED_MODE_GROUP_BY) {
 		clj_value done = o.boot ? clj_map_persistent(o.acc) : body_call(BODY_PERSISTENT, &o.acc, 1);
 		clj_release(o.acc);
+		o.acc = CLJ_NIL;
 		return done;
 	}
 	if (mode == CLJ_FUSED_MODE_TRANSDUCE) {
 		// the stages' completion ends in f's: (f (reduce (xform f) init coll))
 		clj_value done = clj_invoke(o.f, &o.acc, 1);
 		clj_release(o.acc);
+		o.acc = CLJ_NIL;
 		return done;
 	}
 	return o.acc == CLJ_UNBOUND ? clj_invoke(o.f, NULL, 0) : o.acc;
@@ -685,6 +724,7 @@ typedef struct {
 
 static int xf_step(void *ctx, const clj_value *xs, clj_fused_sink *sink) {
 	(void)sink;
+	CLJ_ROOTS_NONE;
 	const xf_site *x = ctx;
 	clj_value      in[1 + SOURCES_MAX] = {CLJ_NIL};
 	for (uint32_t i = 0; i < x->nin; i++) in[1 + i] = xs[i];
@@ -697,6 +737,7 @@ static int xf_step(void *ctx, const clj_value *xs, clj_fused_sink *sink) {
 
 static int xf_flush(void *ctx, clj_fused_sink *sink) {
 	(void)sink;
+	CLJ_ROOTS_NONE;
 	const xf_site *x = ctx;
 	clj_value      nil = CLJ_NIL;
 	clj_value      r = clj_invoke(x->rf, &nil, 1);
@@ -753,7 +794,9 @@ static void scan_rf_free(void *ctx) {
 }
 
 // v as the scan's next item, borrowed.
+// acc is the scan's fn's; v is its caller's.
 static clj_value scan_emit(scan_rf *s, clj_value result, clj_value v) {
+	CLJ_ROOTS_NONE;
 	clj_release(s->acc);
 	s->acc = CLJ_NIL;
 	bool last = clj_is_reduced(v);
@@ -782,6 +825,7 @@ static clj_value scan_rf_fn(void *ctx, const clj_value *args, size_t n) {
 			s->started = true;
 			clj_value v = clj_invoke(s->f, NULL, 0);
 			if (v == CLJ_THROWN) return CLJ_THROWN;
+			CLJ_ROOTS(&v);
 			clj_value in[2] = {args[0], v};
 			clj_value r = clj_invoke(s->rf, in, 2);
 			clj_release(v);
@@ -797,6 +841,7 @@ static clj_value scan_rf_fn(void *ctx, const clj_value *args, size_t n) {
 	clj_value in[2] = {s->acc, args[1]};
 	clj_value a = clj_invoke(s->f, in, 2);
 	if (a == CLJ_THROWN) return CLJ_THROWN;
+	CLJ_ROOTS(&a);
 	clj_value r = scan_emit(s, args[0], a);
 	clj_release(a);
 	return r;
@@ -823,6 +868,7 @@ static bool scan_xform_p(clj_value v) {
 }
 
 static int xf_walk_begin(void *ctx, clj_fused_sink *sink) {
+	CLJ_ROOTS_NONE;
 	xf_walk *w = ctx;
 	w->bottom->sink = sink;
 	clj_value r = clj_invoke(w->x.rf, NULL, 0);
@@ -851,6 +897,7 @@ clj_value clj_fused_run(const clj_value *args, size_t n) {
 	// bot is held to the end: b dies with it, and a transducer need not keep its rf
 	clj_value bot = clj_fn_native_ctx(CLJ_NIL, xf_bottom_fn, b, free, 0, 2);
 	clj_value rf = clj_retain(bot);
+	CLJ_ROOTS(&bot, &rf);
 	for (uint32_t i = 0, nx = clj_vector_count(xfs); i < nx; i++) {
 		clj_value next = clj_invoke(clj_vector_nth(xfs, i), &rf, 1);
 		clj_release(rf);
@@ -872,5 +919,6 @@ clj_value clj_fused_run(const clj_value *args, size_t n) {
 	b->alive = false;
 	clj_release(rf);
 	clj_release(bot);
+	rf = bot = CLJ_NIL;
 	return r;
 }

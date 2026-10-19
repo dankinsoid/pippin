@@ -48,6 +48,7 @@
 #include "clj/vector.h"
 #include "clj/verify.h"
 #include "node.h"
+#include "roots_internal.h"
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
 static clj_value      kw_const, kw_local, kw_last, kw_captured, kw_outer, kw_var, kw_the_var, kw_if, kw_do, kw_let, kw_loop, kw_recur, kw_fn,
@@ -143,7 +144,9 @@ static bool serializable_entry(clj_value key, clj_value val, void *ctx) {
 }
 
 // What the printer writes and the reader hands back as an equal value; a seq comes back as a list.
+// Analysis reads a constant: its seqs are data the reader or a macro made, not a program's lazy work.
 static bool serializable(clj_value v) {
+	CLJ_ROOTS_NONE;
 	if (!clj_is_ptr(v) || clj_is_number(v) || clj_is_string(v) || clj_is_keyword(v) || clj_is_symbol(v) || clj_is_regex(v) || clj_is_uuid(v) || clj_is_inst(v)) return true;
 	bool ok = true;
 	if (clj_is_vector(v)) {

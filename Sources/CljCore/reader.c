@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "clj/core.h"
+#include "roots_internal.h"
 
 typedef enum {
 	F_LIST, F_VECTOR, F_MAP, F_SET, F_QUOTE, F_DEREF, F_DISCARD, F_VAR, F_SYNTAX_QUOTE, F_UNQUOTE, F_UNQUOTE_SPLICING, F_META, F_FN, F_COND,
@@ -318,7 +319,9 @@ static bool collect_item(clj_value item, void *ctx) {
 }
 
 // Borrowed items of a list, a vector, a set or a map (flattened to key value ...).
+// The reader's own collections, whose walk runs nothing.
 static clj_value *coll_items(clj_value coll, size_t *n) {
+	CLJ_ROOTS_NONE;
 	if (clj_is_set(coll)) {
 		collect_ctx c = {calloc((size_t)clj_set_count(coll) + 1, sizeof(clj_value)), 0};
 		if (!c.entries) clj_fatal("out of memory");

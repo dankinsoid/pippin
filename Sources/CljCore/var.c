@@ -21,6 +21,7 @@
 #include "cc_internal.h"
 #include "coro_internal.h"
 #include "force_internal.h"
+#include "roots_internal.h"
 #include "specialize_internal.h"
 
 static void var_each_child(void *self, clj_visitor visit, void *ctx) {
@@ -40,6 +41,7 @@ static bool var_equals(void *self, clj_value other) { return clj_from_ptr(self) 
 static clj_value var_invoke(clj_value self, const clj_value *args, size_t n) {
 	clj_value f = clj_var_deref(self);
 	if (f == CLJ_THROWN) return CLJ_THROWN;
+	CLJ_ROOTS(&f);
 	clj_value r = clj_invoke(f, args, n);
 	clj_release(f);
 	return r;

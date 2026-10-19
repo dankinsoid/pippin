@@ -24,6 +24,7 @@
 #include "coro_internal.h"
 #include "ice_internal.h"
 #include "proto_internal.h"
+#include "roots_internal.h"
 #include "stats_internal.h"
 #include "profile_internal.h"
 
@@ -206,6 +207,7 @@ static clj_value hash_coll(clj_value coll, bool ordered) {
 	uint32_t     h = ordered ? 1 : 0, n = 0;
 	clj_seq_iter it = clj_seq_iter_start(s);
 	clj_value    item;
+	CLJ_ROOTS(&s, &it.held, &it.item);
 	while (clj_seq_iter_next(&it, &item)) {
 		h = ordered ? 31 * h + clj_hash(item) : h + clj_hash(item);
 		n++;
@@ -475,7 +477,12 @@ static clj_value b_set(const clj_value *args, size_t n) {
 	if (s == CLJ_THROWN) return CLJ_THROWN;
 	clj_seq_iter it = clj_seq_iter_start(s);
 	clj_value    item, r = clj_set_empty();
-	while (r != CLJ_THROWN && clj_seq_iter_next(&it, &item)) r = clj_set_conj(r, item);
+	CLJ_ROOTS(&s, &it.held, &it.item, &r);
+	while (r != CLJ_THROWN && clj_seq_iter_next(&it, &item)) {
+		clj_value acc = r;
+		r = CLJ_NIL;
+		r = clj_set_conj(acc, item);
+	}
 	if (r == CLJ_THROWN) {
 		clj_seq_iter_close(&it);
 		clj_release(s);
@@ -572,7 +579,9 @@ static clj_value b_range_star(const clj_value *args, size_t n) {
 }
 
 // (cons a (cons b ... coll)): the last argument is the tail as a seq and stays unrealized.
+// Its conses are onto seqs, whose seq runs nothing.
 static clj_value b_list_star(const clj_value *args, size_t n) {
+	CLJ_ROOTS_NONE;
 	clj_value tail = args[n - 1];
 	clj_value r = clj_is_seq(tail) ? clj_retain(tail) : clj_seq(tail);
 	if (r == CLJ_THROWN) return CLJ_THROWN;
@@ -585,6 +594,7 @@ static clj_value b_list_star(const clj_value *args, size_t n) {
 }
 
 clj_value clj_empty_p(clj_value v) {
+	CLJ_ROOTS_NONE;
 	clj_value s = clj_seq(v);
 	if (s == CLJ_THROWN) return CLJ_THROWN;
 	clj_release(s);
@@ -597,6 +607,7 @@ static clj_value b_second(const clj_value *args, size_t n) {
 	(void)n;
 	clj_value rest = clj_next(args[0]);
 	if (rest == CLJ_THROWN) return CLJ_THROWN;
+	CLJ_ROOTS(&rest);
 	clj_value r = clj_first(rest);
 	clj_release(rest);
 	return r;
@@ -608,6 +619,7 @@ static clj_value b_last(const clj_value *args, size_t n) {
 	if (s == CLJ_THROWN) return CLJ_THROWN;
 	clj_seq_iter it = clj_seq_iter_start(s);
 	clj_value    item, last = CLJ_NIL;
+	CLJ_ROOTS(&s, &it.held, &it.item, &last);
 	// An item the iterator owns dies at the next step, so each one is retained as it arrives.
 	while (clj_seq_iter_next(&it, &item)) {
 		clj_retain(item);
@@ -622,8 +634,10 @@ static clj_value b_last(const clj_value *args, size_t n) {
 	return last;
 }
 
+// keep arrives after the walk, which is clj_seq_items' own.
 static clj_value b_butlast(const clj_value *args, size_t n) {
 	(void)n;
+	CLJ_ROOTS_NONE;
 	size_t     count;
 	clj_value  keep;
 	clj_value *items = clj_seq_items(args[0], &count, &keep);
@@ -640,6 +654,7 @@ static clj_value b_reverse(const clj_value *args, size_t n) {
 	if (s == CLJ_THROWN) return CLJ_THROWN;
 	clj_seq_iter it = clj_seq_iter_start(s);
 	clj_value    item, r = clj_list_empty();
+	CLJ_ROOTS(&s, &it.held, &it.item, &r);
 	while (clj_seq_iter_next(&it, &item)) {
 		clj_value c = clj_list_new(item, r);
 		clj_release(r);
@@ -659,7 +674,9 @@ static clj_value b_sequence_xform(const clj_value *args, size_t n) {
 }
 
 // rseq of a vector? value: an O(1) view of the core vector; any other IPersistentVector is reversed eagerly.
+// The seq of the list b_reverse made runs nothing.
 static clj_value b_rvec_seq(const clj_value *args, size_t n) {
+	CLJ_ROOTS_NONE;
 	if (clj_is_vector(args[0])) {
 		uint32_t count = clj_vector_count(args[0]);
 		return count ? clj_rvector_seq_new(args[0], count - 1) : CLJ_NIL;
@@ -685,6 +702,7 @@ static clj_value into(const clj_value *args, size_t n) {
 	// reify of that interface alone has.
 	if (clj_is_ptr(args[1]) && clj_proto_reduce_is_user(clj_type_of(args[1]))) {
 		clj_value step = clj_fn_native(CLJ_NIL, into_step, 2, 2);
+		CLJ_ROOTS(&step);
 		clj_value r = clj_reduce(step, args[0], args[1]);
 		clj_release(step);
 		return r;
@@ -693,7 +711,12 @@ static clj_value into(const clj_value *args, size_t n) {
 	if (s == CLJ_THROWN) return CLJ_THROWN;
 	clj_seq_iter it = clj_seq_iter_start(s);
 	clj_value    item, r = clj_retain(args[0]);
-	while (r != CLJ_THROWN && clj_seq_iter_next(&it, &item)) r = clj_conj(r, item);
+	CLJ_ROOTS(&s, &it.held, &it.item, &r);
+	while (r != CLJ_THROWN && clj_seq_iter_next(&it, &item)) {
+		clj_value acc = r;
+		r = CLJ_NIL;
+		r = clj_conj(acc, item);
+	}
 	clj_seq_iter_close(&it);
 	clj_release(s);
 	if (it.thrown) {
@@ -725,11 +748,13 @@ static clj_value b_persistent(const clj_value *args, size_t n) {
 }
 
 static clj_value b_reduce(const clj_value *args, size_t n) {
+	CLJ_ROOTS_NONE;
 	return n == 3 ? clj_reduce(args[0], args[1], args[2]) : clj_reduce(args[0], CLJ_UNBOUND, args[1]);
 }
 
 static clj_value b_reduce_kv(const clj_value *args, size_t n) {
 	(void)n;
+	CLJ_ROOTS_NONE;
 	return clj_reduce_kv(args[0], args[1], args[2]);
 }
 
@@ -1344,16 +1369,18 @@ clj_value clj_str_owned(clj_value s, clj_value x) {
 static clj_value b_str_join(const clj_value *args, size_t n) {
 	(void)n;
 	buf       b = {0}, sep = {0};
-	clj_value tail = CLJ_THROWN;
+	clj_value tail = CLJ_THROWN, x = CLJ_NIL;
+	CLJ_ROOTS(&tail, &x);
 	if (!put_str(&sep, args[0])) goto fail;
 	tail = clj_seq(args[1]);
 	if (tail == CLJ_THROWN) goto fail;
 	for (bool first = true; !clj_is_nil(tail); first = false) {
 		if (!first) buf_put(&b, sep.data, sep.len);
-		clj_value x = clj_first(tail);
+		x = clj_first(tail);
 		if (x == CLJ_THROWN) goto fail;
 		bool put = put_str(&b, x);
 		clj_release(x);
+		x = CLJ_NIL;
 		if (!put) goto fail;
 		clj_value nx = clj_next(tail);
 		if (nx == CLJ_THROWN) goto fail;
@@ -1375,15 +1402,16 @@ fail:
 // @ai-generated(solo)
 static clj_value b_str_escape(const clj_value *args, size_t n) {
 	(void)n;
-	clj_value   s = args[0], cmap = args[1];
+	clj_value   s = args[0], cmap = args[1], r = CLJ_NIL;
 	const char *bytes = CLJ_STR(s).bytes;
 	size_t      len = clj_string_len(s);
 	buf         b = {0};
+	CLJ_ROOTS(&r);
 	for (size_t pos = 0; pos < len;) {
 		uint32_t  cp;
 		size_t    w = clj_utf8_decode(bytes, len, pos, &cp);
 		clj_value ch = clj_char(cp);
-		clj_value r = clj_invoke(cmap, &ch, 1);
+		r = clj_invoke(cmap, &ch, 1);
 		if (r == CLJ_THROWN) {
 			free(b.data);
 			return CLJ_THROWN;
@@ -1392,6 +1420,7 @@ static clj_value b_str_escape(const clj_value *args, size_t n) {
 		if (clj_truthy(r)) put = put_str(&b, r);
 		else buf_put(&b, bytes + pos, w);
 		clj_release(r);
+		r = CLJ_NIL;
 		if (!put) {
 			free(b.data);
 			return CLJ_THROWN;
@@ -1432,7 +1461,7 @@ static clj_value b_identity(const clj_value *args, size_t n) {
 	return clj_retain(args[0]);
 }
 
-static clj_value b_apply(const clj_value *args, size_t n) { return clj_apply(args[0], args + 1, n - 1); }
+static clj_value b_apply(const clj_value *args, size_t n) { CLJ_ROOTS_NONE; return clj_apply(args[0], args + 1, n - 1); }
 
 // ---- vars
 
@@ -1449,6 +1478,7 @@ static clj_value core_method_n(const char *name, const clj_value *args, size_t n
 	clj_release(sym);
 	if (clj_is_nil(var) || !clj_var_is_bound(var)) return CLJ_UNBOUND;
 	clj_value f = clj_var_deref(var);
+	CLJ_ROOTS(&f);
 	clj_value r = clj_invoke(f, args, n);
 	clj_release(f);
 	return r;
@@ -1500,9 +1530,11 @@ static clj_value b_vswap_take(const clj_value *args, size_t n) {
 	}
 	clj_value cur = b_deref(&vol, 1);
 	if (cur == CLJ_THROWN) return cur;
+	CLJ_ROOTS(&cur);
 	clj_value in[2] = {cur, x};
 	clj_value r = clj_invoke(f, in, 2);
 	clj_release(cur);
+	cur = CLJ_NIL;
 	if (r == CLJ_THROWN) return r;
 	clj_value both[2] = {vol, r};
 	clj_value out = b_vreset(both, 2);
@@ -1548,7 +1580,9 @@ static clj_value b_reset_meta(const clj_value *args, size_t n) {
 }
 
 // A namespace's meta is written under the namespace lock, so f runs once and a concurrent alter-meta! is lost.
+// The meta it passes is the namespace's, borrowed.
 static clj_value ns_alter_meta(clj_value ns, clj_value f, const clj_value *args, size_t n) {
+	CLJ_ROOTS_NONE;
 	clj_value  small[8];
 	clj_value *call = n + 1 <= sizeof small / sizeof *small ? small : malloc((n + 1) * sizeof *call);
 	if (!call) clj_fatal("out of memory");
@@ -1575,6 +1609,7 @@ static clj_value b_alter_meta(const clj_value *args, size_t n) {
 	if (!clj_is_var(args[0])) {
 		if (clj_is_instance(args[0])) {
 			clj_value call[3] = {args[0], args[1], clj_list_from_array(args + 2, n - 2)};
+			CLJ_ROOTS(&call[2]);
 			clj_value r = core_method_n("-alter-meta!", call, 3);
 			clj_release(call[2]);
 			if (r != CLJ_UNBOUND) return r;

@@ -7,6 +7,7 @@
 #include "clj/list.h"
 #include "clj/reduce.h"
 #include "clj/set.h"
+#include "roots_internal.h"
 
 static void set_each_child(void *self, clj_visitor visit, void *ctx) {
 	visit(((clj_set *)self)->impl.v, ctx);
@@ -114,10 +115,11 @@ static clj_value set_lookup(clj_value self, clj_value key, clj_value not_found) 
 	return clj_retain(clj_set_get(self, key, not_found));
 }
 
-static bool reduce_item(clj_value item, void *ctx) { return clj_reducer_step(ctx, item); }
+static bool reduce_item(clj_value item, void *ctx) { CLJ_ROOTS_NONE; return clj_reducer_step(ctx, item); }
 
 static clj_value set_reduce(clj_value self, clj_value f, clj_value init) {
 	clj_reducer r = clj_reducer_start(f, init, 2);
+	CLJ_ROOTS(&r.acc);
 	clj_set_each(self, reduce_item, &r);
 	return clj_reducer_finish(&r);
 }

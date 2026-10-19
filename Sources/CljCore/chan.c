@@ -23,6 +23,7 @@
 #include "clj/vector.h"
 #include "cc_internal.h"
 #include "coro_internal.h"
+#include "roots_internal.h"
 
 // ---- the buffer spec
 
@@ -219,6 +220,7 @@ clj_value clj_chan_new_xform(clj_value buf_or_n, clj_value xform, clj_value ex_h
 	if (kind == CLJ_BUF_NONE) return clj_throw_msg("chan: buffer must be supplied when transducer is");
 	if (!clj_has_core(xform, CLJ_CORE_FN)) return clj_throw_msg("chan expects a transducer fn, got: %s", clj_type_name(xform));
 	if (!clj_is_nil(ex_handler) && !clj_has_core(ex_handler, CLJ_CORE_FN)) return clj_throw_msg("chan expects an ex-handler fn, got: %s", clj_type_name(ex_handler));
+	CLJ_ROOTS_NONE;
 	clj_value add_fn = clj_invoke(xform, &chan_rf, 1);
 	if (add_fn == CLJ_THROWN) return CLJ_THROWN;
 	if (!clj_has_core(add_fn, CLJ_CORE_FN)) {
@@ -533,8 +535,10 @@ static void step_failed(clj_chan *ch) {
 		return;
 	}
 	clj_value ex = clj_take_pending();
+	CLJ_ROOTS(&ex);
 	clj_value r = clj_invoke(ch->ex_handler.v, &ex, 1);
 	clj_release(ex);
+	ex = CLJ_NIL;
 	if (r == CLJ_THROWN) {
 		clj_coro_report_uncaught(c);
 		clj_coro_drop_pending(c);
@@ -546,6 +550,7 @@ static void step_failed(clj_chan *ch) {
 
 // True when the transducer said reduced: the channel is then aborted.
 static bool step_add(clj_chan *ch, clj_value chv, clj_value v) {
+	CLJ_ROOTS_NONE;
 	clj_value args[2] = {chv, v};
 	clj_value r = clj_invoke(ch->add_fn.v, args, 2);
 	if (r == CLJ_THROWN) {
@@ -560,6 +565,7 @@ static bool step_add(clj_chan *ch, clj_value chv, clj_value v) {
 static void step_complete(clj_chan *ch, clj_value chv) {
 	if (ch->completed) return;
 	ch->completed = true;
+	CLJ_ROOTS_NONE;
 	clj_value r = clj_invoke(ch->add_fn.v, &chv, 1);
 	if (r == CLJ_THROWN) step_failed(ch);
 	else clj_release(r);
@@ -707,7 +713,9 @@ static clj_value pending_error(bool puts) {
 	return clj_throw_msg("No more than %d pending %s are allowed on a single channel.", CLJ_CHAN_MAX_PENDING, puts ? "puts" : "takes");
 }
 
+// The value it parks with is its queue node's, an edge of the channel.
 clj_value clj_chan_put(clj_value chv, clj_value v) {
+	CLJ_ROOTS_NONE;
 	if (chan_arg(chv, ">!") == CLJ_THROWN) return CLJ_THROWN;
 	if (clj_is_nil(v)) return clj_throw_msg("Can't put nil on channel");
 	if (!clj_park_allowed()) return CLJ_THROWN;
@@ -739,6 +747,7 @@ clj_value clj_chan_put(clj_value chv, clj_value v) {
 
 // uncancellable: a scope's join, which must outlast its own cancellation.
 static clj_value chan_take(clj_value chv, bool uncancellable) {
+	CLJ_ROOTS_NONE;
 	if (chan_arg(chv, "<!") == CLJ_THROWN) return CLJ_THROWN;
 	if (!uncancellable && !clj_park_allowed()) return CLJ_THROWN;
 	clj_chan   *ch = chan_of(chv);
@@ -801,6 +810,7 @@ clj_value clj_chan_poll(clj_value chv) {
 // ---- put! and take! with callbacks
 
 static void callback_now(clj_value fn, clj_value v, bool on_caller) {
+	CLJ_ROOTS_NONE;
 	if (clj_is_nil(fn)) return;
 	if (on_caller) {
 		clj_value r = clj_invoke(fn, &v, 1);
@@ -970,7 +980,9 @@ static clj_value check_ports(clj_value ports, uint32_t n) {
 }
 
 // One waiter in every port's queue; the paired claim decides the winner, the continuation moves to whoever won.
+// It lends the ports through its waiter (cc.c reads them); the values it puts are its queue nodes'.
 clj_value clj_chan_alts(clj_value ports, clj_value opts) {
+	CLJ_ROOTS_NONE;
 	if (!clj_is_vector(ports)) return clj_throw_msg("alts! expects a vector of ports, got: %s", clj_type_name(ports));
 	uint32_t n = clj_vector_count(ports);
 	if (n == 0) return clj_throw_msg("alts! must have at least one channel operation");
@@ -1145,10 +1157,12 @@ clj_value clj_chan_deref_timeout(clj_value chv, int64_t ms, clj_value timeout_va
 	clj_value items[2] = {chv, t};
 	clj_value ports = clj_vector_from_array(items, 2);
 	clj_value opts = clj_map_assoc(clj_map_empty(), kw_priority, CLJ_TRUE);
+	CLJ_ROOTS(&t, &ports, &opts);
 	clj_value r = clj_chan_alts(ports, opts);
 	clj_release(opts);
 	clj_release(ports);
 	clj_release(t);
+	t = ports = opts = CLJ_NIL;
 	if (r == CLJ_THROWN) return CLJ_THROWN;
 	clj_value port = clj_vector_nth(r, 1), v = clj_retain(clj_vector_nth(r, 0));
 	bool      won = port == chv;
@@ -1232,7 +1246,9 @@ struct thread_job {
 // Runs on a blocking-pool thread as its implicit coroutine, with the spawner's bindings conveyed. The channel
 // holds the implicit coroutine while the body runs, so cancel! reaches it; the flag is reset for the thread's
 // next job.
+// A thread's own execution, which no collection judges.
 static void thread_run(void *ctx) {
+	CLJ_ROOTS_NONE;
 	thread_job *j = ctx;
 	clj_coro   *c = clj_coro_current();
 	clj_chan   *ch = chan_of(j->chv);
@@ -1479,14 +1495,19 @@ static clj_value b_alts(const clj_value *args, size_t n) {
 	clj_value opts = n > 1 ? args[1] : CLJ_NIL;
 	if (clj_is_vector(args[0]) || !clj_has_core(args[0], CLJ_CORE_SEQUENTIAL)) return point(clj_chan_alts(args[0], opts));
 	clj_value ports = clj_vector_empty();
-	for (clj_value s = clj_seq(args[0]); !clj_is_nil(s);) {
+	clj_value s = clj_seq(args[0]);
+	CLJ_ROOTS(&s, &ports);
+	while (!clj_is_nil(s)) {
 		clj_value x = s == CLJ_THROWN ? CLJ_THROWN : clj_first(s);
 		if (x == CLJ_THROWN) {
 			if (s != CLJ_THROWN) clj_release(s);
 			clj_release(ports);
+			s = ports = CLJ_NIL;
 			return CLJ_THROWN;
 		}
-		ports = clj_vector_conj(ports, x);
+		clj_value acc = ports;
+		ports = CLJ_NIL;
+		ports = clj_vector_conj(acc, x);
 		clj_release(x);
 		clj_value next = clj_next(s);
 		clj_release(s);

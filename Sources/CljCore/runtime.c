@@ -36,6 +36,7 @@
 #include "ice_internal.h"
 #include "coro_internal.h"
 #include "load_internal.h"
+#include "roots_internal.h"
 
 static pthread_once_t init_once = PTHREAD_ONCE_INIT;
 
@@ -345,6 +346,7 @@ void clj_set_output(clj_output_fn fn, void *ctx) {
 }
 
 static void enqueue_output(const char *bytes, size_t len) {
+	CLJ_ROOTS_NONE;
 	pthread_once(&out_once, start_writer);
 	chunk *c = malloc(sizeof *c);
 	if (!c) clj_fatal("out of memory");
@@ -416,7 +418,9 @@ static clj_value core_var_value(const char *name) {
 }
 
 // #ns.Name{...} and #ns.Name[...]: the record type behind the var Name of namespace ns, as LispReader's CtorReader.
+// The reader's own form, whose walk runs nothing.
 static clj_value read_record_literal(clj_value tag, clj_value form) {
+	CLJ_ROOTS_NONE;
 	const char *text = CLJ_STR(clj_symbol_name(tag)).bytes;
 	const char *dot = strrchr(text, '.');
 	clj_value   ns_name = clj_string_new(text, (size_t)(dot - text));
@@ -455,6 +459,7 @@ clj_value clj_reader_read_tag(clj_value tag, clj_value form, void *ctx) {
 	clj_release(readers);
 	if (f == CLJ_THROWN) return CLJ_THROWN;
 	if (!clj_is_nil(f)) {
+		CLJ_ROOTS(&f);
 		clj_value r = clj_invoke(f, &form, 1);
 		clj_release(f);
 		return r;
@@ -463,6 +468,7 @@ clj_value clj_reader_read_tag(clj_value tag, clj_value form, void *ctx) {
 	if (r != CLJ_UNBOUND) return r;
 	clj_value fallback = core_var_value("*default-data-reader-fn*");
 	if (clj_is_nil(fallback)) return CLJ_UNBOUND;
+	CLJ_ROOTS(&fallback);
 	clj_value args[2] = {tag, form};
 	r = clj_invoke(fallback, args, 2);
 	clj_release(fallback);

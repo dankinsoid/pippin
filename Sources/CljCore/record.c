@@ -13,6 +13,7 @@
 #include "clj/reduce.h"
 #include "clj/var.h"
 #include "clj/vector.h"
+#include "roots_internal.h"
 
 // The bits and slots of the hash map, minus IEditableCollection: a record has no transient on the JVM either.
 #define RECORD_BITS                                                                                          \
@@ -124,21 +125,24 @@ static clj_value record_seq(clj_value self) {
 static bool reduce_entry(clj_value key, clj_value val, void *ctx) {
 	clj_value pair[2] = {key, val};
 	clj_value entry = clj_vector_from_array(pair, 2);
-	bool      more = clj_reducer_step(ctx, entry);
+	CLJ_ROOTS(&entry);
+	bool more = clj_reducer_step(ctx, entry);
 	clj_release(entry);
 	return more;
 }
 
 static clj_value record_reduce(clj_value self, clj_value f, clj_value init) {
 	clj_reducer r = clj_reducer_start(f, init, 2);
+	CLJ_ROOTS(&r.acc);
 	clj_record_each(self, reduce_entry, &r);
 	return clj_reducer_finish(&r);
 }
 
-static bool reduce_kv_entry(clj_value key, clj_value val, void *ctx) { return clj_reducer_step_kv(ctx, key, val); }
+static bool reduce_kv_entry(clj_value key, clj_value val, void *ctx) { CLJ_ROOTS_NONE; return clj_reducer_step_kv(ctx, key, val); }
 
 clj_value clj_record_reduce_kv(clj_value r, clj_value f, clj_value init) {
 	clj_reducer red = clj_reducer_start(f, init, 3);
+	CLJ_ROOTS(&red.acc);
 	clj_record_each(r, reduce_kv_entry, &red);
 	return clj_reducer_finish(&red);
 }
@@ -261,6 +265,8 @@ static clj_value record_conj(clj_value self, clj_value item) {
 		}
 		clj_seq_iter it = clj_seq_iter_start(s);
 		clj_value    entry;
+		// not acc, which each assoc hands over
+		CLJ_ROOTS(&s, &it.held, &it.item);
 		while (clj_seq_iter_next(&it, &entry) && conj_entry(clj_vector_nth(entry, 0), clj_vector_nth(entry, 1), &acc)) {
 		}
 		clj_seq_iter_close(&it);
@@ -359,6 +365,8 @@ clj_value clj_record_from_map(clj_value type, clj_value m) {
 		}
 		clj_seq_iter it = clj_seq_iter_start(s);
 		clj_value    entry;
+		// not ext, which each assoc hands over
+		CLJ_ROOTS(&s, &it.held, &it.item);
 		while (clj_seq_iter_next(&it, &entry) && take_entry(clj_vector_nth(entry, 0), clj_vector_nth(entry, 1), &c)) {
 		}
 		clj_seq_iter_close(&it);

@@ -4,6 +4,7 @@
 
 #include "clj/compare.h"
 #include "clj/core.h"
+#include "roots_internal.h"
 
 // Bytes, which is code point order for UTF-8; the JVM compares UTF-16 units instead (docs/jvm-differences.md).
 static int compare_strings(clj_value a, clj_value b) {
@@ -128,6 +129,7 @@ bool clj_compare_orders(clj_value v) {
 }
 
 bool clj_compare_with(const clj_call *call, clj_value a, clj_value b, int *out) {
+	CLJ_ROOTS_NONE;
 	if (clj_is_nil(call->f)) return clj_compare(a, b, out) != CLJ_THROWN;
 	clj_value args[2] = {a, b};
 	clj_value r = clj_call_invoke(call, args);
@@ -220,6 +222,7 @@ static clj_value *sort_by_keys(clj_value *items, size_t n, const clj_call *key, 
 	size_t    *perm = malloc(2 * n * sizeof *perm);
 	if (!keys || !perm) clj_fatal("out of memory");
 	size_t nkeys = 0;
+	CLJ_ROOTS_SPAN(&keys, &nkeys);
 	for (; nkeys < n; nkeys++) {
 		clj_value k = clj_call_invoke(key, &items[nkeys]);
 		if (k == CLJ_THROWN) break;
@@ -236,6 +239,7 @@ static clj_value *sort_by_keys(clj_value *items, size_t n, const clj_call *key, 
 		}
 	}
 	for (size_t i = 0; i < nkeys; i++) clj_release(keys[i]);
+	nkeys = 0;
 	free(keys);
 	free(perm);
 	return out;
@@ -247,6 +251,7 @@ static clj_value sort_items(clj_value coll, sort_ctx *s, const clj_call *key) {
 	// The items stay borrowed from `keep` for the whole sort: no retain per element.
 	clj_value *items = clj_seq_items(coll, &n, &keep);
 	if (!items) return CLJ_THROWN;
+	CLJ_ROOTS(&keep);
 	clj_value *sorted = items;
 	clj_value *scratch = NULL;
 	if (n > 1) {
@@ -259,9 +264,11 @@ static clj_value sort_items(clj_value coll, sort_ctx *s, const clj_call *key) {
 		}
 	}
 	clj_value out = sorted ? clj_list_from_array(sorted, n) : CLJ_THROWN;
+	CLJ_ROOTS(&out);
 	free(scratch);
 	free(items);
 	clj_release(keep);
+	keep = CLJ_NIL;
 	// `sort` is (with-meta (seq a) (meta coll)); an empty coll answers the bare () before that.
 	if (out != CLJ_THROWN && n) {
 		clj_value m = clj_meta(coll);

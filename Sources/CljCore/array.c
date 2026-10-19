@@ -9,6 +9,7 @@
 #include "clj/core.h"
 #include "clj/ice.h"
 #include "cc_internal.h"
+#include "roots_internal.h"
 
 _Static_assert(offsetof(clj_array, data) % 8 == 0, "inline elements must stay 8-aligned");
 
@@ -182,7 +183,9 @@ clj_value clj_array_clone(clj_value arr) {
 	return copy;
 }
 
+// keep arrives after the walk, which is clj_seq_items' own.
 clj_value clj_array_from_seq(clj_array_kind kind, clj_value coll) {
+	CLJ_ROOTS_NONE;
 	size_t     n = 0;
 	clj_value  keep = CLJ_NIL;
 	clj_value *items = clj_seq_items(coll, &n, &keep);
@@ -237,10 +240,13 @@ static clj_value array_seq(clj_value self) {
 static clj_value array_reduce_from(clj_value self, uint32_t i, clj_value f, clj_value init) {
 	clj_reducer r = clj_reducer_start(f, init, 2);
 	uint32_t    n = clj_array_count(self);
+	clj_value   item = CLJ_NIL;
+	CLJ_ROOTS(&r.acc, &item);
 	for (; i < n; i++) {
-		clj_value item = clj_array_get(self, i);
-		bool      more = clj_reducer_step(&r, item);
+		item = clj_array_get(self, i);
+		bool more = clj_reducer_step(&r, item);
 		clj_release(item);
+		item = CLJ_NIL;
 		if (!more) break;
 	}
 	return clj_reducer_finish(&r);

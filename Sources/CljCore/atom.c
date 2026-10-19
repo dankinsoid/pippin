@@ -14,6 +14,7 @@
 #include "clj/map.h"
 #include "clj/string.h"
 #include "clj/vector.h"
+#include "roots_internal.h"
 
 static void atom_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_atom *a = self;
@@ -94,6 +95,7 @@ static clj_value invalid_state(clj_value cause) {
 
 // false with the exception pending. Runs under the lock: the validator sees the value before anyone else.
 static bool validate_with(clj_value validator, clj_value v) {
+	CLJ_ROOTS_NONE;
 	if (clj_is_nil(validator)) return true;
 	clj_value r = clj_invoke(validator, &v, 1);
 	if (r == CLJ_THROWN) {
@@ -111,7 +113,9 @@ typedef struct {
 	bool      ok;
 } notify_ctx;
 
+// old and new are commit's.
 static bool notify_entry(clj_value key, clj_value f, void *ctx) {
+	CLJ_ROOTS_NONE;
 	notify_ctx *c = ctx;
 	clj_value   args[4] = {key, c->atom, c->old, c->new};
 	clj_value   r = clj_invoke(f, args, 4);
@@ -157,11 +161,14 @@ static bool commit(clj_value atom, clj_value new) {
 	clj_value old = value_of(a);
 	clj_slot_store_atomic(&a->h, &a->value, clj_retain(new), memory_order_seq_cst);
 	clj_value watches = clj_retain(a->watches.v);
+	CLJ_ROOTS(&old, &watches);
 	leave(a);
 	bool ok = notify(atom, watches, old, new);
 	clj_release(watches);
+	watches = CLJ_NIL;
 	clj_proto_wait_readers();
 	clj_release(old);
+	old = CLJ_NIL;
 	return ok;
 }
 
@@ -188,6 +195,7 @@ clj_value clj_atom_reset_vals(clj_value atom, clj_value value) {
 		return CLJ_THROWN;
 	}
 	clj_value old = clj_retain(value_of(a));
+	CLJ_ROOTS(&old);
 	bool      ok = commit(atom, value);
 	clj_value r = ok ? pair(old, value) : CLJ_THROWN;
 	clj_release(old);
@@ -202,23 +210,31 @@ static clj_value apply_under_lock(clj_value atom, clj_value f, const clj_value *
 	clj_value *call = nargs + 1 <= sizeof small / sizeof *small ? small : malloc((nargs + 1) * sizeof *call);
 	if (!call) clj_fatal("out of memory");
 	memcpy(call + 1, args, nargs * sizeof *call);
-	clj_call c = clj_call_prepare(f, nargs + 1);
+	clj_call  c = clj_call_prepare(f, nargs + 1);
+	clj_value new = CLJ_NIL;
+	// the old value is the atom's while f runs; the new one is this call's until it returns it
+	CLJ_ROOTS(&new);
 	if (!enter(a, op)) {
 		if (call != small) free(call);
 		return CLJ_THROWN;
 	}
 	call[0] = value_of(a);
-	clj_value new = clj_call_invoke(&c, call);
+	new = clj_call_invoke(&c, call);
 	if (call != small) free(call);
 	if (new == CLJ_THROWN || !validate_with(a->validator.v, new)) {
 		if (new != CLJ_THROWN) clj_release(new);
+		new = CLJ_NIL;
 		leave(a);
 		return CLJ_THROWN;
 	}
 	if (old) *old = clj_retain(value_of(a));
 	if (!commit(atom, new)) {
-		if (old) clj_release(*old);
+		if (old) {
+			clj_release(*old);
+			*old = CLJ_NIL;
+		}
 		clj_release(new);
+		new = CLJ_NIL;
 		return CLJ_THROWN;
 	}
 	return new;
@@ -229,7 +245,8 @@ clj_value clj_atom_swap(clj_value atom, clj_value f, const clj_value *args, size
 }
 
 clj_value clj_atom_swap_vals(clj_value atom, clj_value f, const clj_value *args, size_t nargs) {
-	clj_value old;
+	clj_value old = CLJ_NIL;
+	CLJ_ROOTS(&old);
 	clj_value new = apply_under_lock(atom, f, args, nargs, &old, "swap-vals!");
 	if (new == CLJ_THROWN) return CLJ_THROWN;
 	clj_value r = pair(old, new);
@@ -333,6 +350,7 @@ clj_value clj_atom_alter_meta(clj_value atom, clj_value f, const clj_value *args
 		return CLJ_THROWN;
 	}
 	call[0] = a->meta.v;
+	CLJ_ROOTS_NONE;
 	clj_value m = clj_invoke(f, call, nargs + 1);
 	if (call != small) free(call);
 	if (m != CLJ_THROWN && !clj_is_nil(m) && !clj_has_core(m, CLJ_CORE_MAP)) {

@@ -9,6 +9,7 @@
 
 #include "clj/core.h"
 #include "clj/hostbox.h"
+#include "roots_internal.h"
 
 // The slice's pool (NOTES "ObjC bridge"); defined on every platform so the drain needs no #ifdef.
 _Thread_local void *clj_objc_pool_token;
@@ -1026,6 +1027,7 @@ static id to_ns_array(clj_value v, unsigned depth, const char **why) {
 
 	uint32_t  filled = 0;
 	clj_value seq = clj_seq(v);
+	CLJ_ROOTS(&seq);
 	while (seq != CLJ_THROWN && !clj_is_nil(seq) && filled < n) {
 		clj_value e = clj_first(seq);
 		id        o = clj_is_nil(e) ? null_obj : to_ns_object(e, depth + 1, why);
@@ -1045,6 +1047,7 @@ static id to_ns_array(clj_value v, unsigned depth, const char **why) {
 		return *why = "the sequence threw while converting", (id)NULL;
 	}
 	clj_release(seq);
+	seq = CLJ_NIL;
 	if (filled != n) {
 		free(buf);
 		return *why = "the collection changed length while converting", (id)NULL;

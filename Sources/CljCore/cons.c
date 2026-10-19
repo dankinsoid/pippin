@@ -3,6 +3,7 @@
 #include "clj/list.h"
 #include "clj/reduce.h"
 #include "rc_internal.h"
+#include "roots_internal.h"
 
 static clj_slot *meta_slot(clj_cons *c) { return clj_meta_slot_at(c, sizeof *c); }
 
@@ -17,10 +18,11 @@ CLJ_CHILDREN_SLOTS(cons, cons_children)
 
 static clj_value cons_first(clj_value self) { return clj_retain(clj_cons_of(self)->first.v); }
 
-static clj_value cons_next(clj_value self) { return clj_seq(clj_cons_of(self)->rest.v); }
+static clj_value cons_next(clj_value self) { CLJ_ROOTS_NONE; return clj_seq(clj_cons_of(self)->rest.v); }
 
 // The tail as stored, so a lazy tail stays unrealized; a raw non-seq tail (C callers) is seq'd.
 static clj_value cons_rest(clj_value self) {
+	CLJ_ROOTS_NONE;
 	clj_value rest = clj_cons_of(self)->rest.v;
 	if (clj_is_seq(rest)) return clj_retain(rest);
 	clj_value s = clj_seq(rest);

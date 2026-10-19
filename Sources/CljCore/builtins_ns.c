@@ -4,6 +4,7 @@
 
 #include "clj/core.h"
 #include "clj/hosttype.h"
+#include "roots_internal.h"
 
 static clj_value ns_symbol_arg(const char *what, clj_value v) {
 	if (clj_is_symbol(v) && clj_is_nil(clj_symbol_ns(v))) return v;
@@ -284,13 +285,16 @@ static clj_value b_var_root(const clj_value *args, size_t n) {
 static clj_value b_alter_var_root(const clj_value *args, size_t n) {
 	clj_value root = var_root_arg("alter-var-root", args[0]);
 	if (root == CLJ_THROWN) return CLJ_THROWN;
+	clj_value v = CLJ_NIL;
+	CLJ_ROOTS(&root, &v);
 	clj_value *all = calloc(n - 1, sizeof *all);
 	if (!all) clj_fatal("out of memory");
 	all[0] = root;
 	memcpy(all + 1, args + 2, (n - 2) * sizeof *all);
-	clj_value v = clj_invoke(args[1], all, n - 1);
+	v = clj_invoke(args[1], all, n - 1);
 	free(all);
 	clj_release(root);
+	root = CLJ_NIL;
 	if (v == CLJ_THROWN) return CLJ_THROWN;
 	clj_var_bind_root(args[0], v);
 	return v;
@@ -516,8 +520,10 @@ static clj_value import_into(clj_value ns, clj_value pkg, clj_value name, clj_va
 }
 
 // (import* specs): each spec a symbol pkg.Name or a sequential (pkg Name*). The last type imported, or nil.
+// The specs are the reader's lists and vectors, whose walk runs nothing.
 static clj_value b_import_star(const clj_value *args, size_t n) {
 	(void)n;
+	CLJ_ROOTS_NONE;
 	clj_value ns = clj_ns_current(), last = CLJ_NIL;
 	clj_value specs = clj_seq(args[0]);
 	if (specs == CLJ_THROWN) return CLJ_THROWN;

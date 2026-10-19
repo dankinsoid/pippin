@@ -32,6 +32,7 @@
 #include "clj/vector.h"
 #include "cc_internal.h"
 #include "coro_internal.h"
+#include "roots_internal.h"
 
 // ---- snapshots
 
@@ -330,6 +331,7 @@ clj_value clj_instance_send(clj_value target, clj_value selector, const clj_valu
 	}
 	clj_value f = method_named(&ut->t, sel, strcspn(sel, ":"));
 	if (clj_is_nil(f)) return CLJ_UNBOUND;
+	CLJ_ROOTS(&f);
 	clj_value  small[8];
 	clj_value *call = nargs + 1 <= sizeof small / sizeof *small ? small : malloc((nargs + 1) * sizeof *call);
 	if (!call) clj_fatal("out of memory");
@@ -338,6 +340,7 @@ clj_value clj_instance_send(clj_value target, clj_value selector, const clj_valu
 	clj_value r = clj_invoke(f, call, nargs + 1);
 	if (call != small) free(call);
 	clj_release(f);
+	f = CLJ_NIL;
 	return r;
 }
 
@@ -486,6 +489,7 @@ clj_value clj_protocol_method_invoke(void *ctx, const clj_value *args, size_t n)
 	const method_ctx *m = ctx;
 	clj_value         f = impl_of(m->proto, m->idx, args[0]);
 	if (clj_is_nil(f)) return no_impl(m, args[0]);
+	CLJ_ROOTS(&f);
 	clj_value r = clj_invoke(f, args, n);
 	clj_release(f);
 	return r;
@@ -791,6 +795,7 @@ static clj_value no_core_impl(clj_value self, clj_core_method m) {
 
 // (method self rest...) through the fn the type holds for m; the type outlives the call because self does.
 static clj_value call_core(clj_value self, clj_core_method m, const clj_value *rest, size_t nrest) {
+	CLJ_ROOTS_NONE;
 	clj_value f = user_type_of(self)->core_fns[m].v;
 	if (clj_is_nil(f)) return no_core_impl(self, m);
 	clj_value args[4];
@@ -826,6 +831,7 @@ static clj_value user_next(clj_value self) {
 	if (clj_is_nil(ut->core_fns[CLJ_CM_NEXT].v) && !clj_is_nil(ut->core_fns[CLJ_CM_REST].v)) {
 		clj_value more = user_rest(self);
 		if (more == CLJ_THROWN) return more;
+		CLJ_ROOTS(&more);
 		clj_value s = clj_seq(more);
 		clj_release(more);
 		return s;
@@ -841,6 +847,7 @@ static clj_value user_count(clj_value self) {
 
 // (get x k) reaches valAt with 2 args when the fn has no 3-arity, as RT.get on the JVM; a not-found needs the 3-arity.
 static clj_value user_lookup(clj_value self, clj_value key, clj_value not_found) {
+	CLJ_ROOTS_NONE;
 	clj_value f = user_type_of(self)->core_fns[CLJ_CM_LOOKUP].v;
 	if (clj_is_nil(f)) return no_core_impl(self, CLJ_CM_LOOKUP);
 	clj_value args[3] = {self, key, not_found};
@@ -854,6 +861,7 @@ static clj_value user_conj(clj_value self, clj_value x) {
 }
 
 static clj_value user_invoke(clj_value self, const clj_value *args, size_t n) {
+	CLJ_ROOTS_NONE;
 	clj_value f = user_type_of(self)->core_fns[CLJ_CM_INVOKE].v;
 	if (clj_is_nil(f)) return no_core_impl(self, CLJ_CM_INVOKE);
 	if (!clj_fn_accepts(f, n + 1)) return clj_throw_msg("Wrong number of args (%zu) passed to: %s", n, clj_type_name(self));
@@ -898,9 +906,11 @@ static clj_value user_with_meta(clj_value self, clj_value m) {
 static clj_value user_reduce(clj_value self, clj_value f, clj_value init) {
 	clj_value seed = init == CLJ_UNBOUND ? clj_invoke(f, NULL, 0) : clj_retain(init);
 	if (seed == CLJ_THROWN) return seed;
+	CLJ_ROOTS(&seed);
 	clj_value args[2] = {f, seed};
 	clj_value r = call_core(self, CLJ_CM_REDUCE, args, 2);
 	clj_release(seed);
+	seed = CLJ_NIL;
 	if (r != CLJ_THROWN && clj_is_reduced(r)) {
 		clj_value v = clj_retain(clj_reduced_value(r));
 		clj_release(r);
@@ -1425,6 +1435,7 @@ static clj_value b_set_field(const clj_value *args, size_t n) {
 
 // A reify method: the impl closure sits in field idx of the instance it is called on.
 static clj_value trampoline_invoke(void *ctx, const clj_value *args, size_t n) {
+	CLJ_ROOTS_NONE;
 	uint32_t idx = (uint32_t)(uintptr_t)ctx;
 	if (n == 0 || !clj_is_instance(args[0]) || idx >= ((const clj_user_type *)clj_type_of(args[0]))->nfields) {
 		return clj_throw_msg("reify method called on %s", n ? clj_type_name(args[0]) : "nothing");

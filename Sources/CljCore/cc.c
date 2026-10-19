@@ -12,6 +12,7 @@
 #include "alloc.h"
 #include "cc_internal.h"
 #include "clj/coro.h"
+#include "clj/compiled.h"
 #include "clj/eval.h"
 #include "clj/ice.h"
 #include "clj/map.h"
@@ -895,19 +896,83 @@ static void frame_lent(private_walk *p, clj_value v) {
 	if (clj_is_ptr(v) && !(clj_header_of(v)->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL))) private_enter(p, clj_header_of(v));
 }
 
-// The interpreter's frames on the ring, each one's owned slots. A frame of more than 64 slots owns all of them and
-// says so with every bit: it is left out, as its count is not at hand.
+// n values at v, those whose bit is set, or every one past 64; v as the frame sees it.
+static void read_owned(private_walk *p, const clj_value *v, uint64_t owned, size_t n) {
+	if (n > 64) owned = UINT64_MAX;
+	else if (n < 64) owned &= ((uint64_t)1 << n) - 1;
+	if (!owned) return;
+	size_t           top = n > 64 ? n : 64 - (size_t)__builtin_clzll(owned);
+	const clj_value *at = clj_coro_parked_bytes(p->c, v, top * sizeof *at);
+	if (!at) return;
+	if (n > 64) {
+		for (size_t i = 0; i < n; i++) frame_owned(p, at[i]);
+		return;
+	}
+	for (uint64_t m = owned; m; m &= m - 1) frame_owned(p, at[__builtin_ctzll(m)]);
+}
+
+// Bounds only a walk of memory gone wrong: the chains are the parked execution's own.
+enum { FRAME_READS_MAX = 1 << 16 };
+
+// Owned slots, every one from 64 slots on (eval.c, slots_alloc), and the buffers of evaluations under way.
+static void read_frame(private_walk *p, const clj_frame *at, uint32_t *budget) {
+	const clj_frame *fr = clj_coro_parked_bytes(p->c, at, sizeof *fr);
+	if (!fr || !*budget) return;
+	--*budget;
+	if (fr->owned == UINT64_MAX) {
+		const clj_value *n = clj_coro_parked_bytes(p->c, fr->slots - 1, sizeof *n);
+		if (n) read_owned(p, fr->slots, UINT64_MAX, (size_t)*n);
+	} else if (fr->owned) {
+		read_owned(p, fr->slots, fr->owned, 64);
+	}
+	for (const clj_argbuf *b = fr->args; b && *budget; --*budget) {
+		const clj_argbuf *buf = clj_coro_parked_bytes(p->c, b, sizeof *buf);
+		if (!buf) return;
+		read_owned(p, buf->v, buf->owned, 64);
+		if (buf->frame) read_frame(p, buf->frame, budget);
+		b = buf->prev;
+	}
+}
+
+// A wrapped ring holds entries of returned frames below its depth: none is read (design §7, «Фаза 3», «Кольцо»).
 static void interp_frames(private_walk *p) {
 	const clj_shadow_stack *s = p->c->shadow;
-	size_t                  held = s->depth < s->mask + 1 ? s->depth : s->mask + 1;
-	for (size_t i = 0; i < held; i++) {
+	if (s->wrapped) return;
+	uint32_t budget = FRAME_READS_MAX;
+	for (size_t i = 0; i < s->depth; i++) {
 		const clj_shadow_frame *sf = clj_coro_parked_bytes(p->c, &s->frames[i], sizeof *sf);
-		const clj_frame        *fr = sf && sf->frame ? clj_coro_parked_bytes(p->c, sf->frame, sizeof *fr) : NULL;
-		if (!fr || !fr->owned || fr->owned == UINT64_MAX) continue;
-		uint32_t         top = 64 - (uint32_t)__builtin_clzll(fr->owned);
-		const clj_value *slots = clj_coro_parked_bytes(p->c, fr->slots, top * sizeof *slots);
-		if (!slots) continue;
-		for (uint64_t m = fr->owned; m; m &= m - 1) frame_owned(p, slots[__builtin_ctzll(m)]);
+		if (sf && sf->frame) read_frame(p, sf->frame, &budget);
+	}
+}
+
+// A compiled frame's array (clj_cframe): its owned slots, every one past 64.
+static void read_cframe(private_walk *p, const clj_cframe *at, size_t arr) {
+	const clj_cframe *fr = clj_coro_parked_bytes(p->c, at, sizeof *fr);
+	if (fr && arr) read_owned(p, fr->slots, fr->owned, arr);
+}
+
+// Each word an owned reference, a tagged address, or a kind and its two operands (shadow_internal.h).
+static void read_frefs(private_walk *p, const clj_frefs *fl) {
+	for (uint32_t i = 0; i < fl->n; i++) {
+		clj_value w = fl->v[i];
+		if ((w & CLJ_TAG_MASK) == CLJ_FREF_ADDR) {
+			const clj_value *v = clj_coro_parked_bytes(p->c, (const void *)(w & ~CLJ_TAG_MASK), sizeof *v);
+			if (v) frame_owned(p, *v);
+		} else if ((w == CLJ_FREF_SPAN || w == CLJ_FREF_ARRAY || w == CLJ_FREF_CFRAME) && i + 2 < fl->n) {
+			clj_value a = fl->v[i + 1], b = fl->v[i + 2];
+			i += 2;
+			if (w == CLJ_FREF_CFRAME) {
+				read_cframe(p, (const clj_cframe *)a, (size_t)clj_fixnum_val(b));
+			} else if (w == CLJ_FREF_ARRAY) {
+				read_owned(p, (const clj_value *)a, UINT64_MAX, (size_t)clj_fixnum_val(b));
+			} else {
+				clj_value *const *base = clj_coro_parked_bytes(p->c, (const void *)a, sizeof *base);
+				const size_t     *n = clj_coro_parked_bytes(p->c, (const void *)b, sizeof *n);
+				if (base && n) read_owned(p, *base, UINT64_MAX, *n);
+			}
+		} else {
+			frame_owned(p, w);
+		}
 	}
 }
 
@@ -915,8 +980,7 @@ static void interp_frames(private_walk *p) {
 static void visit_frames(graph *g, const clj_coro *c) {
 	const clj_header *seen[2 * PRIVATE_MAX_NODES] = {0}, *stack[PRIVATE_MAX_NODES];
 	private_walk      p = {.g = g, .c = c, .seen = seen, .stack = stack};
-	const clj_frefs  *fl = &c->shadow->frefs;
-	for (uint32_t i = 0; i < fl->n; i++) frame_owned(&p, fl->v[i]);
+	read_frefs(&p, &c->shadow->frefs);
 	interp_frames(&p);
 	if (c->waiter) frame_lent(&p, c->waiter->ports);
 	while (p.n) {
@@ -1237,6 +1301,21 @@ static void mark_acyclic(graph *g) {
 	stat_add(CLJ_CC_STAT_MARKED, marked);
 }
 
+#if CLJ_DEBUG
+// An overcount frees what is held (design §7, «Фаза 3», «Почему верно»); only a lost node's edges may be stale.
+static void audit_overcount(const graph *g) {
+	for (uint32_t i = 0; i < g->n; i++) {
+		if (g->nodes[i].flags & N_LOST) return;
+	}
+	for (uint32_t i = 0; i < g->n; i++) {
+		const node *nd = &g->nodes[i];
+		if (nd->internal + nd->ours > nd->count)
+			clj_ice("cc/overcount", NULL, "%u edges and %u of the collector's own into a %s of %u references", nd->internal, nd->ours, nd->h->type->name,
+			        nd->count);
+	}
+}
+#endif
+
 static int64_t run(graph *g, clj_header **roots, size_t n) {
 	for (size_t r = 0; r < n; r++) {
 		uint32_t i = find(g, roots[r]);
@@ -1246,6 +1325,9 @@ static int64_t run(graph *g, clj_header **roots, size_t n) {
 	while (g->nw) visit(g, g->work[--g->nw]);
 	judge_wakes(g);
 	if (g->shared) validate(g);
+#if CLJ_DEBUG
+	audit_overcount(g);
+#endif
 	blacken(g);
 	if (!g->shared) mark_acyclic(g);
 	int64_t freed = free_whites(g);

@@ -18,6 +18,17 @@ typedef struct {
 	uint32_t   n, cap;
 } clj_frefs;
 
+// The entries besides an owned reference, each read where it points (cc.c, read_frefs).
+
+// Tags the address of a C variable holding an owned reference or nil (roots_internal.h); no value has this tag.
+#define CLJ_FREF_ADDR ((uintptr_t)4)
+// Then the addresses of an array pointer and of its size_t length.
+#define CLJ_FREF_SPAN ((clj_value)((64 << 3) | 2))
+// Then an array and its length as a fixnum.
+#define CLJ_FREF_ARRAY ((clj_value)((65 << 3) | 2))
+// Then a clj_cframe and its array's length as a fixnum; past 64 slots every one is owned.
+#define CLJ_FREF_CFRAME ((clj_value)((66 << 3) | 2))
+
 // A ring, one per execution: past the capacity the oldest frame is overwritten, so the innermost ones survive.
 // The header is in the clj_coro: a canceller writes it while the owner is parked and its mapping may be evacuated.
 typedef struct {
@@ -38,6 +49,8 @@ typedef struct {
 	size_t            noverflow;   // the frames the guard handler collected before landing (guard.c)
 	clj_trace_frame  *overflow;    // CLJ_TRACE_MAX entries, after the frames
 	clj_frefs         frefs;
+	// A push went past the capacity: an entry below the depth may be a returned frame's, so none is read (cc.c).
+	bool              wrapped;
 #if CLJ_STATS
 	void             *census;      // the allocation census's frames of this execution (stats.c), made on first use
 #endif
@@ -64,6 +77,7 @@ void clj_shadow_stack_bounds(clj_shadow_stack *s);
 static inline void clj_shadow_push(const clj_node *fn_node, const clj_node *call_site, const void *sp) {
 	clj_shadow_stack *s = clj_shadow_tls;
 	if (__builtin_expect(!s, 0)) s = clj_shadow_stack_init();
+	if (__builtin_expect(s->depth > s->mask, 0)) s->wrapped = true;
 	s->frames[s->depth & s->mask] = (clj_shadow_frame){fn_node, call_site, sp, NULL};
 	s->depth++;
 }

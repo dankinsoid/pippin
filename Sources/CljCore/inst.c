@@ -4,6 +4,7 @@
 
 #include "clj/core.h"
 #include "clj/inst.h"
+#include "roots_internal.h"
 
 // Date.hashCode.
 static uint32_t inst_hash(void *self) {
@@ -161,6 +162,7 @@ static clj_value b_inst_p(const clj_value *args, size_t n) {
 	if (clj_is_inst(args[0])) return CLJ_TRUE;
 	if (!clj_is_instance(args[0])) return CLJ_FALSE;
 	clj_value proto = core_root("Inst"), satisfies = core_root("satisfies?");
+	CLJ_ROOTS(&proto, &satisfies);
 	clj_value r = CLJ_FALSE;
 	if (proto != CLJ_UNBOUND && satisfies != CLJ_UNBOUND) {
 		clj_value call[2] = {proto, args[0]};
@@ -168,6 +170,7 @@ static clj_value b_inst_p(const clj_value *args, size_t n) {
 	}
 	if (proto != CLJ_UNBOUND) clj_release(proto);
 	if (satisfies != CLJ_UNBOUND) clj_release(satisfies);
+	proto = satisfies = CLJ_NIL;
 	return r;
 }
 
@@ -177,6 +180,7 @@ static clj_value b_inst_ms(const clj_value *args, size_t n) {
 	if (clj_is_instance(args[0])) {
 		clj_value f = core_root("inst-ms*");
 		if (f != CLJ_UNBOUND) {
+			CLJ_ROOTS(&f);
 			clj_value r = clj_invoke(f, args, 1);
 			clj_release(f);
 			return r;

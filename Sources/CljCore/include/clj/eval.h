@@ -41,16 +41,26 @@ extern const clj_type clj_exec_type;
 
 static inline clj_exec *clj_exec_of(clj_value v) { return (clj_exec *)clj_to_ptr(v); }
 
+// Values an evaluation in a frame holds while code that may park runs (eval.c, eval_all).
+typedef struct clj_argbuf {
+	const clj_value         *v;
+	uint64_t                 owned; // v[i] is owned where bit i is set
+	const clj_frame         *frame; // a frame no ring entry records (a fused program's), read with the buffer
+	const struct clj_argbuf *prev;
+} clj_argbuf;
+
 // Slot ownership: a fixed param and the self slot borrow from the caller's argument array, which the +0
 // convention keeps alive for the whole call; let/loop/recur/catch store owned values. `owned` has one bit
-// per slot for the first 64; a frame with more slots retains every param at entry and treats every slot
-// as owned, so a slot index >= 64 is owned by definition.
+// per slot for the first 64; a frame with 64 slots or more retains every param at entry and treats every slot
+// as owned (all bits set, its count in the word before the slots: eval.c, big_slots), so a slot index >= 64 is
+// owned by definition.
 struct clj_frame {
-	clj_value       *slots;
-	const clj_value *captured; // borrowed from the running closure; a direct fn's frame shares its definer's
-	const clj_exec  *exec;     // of the tree the running node belongs to
-	uint64_t         owned;
-	const clj_frame *outer;    // the defining frame of a direct fn body, alive for the whole call; else NULL
+	clj_value        *slots;
+	const clj_value  *captured; // borrowed from the running closure; a direct fn's frame shares its definer's
+	const clj_exec   *exec;     // of the tree the running node belongs to
+	uint64_t          owned;
+	const clj_frame  *outer;    // the defining frame of a direct fn body, alive for the whole call; else NULL
+	const clj_argbuf *args;     // the innermost buffer of its evaluations the collector reads (design §7, «Фаза 3»)
 };
 
 // Builds the table in one walk of the tree. Owned.

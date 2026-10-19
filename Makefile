@@ -1,4 +1,4 @@
-.PHONY: model-long bench-ab corpus-bench corpus-bench-plan swift-closed swift-closed-ios port-audit c-only-audit cmutex-audit park-audit slot-audit open-items open-items-audit load-asan build boot bench facts-report shake test test-pool test-ubsan test-tsan test-seeded test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint ios-probe ios-app gates gates-full
+.PHONY: model-long bench-ab corpus-bench corpus-bench-plan swift-closed swift-closed-ios port-audit c-only-audit cmutex-audit park-audit roots-audit slot-audit open-items open-items-audit load-asan build boot bench facts-report shake test test-pool test-ubsan test-tsan test-seeded test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint ios-probe ios-app gates gates-full
 
 # A test that crashes ends with its trace and a nonzero exit; the default death waits on the crash reporter, which
 # can leave the helper unkillable (NOTES.md, "Guard").
@@ -212,6 +212,10 @@ cmutex-audit:
 park-audit:
 	sh scripts/park-audit.sh
 
+# Runtime C code that runs a program's code names what it owns across it for the cycle collector (design §7, «Фаза 3»).
+roots-audit:
+	python3 scripts/roots-audit.py
+
 # A heap object's edges are slots written only through the store primitives (design §4, «Запись в слот»).
 slot-audit:
 	python3 scripts/slot-audit.py
@@ -246,11 +250,11 @@ ios-app:
 
 # @ai-generated(solo)
 gates:
-	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled fuzz shake swift-closed facts-report port-audit c-only-audit cmutex-audit park-audit slot-audit open-items-audit api-diff
+	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled fuzz shake swift-closed facts-report port-audit c-only-audit cmutex-audit park-audit roots-audit slot-audit open-items-audit api-diff
 
 # @ai-generated(solo)
 gates-full:
-	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled fuzz shake swift-closed facts-report port-audit c-only-audit cmutex-audit park-audit slot-audit open-items-audit api-diff test-isolated test-compiled-asan
+	+@sh scripts/gates.sh $(MAKE) test test-compiled corpus-compiled fuzz shake swift-closed facts-report port-audit c-only-audit cmutex-audit park-audit roots-audit slot-audit open-items-audit api-diff test-isolated test-compiled-asan
 
 # ---- the differential fuzzer (fuzz/, docs/notes/fuzzing.md)
 

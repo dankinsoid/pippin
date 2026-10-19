@@ -5,6 +5,7 @@
 #include "clj/core.h"
 #include "clj/queue.h"
 #include "clj/reduce.h"
+#include "roots_internal.h"
 
 static void queue_each_child(void *self, clj_visitor visit, void *ctx) {
 	clj_queue *q = self;
@@ -30,7 +31,9 @@ static clj_queue *queue_own(clj_value self) {
 static uint32_t rear_count(const clj_queue *q) { return clj_is_nil(q->rear.v) ? 0 : clj_vector_count(q->rear.v); }
 
 // One list of the front's items followed by the rear's: the JVM's Seq view, materialized.
+// keep arrives after the walk, which is clj_seq_items' own.
 static clj_value queue_seq(clj_value self) {
+	CLJ_ROOTS_NONE;
 	const clj_queue *q = clj_queue_of(self);
 	if (!q->count) return CLJ_NIL;
 	uint32_t rn = rear_count(q);
@@ -77,6 +80,7 @@ static clj_value queue_reduce(clj_value self, clj_value f, clj_value init) {
 	clj_seq_iter it = clj_seq_iter_start(q->front.v);
 	clj_value    item;
 	bool         go = true;
+	CLJ_ROOTS(&r.acc, &it.held, &it.item);
 	while (go && clj_seq_iter_next(&it, &item)) go = clj_reducer_step(&r, item);
 	if (it.thrown) {
 		clj_reducer_drop(&r);
@@ -119,12 +123,15 @@ static clj_queue empty_queue = {.h = {1, CLJ_FLAG_IMMORTAL, &clj_queue_type}};
 clj_value clj_queue_empty(void) { return clj_from_ptr(&empty_queue); }
 
 clj_value clj_queue_peek(clj_value self) {
+	CLJ_ROOTS_NONE;
 	const clj_queue *q = clj_queue_of(self);
 	return q->count ? clj_first(q->front.v) : CLJ_NIL;
 }
 
 clj_value clj_queue_pop(clj_value self) {
 	if (!clj_queue_of(self)->count) return self;
+	// its front is a list, a seq of conj'd items or of the rear vector, whose next runs nothing
+	CLJ_ROOTS_NONE;
 	clj_queue *q = queue_own(self);
 	clj_value  front = clj_next(q->front.v);
 	if (front == CLJ_THROWN) {

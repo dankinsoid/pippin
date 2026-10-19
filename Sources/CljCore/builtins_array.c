@@ -3,6 +3,7 @@
 
 #include "clj/array.h"
 #include "clj/core.h"
+#include "roots_internal.h"
 
 static clj_value not_an_array(const char *what, clj_value v) {
 	return clj_throw_msg("%s not supported on this type: %s", what, clj_type_name(v));
@@ -75,6 +76,7 @@ static clj_value array_ctor(clj_array_kind kind, const clj_value *args, size_t n
 	if (size < 0 || size > UINT32_MAX) return clj_throw_msg("%s-array: size out of range: %lld", name, (long long)size);
 	clj_value arr = clj_array_new(kind, (uint32_t)size);
 	if (n == 1) return arr;
+	CLJ_ROOTS(&arr);
 	if (!clj_is_seqable(args[1])) {
 		for (uint32_t i = 0; i < (uint32_t)size; i++) {
 			if (clj_array_set(arr, i, args[1]) == CLJ_THROWN) {

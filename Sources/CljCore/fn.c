@@ -18,6 +18,7 @@
 #include "clj/symbol.h"
 #include "clj/vector.h"
 #include "rc_internal.h"
+#include "roots_internal.h"
 
 CLJ_CHILDREN_INLINE void fn_children(void *self, clj_visitor visit, void *ctx) {
 	clj_fn *f = self;
@@ -44,6 +45,7 @@ static bool is_compiled_closure(const clj_fn *fn, clj_value f) {
 }
 
 static clj_value fn_invoke(clj_value f, const clj_value *args, size_t n) {
+	CLJ_ROOTS_NONE;
 	const clj_fn *fn = clj_fn_of(f);
 	if (fn->kind == CLJ_FN_CLOSURE) return clj_closure_invoke(f, args, n);
 	// Its dispatcher refuses a count itself, and its min_arity is the rest arity's, above a fixed one it may have.
@@ -278,6 +280,7 @@ bool clj_fn_accepts(clj_value f, size_t n) {
 
 clj_value clj_invoke(clj_value f, const clj_value *args, size_t n) {
 	CLJ_STAT(CLJ_STAT_INVOKE);
+	CLJ_ROOTS_NONE;
 	if (clj_is_ptr(f) && clj_type_of(f)->invoke) return clj_type_of(f)->invoke(f, args, n);
 	clj_value text = clj_pr_str_max(f, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
@@ -335,6 +338,8 @@ clj_value clj_apply(clj_value f, const clj_value *args, size_t n) {
 	memcpy(all, args, fixed * sizeof *all);
 	clj_value *spread = all + fixed;
 	bool       failed = false;
+	CLJ_ROOTS(&held, &tail);
+	CLJ_ROOTS_SPAN(&spread, &taken);
 	while (!clj_is_nil(tail) && taken < probe) {
 		clj_value x = clj_first(tail);
 		if (x == CLJ_THROWN) {
@@ -392,8 +397,10 @@ clj_value clj_apply(clj_value f, const clj_value *args, size_t n) {
 		r = clj_invoke(f, all, CLJ_NARGS_REST);
 	}
 	for (size_t i = 0; i < taken; i++) clj_release(spread[i]);
+	taken = 0;
 	if (all != local) free(all);
 	clj_release(tail);
 	clj_release(held);
+	tail = held = CLJ_NIL;
 	return r;
 }

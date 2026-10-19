@@ -80,13 +80,11 @@ extension CoreTests {
 		}
 
 		// Interpreted, dev-compiled and closed-compiled: a gap of one backend is no gap of another, so each runs all.
-		@Test(arguments: ["interp", "dev", "closed"]) func gapShapesAreCollected(backend: String) throws {
-			let defs = CoroCollectTests.gapShapes.map { $0.0 }.joined(separator: "\n")
-			if backend == "interp" { _ = try eval(defs) } else { try compiledEval(closed: backend == "closed") { _ = try eval(defs) } }
-			for (src, k) in CoroCollectTests.gapShapes {
-				let name = src.split(separator: " ")[1]
-				try abandoned("(\(name))", unwinds: k)
-			}
+		@Test(arguments: ["interp", "dev", "closed"], CoroCollectTests.gapShapes.map { $0.1 })
+		func gapShapeIsCollected(backend: String, shape: String) throws {
+			let src = CoroCollectTests.gapShapes.first { $0.1 == shape }!.0
+			if backend == "interp" { _ = try eval(src) } else { try compiledEval(closed: backend == "closed") { _ = try eval(src) } }
+			try abandoned("(\(src.split(separator: " ")[1]))", unwinds: shape)
 		}
 
 		private func reset() throws { _ = try eval("(reset! unwound nil) (reset! res-closed false) (reset! from-swift nil) (reset! alts-done nil)") }
@@ -165,6 +163,24 @@ extension CoreTests {
 			}
 			try abandoned("(cc-alts-abandon)", unwinds: "alts")
 			try abandoned("(cc-let-abandon)", unwinds: "let")
+		}
+
+		// A wrapped ring's entries are returned frames', each of which owned the channel: never read as the park's.
+		@Test func aParkAfterTheRingWrappedIsNotMisread() throws {
+			try reset()
+			_ = try eval("(defn gap-deep [n c] (if (pos? n) (let [x (identity c)] (+ 1 (gap-deep (dec n) x))) 0))")
+			let old = clj_debug_coro_ring_capacity(16)
+			defer { _ = clj_debug_coro_ring_capacity(old) }
+			let base = CoroBaseline()
+			let before = cancelledByCollection()
+			do {
+				let held = try eval("(let [c (chan)] (go (gap-deep 40 c) (reset! from-swift (<! c))) c)")
+				#expect(noneCollected(since: before))
+				_ = Value(owning: clj_chan_put(held.raw, kw("v").raw))
+				#expect(eventually { (try? eval("@from-swift")) == kw("v") })
+			}
+			#expect(cancelledByCollection() == before)
+			base.check()
 		}
 
 		// mult's loop parks on its source with no taps; the mult, the source and the loop's channel are all dropped.

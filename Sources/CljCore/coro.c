@@ -29,6 +29,7 @@
 #include "guard_internal.h"
 #include "profile_internal.h"
 #include "stats_internal.h"
+#include "roots_internal.h"
 #include "trace_internal.h"
 
 #if defined(__has_feature)
@@ -161,6 +162,7 @@ static _Atomic size_t live_coros;
 // 1 MB, not 512 KB: ASan triples the facts walk's frame, and 512 KB left a third of headroom over the
 // deepest form the corpus has (NOTES "Guard").
 static size_t         stack_size = 1024 * 1024;
+static _Atomic size_t ring_capacity = CLJ_SHADOW_CAPACITY;
 static _Atomic uint64_t switches;
 
 static void coro_each_child(void *self, clj_visitor visit, void *ctx) {
@@ -290,7 +292,7 @@ clj_coro *clj_coro_alloc(void) {
 	clj_shadow_stack *s = &c->shadow_hdr;
 	// A cached ring keeps stale frames: valid up to depth, the overflow array up to noverflow only.
 	clj_shadow_stack_arrays(s, top);
-	s->mask = CLJ_SHADOW_CAPACITY - 1;
+	s->mask = atomic_load_explicit(&ring_capacity, memory_order_relaxed) - 1;
 	s->stack_lo = (char *)base + guard;
 	s->stack_hi = top;
 	s->stack_limit = s->stack_lo + 64 * 1024;
@@ -348,6 +350,11 @@ void clj_coro_advise_stack(clj_coro *c) {
 }
 
 void clj_coro_set_stack_size(size_t bytes) { stack_size = bytes < 64 * 1024 ? 64 * 1024 : bytes; }
+
+size_t clj_debug_coro_ring_capacity(size_t cap) {
+	CLJ_ASSERT(cap && !(cap & (cap - 1)) && cap <= CLJ_SHADOW_CAPACITY, "a ring's capacity is a power of two up to CLJ_SHADOW_CAPACITY");
+	return atomic_exchange_explicit(&ring_capacity, cap, memory_order_relaxed);
+}
 
 size_t clj_coro_stack_size(void) { return stack_size; }
 
@@ -500,6 +507,8 @@ void clj_coro_switch_out(clj_coro *c) {
 void clj_coro_entry(void) {
 	clj_coro *c = clj_coro_here();
 	ASAN_FINISH(c->asan_fake);
+	// fn and args are the coroutine's slots, its edges
+	CLJ_ROOTS_NONE;
 	clj_eval_top_enter();
 	clj_recovery rec;
 	clj_recovery_push(&rec);

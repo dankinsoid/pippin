@@ -25,6 +25,7 @@
 #include "clj/verify.h"
 #include "ice_internal.h"
 #include "node.h"
+#include "roots_internal.h"
 #include "specialize_internal.h"
 
 static void *zalloc(size_t n, size_t size) {
@@ -2283,6 +2284,8 @@ static int sr_lookup(const clj_node **pp, sr_ctx *c, bool bind, uint32_t vi, boo
 	const clj_node **nf = head_is_value ? (nargs == 2 ? &n->u.invoke.args[1] : NULL) : (nargs == 2 ? &n->u.invoke.args[1] : NULL);
 	clj_value        sample = sr_sample(v), r;
 	clj_value        nfv = nf ? sr_sentinel(SR_SENT_NF) : CLJ_NIL;
+	// analysis asks a sample built for the question; it is the pass's own
+	CLJ_ROOTS_NONE;
 	if (head_is_value) {
 		clj_value args[2] = {keyn->u.value.v, nfv};
 		r = clj_invoke(sample, args, nargs);

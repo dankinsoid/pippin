@@ -8,6 +8,7 @@
 #include "clj/core.h"
 #include "clj/ice.h"
 #include "clj/regex.h"
+#include "roots_internal.h"
 #include "unicode_internal.h"
 
 // ---- input text
@@ -1785,8 +1786,10 @@ static bool expand(buf *b, clj_value re, clj_value s, const re_text *t, const in
 static bool put_replacement(buf *b, clj_value re, clj_value s, const re_text *t, const int32_t *g, clj_value repl, clj_value f) {
 	if (clj_is_nil(f)) return expand(b, re, s, t, g, repl);
 	clj_value arg = result_of(re, s, t, g);
+	CLJ_ROOTS(&arg);
 	clj_value out = clj_invoke(f, &arg, 1);
 	clj_release(arg);
+	arg = CLJ_NIL;
 	if (out == CLJ_THROWN) return false;
 	if (!clj_is_string(out)) {
 		clj_throw_msg("%s cannot be cast to a string", clj_type_name(out));

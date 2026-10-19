@@ -8,6 +8,7 @@
 #include "clj/core.h"
 #include "clj/fn.h"
 #include "clj/seq.h"
+#include "roots_internal.h"
 #include "shadow_internal.h"
 
 // The outputs of the running step, owned. Empty between realizations but after a throw, which drops them.
@@ -61,6 +62,7 @@ static clj_value drain_onto(outbuf *b, clj_value tail) {
 }
 
 static clj_value complete(clj_value xf, outbuf *b) {
+	CLJ_ROOTS_NONE;
 	clj_value nil = CLJ_NIL;
 	clj_value r = clj_invoke(xf, &nil, 1);
 	if (r == CLJ_THROWN) {
@@ -85,26 +87,30 @@ static clj_value step(clj_value self, const clj_value *captured, const clj_value
 	clj_value         xf = captured[CAP_XF];
 	outbuf           *b = outbuf_of(captured[CAP_BOTTOM]);
 	clj_shadow_stack *ring = NULL;
-	clj_value         s = clj_seq(captured[CAP_SOURCE]);
+	clj_value         s = clj_seq(captured[CAP_SOURCE]), x = CLJ_NIL;
 	if (s == CLJ_THROWN) return s;
+	CLJ_ROOTS(&s, &x);
 	for (;;) {
 		if (clj_is_nil(s)) return complete(xf, b);
-		clj_value x = clj_first(s);
+		x = clj_first(s);
 		if (x == CLJ_THROWN) return fail(b, s);
 		clj_value in[2] = {CLJ_NIL, x};
 		clj_value r = clj_invoke(xf, in, 2);
 		clj_release(x);
+		x = CLJ_NIL;
 		if (r == CLJ_THROWN) return fail(b, s);
 		bool halted = clj_is_reduced(r);
 		clj_release(r);
 		if (halted) {
 			clj_release(s);
+			s = CLJ_NIL;
 			return complete(xf, b);
 		}
 		if (b->n) {
 			clj_value rest = clj_rest(s);
 			if (rest == CLJ_THROWN) return fail(b, s);
 			clj_release(s);
+			s = CLJ_NIL;
 			const clj_value next_captured[NCAPTURED] = {xf, captured[CAP_BOTTOM], rest};
 			clj_value       cell = clj_lazy_seq_code(step, next_captured, NCAPTURED);
 			clj_release(rest);
@@ -124,6 +130,7 @@ clj_value clj_sequence_xform(clj_value xform, clj_value coll) {
 	outbuf *b = calloc(1, sizeof *b);
 	if (!b) clj_fatal("out of memory");
 	clj_value bot = clj_fn_native_ctx(CLJ_NIL, bottom, b, outbuf_free, 0, 2);
+	CLJ_ROOTS(&bot);
 	clj_value xf = clj_invoke(xform, &bot, 1);
 	if (xf == CLJ_THROWN) {
 		clj_release(bot);

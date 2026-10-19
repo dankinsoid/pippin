@@ -14,6 +14,7 @@
 #include "clj/vector.h"
 #include "alloc.h"
 #include "rc_internal.h"
+#include "roots_internal.h"
 
 enum { BITS = 5, MASK = 31 };
 
@@ -873,19 +874,21 @@ static clj_value map_seq(clj_value self) {
 
 static clj_value map_count(clj_value self) { return clj_fixnum(clj_map_count(self)); }
 
-static bool reduce_entry(clj_value key, clj_value val, void *ctx) { return clj_reducer_step_entry(ctx, key, val); }
+static bool reduce_entry(clj_value key, clj_value val, void *ctx) { CLJ_ROOTS_NONE; return clj_reducer_step_entry(ctx, key, val); }
 
 // (reduce f init map) feeds [k v] entries, one vector per entry, without the eager entry list of map_seq.
 static clj_value map_reduce(clj_value self, clj_value f, clj_value init) {
 	clj_reducer r = clj_reducer_start(f, init, 2);
+	CLJ_ROOTS(&r.acc);
 	clj_map_each(self, reduce_entry, &r);
 	return clj_reducer_finish(&r);
 }
 
-static bool reduce_kv_entry(clj_value key, clj_value val, void *ctx) { return clj_reducer_step_kv(ctx, key, val); }
+static bool reduce_kv_entry(clj_value key, clj_value val, void *ctx) { CLJ_ROOTS_NONE; return clj_reducer_step_kv(ctx, key, val); }
 
 clj_value clj_map_reduce_kv(clj_value map, clj_value f, clj_value init) {
 	clj_reducer r = clj_reducer_start(f, init, 3);
+	CLJ_ROOTS(&r.acc);
 	clj_map_each(map, reduce_kv_entry, &r);
 	return clj_reducer_finish(&r);
 }
@@ -914,7 +917,12 @@ static clj_value map_conj(clj_value self, clj_value item) {
 		}
 		clj_seq_iter it = clj_seq_iter_start(s);
 		clj_value    entry;
-		while (self != CLJ_THROWN && clj_seq_iter_next(&it, &entry)) self = clj_map_assoc(self, clj_vector_nth(entry, 0), clj_vector_nth(entry, 1));
+		CLJ_ROOTS(&s, &it.held, &it.item, &self);
+		while (self != CLJ_THROWN && clj_seq_iter_next(&it, &entry)) {
+			clj_value m = self;
+			self = CLJ_NIL;
+			self = clj_map_assoc(m, clj_vector_nth(entry, 0), clj_vector_nth(entry, 1));
+		}
 		if (self == CLJ_THROWN) {
 			clj_seq_iter_close(&it);
 			clj_release(s);

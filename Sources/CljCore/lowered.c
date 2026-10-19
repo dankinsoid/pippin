@@ -8,6 +8,7 @@
 #include "clj/reduce.h"
 #include "clj/symbol.h"
 #include "clj/var.h"
+#include "roots_internal.h"
 
 typedef struct {
 	const char *name;
@@ -67,6 +68,7 @@ static clj_value closure_of(clj_lowered *l) {
 }
 
 static clj_value entry(void *ctx, const clj_value *args, size_t n) {
+	CLJ_ROOTS_NONE;
 	clj_lowered *l = ctx;
 	if (n == l->arity) return l->step(l->ctx, args, n);
 	return clj_invoke(closure_of(l), args, n);
@@ -100,6 +102,8 @@ CLJ_UNIT_ENTRY clj_value clj_lowered_call(clj_lowered_how how, clj_value *args, 
 	fn.u.native_ctx.ctx = l;
 	fn.u.native_ctx.release = NULL;
 	l->closure = CLJ_NIL;
+	// made lazily by closure_of, for a call that lets the fn escape
+	CLJ_ROOTS(&l->closure);
 	args[natives[how].at] = fn_stays(how, args, n) ? clj_from_ptr(&fn) : closure_of(l);
 	clj_value r = clj_fn_of(roots[how])->u.native.fn(args, n);
 	clj_release(l->closure);

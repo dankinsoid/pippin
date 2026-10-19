@@ -7,6 +7,7 @@
 #include "clj/record.h"
 #include "clj/vector.h"
 #include "proto_internal.h"
+#include "roots_internal.h"
 #include "shadow_internal.h"
 
 clj_reducer clj_reducer_start(clj_value f, clj_value init, size_t nargs) {
@@ -32,10 +33,18 @@ static bool take(clj_reducer *r, clj_value v, bool consumed) {
 }
 
 // args[0] is acc: a consuming rf (conj as the fn of a reduce) or a lowered literal's owned step takes the reducer's
-// own reference, so a unique accumulator is updated in place; any other fn sees it at +0.
+// own reference, so a unique accumulator is updated in place; any other fn sees it at +0. acc is named for the
+// collector by the reducer's starter (CLJ_ROOTS), so a hand-over clears it first.
 static bool step(clj_reducer *r) {
-	if (r->call.consuming) return take(r, clj_intrinsic_call_consuming(r->call.consuming, r->args), true);
-	if (r->call.owned) return take(r, r->call.owned(r->call.ctx, r->args, r->call.n), true);
+	CLJ_ROOTS_NONE;
+	if (r->call.consuming) {
+		r->acc = CLJ_NIL;
+		return take(r, clj_intrinsic_call_consuming(r->call.consuming, r->args), true);
+	}
+	if (r->call.owned) {
+		r->acc = CLJ_NIL;
+		return take(r, r->call.owned(r->call.ctx, r->args, r->call.n), true);
+	}
 	return take(r, clj_call_invoke(&r->call, r->args), false);
 }
 
@@ -63,17 +72,23 @@ bool clj_reducer_step_entry(clj_reducer *r, clj_value key, clj_value val) {
 		r->args[0] = r->acc;
 		r->args[1] = key;
 		r->args[2] = val;
-		if (r->call.split_owned) return take(r, r->call.split_owned(r->call.ctx, r->args, 3), true);
+		if (r->call.split_owned) {
+			r->acc = CLJ_NIL;
+			return take(r, r->call.split_owned(r->call.ctx, r->args, 3), true);
+		}
 		return take(r, r->call.split(r->call.ctx, r->args, 3), false);
 	}
 	clj_value pair[2] = {key, val};
 	clj_value entry = clj_vector_from_array(pair, 2);
-	bool      more = clj_reducer_step(r, entry);
+	CLJ_ROOTS(&entry);
+	bool more = clj_reducer_step(r, entry);
 	clj_release(entry);
 	return more;
 }
 
+// The empty walk's (f) holds nothing: acc is the reducer's unbound start.
 clj_value clj_reducer_finish(clj_reducer *r) {
+	CLJ_ROOTS_NONE;
 	clj_value acc = r->acc;
 	r->acc = CLJ_NIL;
 	return acc == CLJ_UNBOUND ? clj_invoke(r->call.f, NULL, 0) : acc;
@@ -84,13 +99,17 @@ void clj_reducer_drop(clj_reducer *r) {
 	r->acc = CLJ_NIL;
 }
 
-clj_value clj_reduce_empty(clj_value f, clj_value init) { return init == CLJ_UNBOUND ? clj_invoke(f, NULL, 0) : clj_retain(init); }
+clj_value clj_reduce_empty(clj_value f, clj_value init) {
+	CLJ_ROOTS_NONE;
+	return init == CLJ_UNBOUND ? clj_invoke(f, NULL, 0) : clj_retain(init);
+}
 
 clj_value clj_reduce_iter(clj_value coll, clj_value f, clj_value init) {
 	if (clj_deadline_tick()) return CLJ_THROWN;
 	clj_reducer  r = clj_reducer_start(f, init, 2);
 	clj_seq_iter it = clj_seq_iter_start(coll);
 	clj_value    item;
+	CLJ_ROOTS(&r.acc, &it.held, &it.item);
 	while (clj_seq_iter_next(&it, &item)) {
 		if (!clj_reducer_step(&r, item)) {
 			clj_seq_iter_close(&it);
@@ -110,6 +129,7 @@ clj_value clj_reduce(clj_value f, clj_value init, clj_value coll) {
 	if (t && t->reduce) return t->reduce(coll, f, init);
 	clj_value s = clj_seq(coll);
 	if (s == CLJ_THROWN) return s;
+	CLJ_ROOTS(&s);
 	clj_value r = clj_is_nil(s) ? clj_reduce_empty(f, init) : clj_type_of(s)->reduce ? clj_type_of(s)->reduce(s, f, init) : clj_reduce_iter(s, f, init);
 	clj_release(s);
 	return r;

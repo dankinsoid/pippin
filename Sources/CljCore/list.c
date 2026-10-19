@@ -1,6 +1,7 @@
 // @ai-generated(solo)
 #include "clj/list.h"
 #include "clj/reduce.h"
+#include "roots_internal.h"
 
 static clj_slot *meta_slot(clj_header *h) { return clj_meta_slot_at(h, sizeof *h); }
 
@@ -16,6 +17,7 @@ static clj_value empty_list_count(clj_value self) {
 
 static clj_value empty_list_reduce(clj_value self, clj_value f, clj_value init) {
 	(void)self;
+	CLJ_ROOTS_NONE;
 	return clj_reduce_empty(f, init);
 }
 
@@ -90,6 +92,7 @@ size_t clj_list_count(clj_value list) {
 	size_t       n = 0;
 	clj_seq_iter it = clj_seq_iter_start(list);
 	clj_value    item;
+	CLJ_ROOTS(&it.held, &it.item);
 	while (clj_seq_iter_next(&it, &item)) n++;
 	return n;
 }

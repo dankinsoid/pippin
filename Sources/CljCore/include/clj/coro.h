@@ -49,6 +49,9 @@ void   clj_coro_set_stack_size(size_t bytes);
 size_t clj_coro_stack_size(void);
 // Physical footprint of the process in bytes (Apple: phys_footprint), for the parked-coroutine measurement.
 size_t clj_debug_phys_footprint(void);
+// Test hook: the shadow ring's capacity of coroutines spawned from now on, a power of two up to
+// CLJ_SHADOW_CAPACITY; returns the one before.
+size_t clj_debug_coro_ring_capacity(size_t cap);
 
 // Evacuation of cold parked coroutines (design §4, NOTES "Coroutines"): the sweep's period, 0 off; a coroutine
 // found parked in the same park by two passes is evacuated. CLJ_EVAC_SWEEP_MS sets the default (250).
