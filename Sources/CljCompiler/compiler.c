@@ -2670,8 +2670,10 @@ static bool emit_frefs_push_with(fnctx *f, const clj_node *call, const temp *arg
 		if (t->own == OWN_YES) sb_printf(&list, "\t\tFv[%u] = %s;\n", k++, t->name);
 		else if (t->own == OWN_DYN) sb_printf(&list, "\t\tFv[%u] = %s ? %s : CLJ_NIL;\n", k++, t->flag, t->name);
 	}
+	// a split's fast branch shadows a slot it types with an int64_t or a double l<i>
+	uint64_t vars = f->bound & f->vars_owned & ~f->ints & ~f->dbls;
 	for (uint32_t i = 0; i < 64; i++) {
-		if (((f->bound & f->vars_owned) >> i) & 1) sb_printf(&list, "\t\tFv[%u] = l%u;\n", k++, i);
+		if ((vars >> i) & 1) sb_printf(&list, "\t\tFv[%u] = l%u;\n", k++, i);
 	}
 	refs = k;
 	if (f->arr_owned) {
