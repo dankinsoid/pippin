@@ -183,31 +183,19 @@
   of the screen with its `require-c` parse on the compile's load path, and the stubs as above: `swift-closed.sh ios`
   runs every piece, but outside a bundle. Trigger: the first screen that requires a Swift module, or the App Store
   build of design §10.
-- [~] **No device run, and the only thing still missing is a profile.** The bundle exists now, installs and
-  launches on the simulator (above); the device slice of the same `.app` comes out of
-  `sh scripts/ios-app.sh <mode> iphoneos` unsigned, and `sign_device` there embeds a profile, takes the
-  entitlements from it as Xcode does and signs, so the run is three commands once there is one. On this machine:
-  the identity **Apple Development: Danil Voidilov (E4VXARX5DQ)**, team 4733T56UZW, valid to 2027-02-27, and
-  three paired devices (`xcrun devicectl list devices`) — an iPhone 16 on 26.6.1, an iPad (A16) on 18.6.2, an
-  iPhone 15 Pro on 26.2. Not on it: any profile for `dev.pippin.app`. All 45 local profiles belong to the work
-  team 79WNND69Y6, each for a fixed `app.tabby.*` id and none a wildcard, so not one of them can sign this
-  bundle. What the user must authorize, in order, and what this work deliberately did not touch:
-  1. the App ID `dev.pippin.app` (or a wildcard one) under team 4733T56UZW;
-  2. the target device's UDID in that team — iPhone 16 `00008140-000C64620ABA801C`, iPad
-     `00008120-0008588001E00032`;
-  3. an iOS App Development profile over that App ID, that device and that certificate, downloaded to a file;
-  4. Developer Mode on the device (Settings → Privacy & Security), which iOS 16 and later demand before any
-     development-signed app runs.
-  Then, with nothing further to authorize: `CLJ_APP_PROFILE=<file> CLJ_APP_IDENTITY='Apple Development: Danil
-  Voidilov (E4VXARX5DQ)' sh scripts/ios-app.sh interpreted iphoneos`, `xcrun devicectl device install app
-  --device <udid> <app>`, `xcrun devicectl device process launch --console --device <udid> dev.pippin.app`.
-  Xcode's automatic signing with a personal team does 1–3 by itself, at the price of a seven-day profile and of
-  letting Xcode register the id and the device — the same authorization, asked differently.
-  The `DeviceSupport` ceiling is probably not in the way: that directory (16.4 under Xcode 26.3) is the
-  pre-CoreDevice debugging path, and an iOS 17 or later device is served by the personalized DDI at
-  `/Library/Developer/DeveloperDiskImages/iOS_DDI`, which is this Xcode's own (build 17C529). Unconfirmed until
-  the run, like everything else here. The arm64 simulator is closer to a device than it looks: `getpagesize()`
-  is 16384 there, the device's value, not the 4 KB of an x86_64 host (`docs/portability.md`, "The page size"),
-  and a third-party app is arm64, not arm64e, so `trace.c`'s PAC stripping is identity in both. What is left for
-  the device is jetsam under real pressure and the real clock. Trigger: an App ID, a registered device and a
-  profile for `dev.pippin.app`, which only the owner of the account can make.
+- **The device run** (2026-10-19, iPhone 16, iOS 26.6.1). Signed with the team's Xcode wildcard profile
+  (`4733T56UZW.*`, the device in it): `sign_device` takes a wildcard profile and writes the bundle's id into the
+  `application-identifier` entitlement, as Xcode does. Then `CLJ_APP_PROFILE=<file> CLJ_APP_IDENTITY='Apple
+  Development: Danil Voidilov (E4VXARX5DQ)' sh scripts/ios-app.sh <mode> iphoneos`, `xcrun devicectl device install
+  app --device <udid> <app>` and `xcrun devicectl device process launch --console --device <udid> dev.pippin.app`
+  (the first install met a CoreDevice "connection reset by peer"; the retry went through). Developer Mode is on.
+  Both modes mount the screen, take three taps and the `go` on the main queue, and print the footprint:
+
+  | mode | executable | before `clj_init` | after boot | after screen.clj | screen up |
+  |---|---:|---:|---:|---:|---:|
+  | compiled | 4,927,392 B | 1,440 KB | 3,136 KB | 4,064 KB | 10,400 KB |
+  | interpreted | 1,548,576 B | 1,456 KB | 10,896 KB | 12,816 KB | 18,304 KB |
+
+  The compiled core's boot is +1.7 MB against the interpreter's +9.4 MB (the trees the interpreter builds); the
+  screen's UIKit share is the same ~6 MB in both. Not measured yet: launch time to the first frame, energy, jetsam
+  under pressure (design §10, "Энергия на устройстве до стора").

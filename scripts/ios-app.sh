@@ -61,6 +61,11 @@ sign_device() {
 	appid=$(plutil -extract application-identifier raw -o - "$WORK/entitlements.plist")
 	case $appid in
 	*".$BUNDLE_ID") ;;
+	*".*")
+		# A wildcard profile signs any id; the entitlement names the bundle, as Xcode writes it.
+		appid="${appid%\*}$BUNDLE_ID"
+		plutil -replace application-identifier -string "$appid" "$WORK/entitlements.plist"
+		;;
 	*)
 		echo "  profile is for $appid, bundle is $BUNDLE_ID" >&2
 		exit 2
