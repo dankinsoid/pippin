@@ -79,9 +79,7 @@
   `MultiFn.prefers` walks the *multimethod's* hierarchy, where Clojure's walks the global one whatever
   the multimethod's `:hierarchy` says (a JVM quirk, not a documented rule);
   `rand` is SplitMix64 seeded per thread from the id counter; `upper-case`/`lower-case`/`capitalize`
-  stringify any non-nil argument (`(str/lower-case :a)` is `":a"`) and map ASCII letters only — trigger for
-  Unicode case tables: a corpus test on a non-ASCII case change, which needs the full SpecialCasing data,
-  not a range table; `subs`/`index-of` count code points where
+  stringify any non-nil argument (`(str/lower-case :a)` is `":a"`); `subs`/`index-of` count code points where
   Java counts UTF-16 units; `clojure.string/split` also takes a literal string or char, where Clojure's takes
   only a pattern (the deviation keeps the literal fast path of builtins_string.c: no matcher and no code point
   array for the common separator); a map entry is a two-element vector, so `(key [1 2])`

@@ -44,11 +44,6 @@
    :cite "дифференциальный фаззер исключает из сравнения с JVM строки вне BMP"
    :why "A generated form whose text holds a character outside the BMP is not compared (`astral-form?`): an index counts code points here and UTF-16 units on the JVM. The literal pools are BMP today, so this guards their widening; fuzz/regressions/strings-unicode.clj compares the astral forms whose answers agree."}
 
-  {:id :ascii-only
-   :mechanism :generator
-   :row "`upper-case`/`lower-case`/`capitalize` and a pattern's `(?i)`, `\\w`, `\\p{L}` map ASCII letters only"
-   :why "String and character literals are ASCII, so the missing Unicode case and category data cannot show."}
-
   {:id :no-regex
    :mechanism :generator
    :row "Two patterns with the same text are `=` and hash alike, where the JVM compares `Pattern` by identity"
@@ -189,4 +184,4 @@
   {:what "decimals meeting a double or a ratio, `bigdec` of a double, `quot`/`rem` of decimals, `with-precision`"
    :why "Decimals are generated in their own :dec chain over integers, with + - * /, min, max and comparison; `bigdec` of a double can keep a trailing zero the JVM drops (NOTES \"Numeric tower\"), which a production would have to project away first."}
   {:what "strings outside ASCII, surrogate pairs, astral characters"
-   :why "Excluded by the ascii-only row above; the Unicode tables are the same missing data for case, categories and `compare`."}]}
+   :why "String and character literals are ASCII. Case and character data over every code point is fuzz/regressions/strings-unicode-case.clj's, the index units fuzz/regressions/strings-unicode.clj's."}]}

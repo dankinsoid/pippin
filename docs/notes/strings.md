@@ -27,6 +27,13 @@
 - **Malformed bytes** (the reader does not validate UTF-8, NOTES "Reader") count by one rule: a code point starts at
   every byte that is not `10xxxxxx`. `clj_utf8_decode` still reads its lead byte's length, so a truncated sequence
   decodes from bytes the next boundary also claims.
+- **Case mapping keeps the ASCII path it had** (builtins_string.c `map_case`): a string with `CLJ_STRING_ASCII`
+  maps bytes and never reaches unicode.c, and one that maps to itself is returned as it is, as
+  `String.toUpperCase` returns `this`. Any other string goes through `clj_uc_upper_utf8`/`lower_utf8` (NOTES
+  "Unicode data"), which keep the unchanged prefix and change the byte length where the mapping does (`ß` → `SS`,
+  `ı` → `I`, `Ⱥ` → `ⱥ`); the result is a new string from `clj_string_new`, so its ASCII bit, count, crumbs and
+  hint are those of its own bytes, never carried over. `capitalize` is `subs` and the two, and `format`'s `%S`
+  and `%C` upper-case after the precision cut and pad what that made, as `Formatter` does.
 - **Integers print through `clj_int64_decimal`** (number.c, two digits per division), not `snprintf`: the printer's
   fixnum and long arms, `str` of an integer (which no longer goes through `pr-str`), and `format`'s `%d`. Doubles
   keep the shortest-round-trip printer (`put_double`), untouched.

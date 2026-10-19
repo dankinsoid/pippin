@@ -631,6 +631,7 @@ typedef struct {
 	uint32_t at; // where the atom's instructions start
 	re_width w;
 	bool     quantifiable;
+	bool     one_node; // Java's single node with alternatives, which a quantifier never backtracks into
 	uint32_t literals; // RE_CHARs of literal characters it is made of, 0 for any other atom
 } atom;
 
@@ -738,6 +739,7 @@ static bool line_ending(comp *c, atom *a) {
 	p->inst[at].y = 4;
 	a->w.min = 1;
 	a->w.max = 2;
+	a->one_node = true;
 	return true;
 }
 
@@ -843,6 +845,7 @@ static bool parse_atom(comp *c, atom *a) {
 	a->w.min = 1;
 	a->w.max = 1;
 	a->literals = 0;
+	a->one_node = false;
 	uint16_t fl = (uint16_t)(c->flags & (RE_F_I | RE_F_S | RE_F_M | RE_F_U | RE_F_UU));
 	size_t   start = c->pos;
 	char     ch = peek(c);
@@ -1043,6 +1046,13 @@ static bool parse_concat(comp *c, re_width *w) {
 		if (!a.quantifiable) return fail(c, "Dangling meta character", c->pos);
 		bool lazy = eat(c, '?');
 		bool possessive = !lazy && eat(c, '+');
+		// Pattern's Curly and Ques match such an atom once per iteration and backtrack by count alone.
+		if (a.one_node) {
+			prog_insert(p, a.at, 1);
+			p->inst[a.at].op = RE_ATOMIC;
+			emit(p, RE_SUBEND, 0);
+			p->inst[a.at].x = (int32_t)(p->n - a.at);
+		}
 		if (!apply_quantifier(c, a.at, n, m, lazy)) return false;
 		if (possessive) {
 			prog_insert(p, a.at, 1);

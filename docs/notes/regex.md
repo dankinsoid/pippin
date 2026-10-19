@@ -22,9 +22,21 @@
   holds the loop marks an unbounded quantifier needs: `MARK`/`PROGRESS` refuse an iteration that consumed
   nothing, which is what keeps `(a*)*` from spinning. Mark slots sit past the group bounds, whose count is
   only known once the pattern is parsed, so the compiler patches their indexes at the end.
-- **Case-insensitivity is folded inside the range test**, not applied to the class's answer: `(?i)[^a]`
-  must still refuse `A`, which an OR over both cases would accept. ASCII only, as the rest of the runtime's
-  case handling is (docs/jvm-differences.md).
+- **Case-insensitivity is folded inside the item test**, not applied to the class's answer: `(?i)[^a]`
+  must still refuse `A`, which an OR over both cases would accept. `(?i)` folds ASCII, `(?iu)` (and `(?U)`) the
+  simple Unicode mappings, and each in Java's three ways, which disagree at the edges: a lone character is
+  `Pattern.single` (`(?iu)ß` refuses `ẞ`, whose upper case is itself), a character of a literal run is a slice that
+  folds both sides (`(?iu)ßa` takes `ẞA`), and in a class a Latin-1 character goes into a `BitClass` (`(?iu)[ß]`
+  refuses `ẞ`) except the ten whose case leaves Latin-1, while a range folds the input (`(?iu)[ß-ß]` takes `ẞ`).
+  `RE_SINGLE` marks a class's lone character, `RE_F_SLICE` a run's (`close_run`). A property or a predefined
+  class (`\w`, `\p{…}`) is never folded (`re_class.exact`), as Java's predicates are not; `(?i)\p{Lu}` widens
+  by name instead (NOTES "Unicode data").
+- **`\b` counts a non-spacing mark on a letter or digit as a word character even outside `(?U)`**, as
+  `Pattern.Bound` does, with its UTF-16 walk: a supplementary character before the mark stops it.
+- **`\R` is compiled, `\X` is one instruction.** `\R` becomes `\r\n` or a vertical space, the pair first, as
+  `LineEnding` backtracks; `\X` (`RE_GRAPHEME`) jumps to the cluster's end and gives none of it back, as
+  `XGrapheme` does, so it has no fixed width for a lookbehind. `(?d)` is accepted and changes nothing: the
+  matcher's only line terminator is `\n` (docs/jvm-differences.md).
 - **A negated predefined class is a nested class, a positive one is merged**: `\d` adds its ranges to the
   enclosing class, `\D` hangs off it as a sub-class with `negate`, and `&&` makes the rest of the class
   body the intersection operand, so `[a-z&&[^aeiou]]` is one recursive `class_member` call.
@@ -45,12 +57,12 @@
   digits extend it while the group exists, `${name}` names one, and a backslash quotes the next character.
   A group the pattern does not have is an error, not an empty string.
 - **The syntax the parser takes**: literals and the escapes `\\ \t \n \r \f \a \e \0nnn \xhh \x{...}
-  \uXXXX` and `\Q...\E`, `.`, classes with ranges, negation, nesting and `&&`, `\d \D \w \W \s \S \b \B`,
-  `\A \z \Z`, `^ $`, groups (capturing, `(?:)`, `(?<name>)`, `(?=) (?!) (?<=) (?<!)`, atomic `(?>)`),
-  alternation, `* + ? {n} {n,} {n,m}` greedy, lazy `?` and possessive `+`, backreferences `\1` and
-  `\k<name>`, a dozen `\p{...}` names, and the flags `i s m x` inline and scoped. Everything else is a
-  compile error naming the offset, in an `ex-info` whose data carries `:pattern` and `:offset`
-  (docs/jvm-differences.md lists what is missing).
+  \uXXXX` and `\Q...\E`, `.`, classes with ranges, negation, nesting and `&&`, `\d \D \w \W \s \S \h \H \v \V
+  \b \B \R \X`, `\A \z \Z`, `^ $`, groups (capturing, `(?:)`, `(?<name>)`, `(?=) (?!) (?<=) (?<!)`, atomic
+  `(?>)`), alternation, `* + ? {n} {n,} {n,m}` greedy, lazy `?` and possessive `+`, backreferences `\1` and
+  `\k<name>`, every `\p{...}` name `Pattern.family` resolves, and the flags `i s m x u U d` inline and scoped.
+  Everything else is a compile error naming the offset, in an `ex-info` whose data carries `:pattern` and
+  `:offset` (docs/jvm-differences.md lists what is missing).
 - **`re-seq` is a lazy seq over one matcher**, as Clojure's is, so two consumers of the same seq share its
   position; `clojure.string/split` and `replace` scan in C instead (`re-split*`, `re-replace*`), which keeps
   the literal-separator fast path of builtins_string.c untouched for a string or char separator.

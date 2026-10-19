@@ -47,6 +47,11 @@
   section's `no_dead_strip` attribute (NOTES "Compiler"), which the dead-stripped figures above predate: the
   device slice re-linked on a later SDK is 3,283,392 dead-stripped and 3,687,648 under the Swift host, about
   +84 KB each.
+- **The Unicode data costs 61,960 bytes of the device slice** (NOTES "Unicode data"; interpreted, release,
+  dead-stripped, Xcode 26.6, both sides built the same day): 1,516,168 → 1,578,128. `__TEXT,__const` +44,064 is
+  the tables, `__text` +15,256 the case mapping, the final sigma, the property names and the matcher's folds,
+  `__cstring` +1,031. Plain and under the Swift host it is +61,800 and +61,344. The tables are `static const` and
+  read through two functions, so nothing dead-strips them while `upper-case` or a pattern is linked.
 - **core.clj's share is `__TEXT,__const` and nothing else.** The embedded sources are `static const` byte
   arrays (`core_clj.inc`, `libs_clj.inc`): core.clj is 107,668 bytes and the seven embedded libs 65,854, which
   is 173,522 of that section's 175,144. Dead stripping removes core.clj's copy from a compiled build
