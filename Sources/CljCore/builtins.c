@@ -23,6 +23,7 @@
 #include "clj/sorted.h"
 #include "coro_internal.h"
 #include "ice_internal.h"
+#include "facts_internal.h"
 #include "proto_internal.h"
 #include "roots_internal.h"
 #include "stats_internal.h"
@@ -1897,6 +1898,7 @@ void clj_builtin_bind(const char *name_text, clj_native_fn fn, uint32_t min, uin
 	clj_value sym = clj_symbol_new(CLJ_NIL, name);
 	clj_value qualified = clj_symbol_new(clj_symbol_name(clj_ns_name(core)), name);
 	clj_value f = clj_fn_native(qualified, fn, min, max);
+	clj_fn_of(f)->leaf = clj_facts_core_leaf(name_text);
 	clj_var_bind_root(clj_ns_intern(core, sym), f);
 	clj_release(f);
 	clj_release(qualified);

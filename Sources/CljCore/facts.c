@@ -2395,6 +2395,14 @@ static uint32_t named_effects(pass *p, const char *name, const clj_node *const *
 	return clj_facts_core_named(name) ? clj_facts_core_effects(name) : NOT_NAMED;
 }
 
+bool clj_facts_core_leaf(const char *name) {
+	if (!clj_facts_core_named(name) || (clj_facts_core_effects(name) & (CLJ_EFFECT_PARK | CLJ_EFFECT_OPAQUE))) return false;
+	for (uint32_t n = 0; n <= CLJ_FN_MAX_FIXED + 1; n++) {
+		if (hof_positions(name, n)) return false;
+	}
+	return true;
+}
+
 // A predicate neither allocates nor throws; the rest of the pure list allocates or throws on a wrong argument but no more.
 bool clj_facts_core_named(const char *name) {
 	return named_in(name, park_names, sizeof park_names / sizeof *park_names) || named_in(name, io_names, sizeof io_names / sizeof *io_names) ||

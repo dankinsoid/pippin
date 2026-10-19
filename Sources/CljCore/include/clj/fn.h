@@ -37,6 +37,8 @@ typedef struct {
 	clj_slot  code; // exec (eval.h) of a closure's tree; a native parks a value its ctx borrows here (a protocol method: its protocol, a with-meta copy: the original)
 	clj_slot  meta; // map or nil
 	uint32_t  nenv;
+	// A builtin the facts name pure: it runs no program code but a lazy seq's realization (eval.c, argrec_hold).
+	bool      leaf;
 	clj_slot  env[]; // captured values, owned
 } clj_fn;
 

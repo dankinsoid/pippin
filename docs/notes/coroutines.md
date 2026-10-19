@@ -300,8 +300,9 @@
   array as `CLJ_FREF_CFRAME`, a fused site's state as `CLJ_FREF_ARRAY`, a fused step's item), and the variables C
   code of the runtime names by address (the next entry) —; the interpreter's frames on the ring
   (`clj_shadow_frame.frame`): each one's owned slots, every one from 64 slots on with the count before the slots,
-  and the argument buffers on it (`clj_frame.args`, `clj_argbuf`), a fused program's unrecorded frame through its
-  buffer; every read through `clj_coro_parked_bytes` when evacuated; and the unshared objects those reach or `alts!`
+  and the argument buffers on it (`clj_frame.args`, `clj_argbuf`: put on from an owned value before an argument
+  that may park — not a read, nor an intrinsic over reads — and held through a call but an intrinsic's builtin), a
+  fused program's unrecorded frame through its buffer; every read through `clj_coro_parked_bytes` when evacuated; and the unshared objects those reach or `alts!`
   lends its waiter (`clj_waiter.ports`), each entered once, whose references to shared objects are the coroutine's
   too. A ring that ever went past its capacity (`wrapped`, set at the push) is not read: an entry below its depth
   may be a returned frame's. Debug builds stop on `cc/overcount` when a graph with no lost node counts more edges

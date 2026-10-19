@@ -389,6 +389,20 @@ static inline __attribute__((always_inline)) void argrec_hold(clj_frame *f, clj_
 	else if (owned) argrec_put(f, b, on, v, owned, NULL);
 }
 
+static inline bool reads_only(const clj_node *const *args, uint32_t n) {
+	for (uint32_t i = 0; i < n; i++) {
+		switch (args[i]->kind) {
+		case CLJ_NODE_LOCAL:
+		case CLJ_NODE_CAPTURED:
+		case CLJ_NODE_OUTER:
+		case CLJ_NODE_CONST:
+		case CLJ_NODE_VAR: continue;
+		default: return false;
+		}
+	}
+	return true;
+}
+
 // A read of a slot, a capture, a constant or a var's root: no park between, so nothing before needs the buffer.
 static inline bool may_park_node(const clj_node *n) {
 	switch (n->kind) {
@@ -399,18 +413,14 @@ static inline bool may_park_node(const clj_node *n) {
 	case CLJ_NODE_VAR:
 	case CLJ_NODE_FN: return false;
 	// a builtin over reads: intrinsic_apply holds nothing through it either
-	case CLJ_NODE_INTRINSIC:
-		for (uint32_t i = 0; i < n->u.intrinsic.n; i++) {
-			switch (n->u.intrinsic.args[i]->kind) {
-			case CLJ_NODE_LOCAL:
-			case CLJ_NODE_CAPTURED:
-			case CLJ_NODE_OUTER:
-			case CLJ_NODE_CONST:
-			case CLJ_NODE_VAR: continue;
-			default: return true;
-			}
-		}
-		return false;
+	case CLJ_NODE_INTRINSIC: return !reads_only(n->u.intrinsic.args, n->u.intrinsic.n);
+	// so does eval_invoke through a leaf builtin
+	case CLJ_NODE_INVOKE: {
+		const clj_node *h = n->u.invoke.fn;
+		if (h->kind != CLJ_NODE_VAR || clj_var_of(h->u.var.v)->dynamic) return true;
+		clj_value root = clj_var_root_relaxed(h->u.var.v);
+		return !(clj_is_fn(root) && clj_fn_of(root)->leaf && reads_only(n->u.invoke.args, n->u.invoke.n));
+	}
 	default: return true;
 	}
 }
@@ -858,7 +868,7 @@ static clj_value eval_invoke(const clj_node *n, clj_frame *f) {
 		clj_argbuf     rb;
 		bool ron = false;
 		if (eval_all(n->u.invoke.args, nargs, f, args, &owned, &rb, &ron)) {
-			argrec_hold(f, &rb, &ron, args, owned);
+			if (!(fnp && fnp->leaf)) argrec_hold(f, &rb, &ron, args, owned);
 			if (fnp && fnp->kind == CLJ_FN_NATIVE) {
 				IC_COUNT(site, hits);
 				result = call_native(fnp, fn, args, nargs);

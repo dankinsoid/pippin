@@ -23,6 +23,8 @@ uint32_t clj_facts_effects_of(const clj_node *n, clj_summaries *sums, uint32_t s
 uint32_t clj_facts_effects_calling(const clj_node *n, clj_summaries *sums, uint32_t stop, uint64_t free_calls);
 // Whether the tables of clj_facts_core_effects name it.
 bool clj_facts_core_named(const char *name);
+// Named, with neither a park nor an opaque effect, and calling no function it is given at any count.
+bool clj_facts_core_leaf(const char *name);
 // Effects of a clojure.core call by name: none for a predicate, IO and atom-write from short lists, else alloc|throw.
 uint32_t clj_facts_core_effects(const char *name);
 // The kind bit of a value of this descriptor, the dispatch pseudo-types included; HOST for anything unnamed.
