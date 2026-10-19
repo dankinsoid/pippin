@@ -72,10 +72,10 @@
 
 (defn uc-text [cps] (apply str (map uc-str cps)))
 
-;; Planes 0 and 1 whole, the CJK planes and the rest sampled.
-(def uc-sample (uc-text (concat (uc-scalars 0 0x20000 1) (uc-scalars 0x20000 0x40000 7) (uc-scalars 0x40000 0xE0000 61)
-                                (uc-scalars 0xE0000 0xE0200 1) (uc-scalars 0xE0200 0x110000 61))))
-(def uc-sparse (uc-text (concat (uc-scalars 0 0x20000 5) (uc-scalars 0x20000 0x110000 37))))
+;; Every plane, the populated ones denser: the tables are checked whole when generated, these check their readers.
+(def uc-sample (uc-text (concat (uc-scalars 0 0x10000 3) (uc-scalars 0x10000 0x20000 7) (uc-scalars 0x20000 0xE0000 97)
+                                (uc-scalars 0xE0000 0xE0200 5) (uc-scalars 0xE0200 0x110000 97))))
+(def uc-sparse (uc-text (concat (uc-scalars 0 0x10000 11) (uc-scalars 0x10000 0x20000 23) (uc-scalars 0x20000 0x110000 211))))
 
 ;; What a pattern keeps of a text, one character at a time: how many, and the JVM's hash of them.
 (defn uc-keep [text p]

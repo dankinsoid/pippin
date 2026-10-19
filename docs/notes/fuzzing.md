@@ -44,6 +44,13 @@ item 2. `fuzz/` holds it; `make fuzz` is the bounded pass, `make fuzz-long` the 
   within 200 forms and shrinks it to `(update-in {:b :x} (vector :a) identity)`. A fuzzer that finds nothing and
   a broken one read the same, so this is the check that the list excludes rather than blinds.
 
+- **A regression file can be a table rather than a shrunk finding.** `make fuzz` replays `fuzz/regressions/`
+  against the oracle and every runner first, and strings-unicode-case.clj is the Unicode data's check (NOTES
+  "Unicode data"): every code point's case over planes 0 and 1 and a sample beyond, what each category,
+  property, script and block keeps of a sample of every plane, the special casings, the final sigma's contexts,
+  Java's three case folds and the Unicode pattern flags. A form whose full answer would be megabytes prints a
+  count and the JVM's hash of what was kept. Its first replay found the one divergence it was written for, a
+  quantified `\R` backtracking where `Pattern`'s does not.
 - **The generator is typed**, and its types are what keeps the exclusions enforceable: a map or a set never
   reaches an order-exposing position (the bridge is `(sort (map pr-str (keys m)))`), a ratio lives in its own
   chain so it never meets a double, a sorted collection lives in its own chain over integer keys so it never
