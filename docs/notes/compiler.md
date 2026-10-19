@@ -868,17 +868,26 @@
   parameters and a variadic arity stay +0 — triggers: a closure called per element in a profile (a literal given to
   `mapv` or `filterv`, a `FUSED` site's reducing fn). The interpreter keeps +0 throughout but for that accumulator.
 - [~] **A frame names its own references across a call that may park** (design §7, «Фаза 3», «Кадры перечисляются»;
-  `emit_frefs_push`, `emit_frefs_decl`, compiled_internal.h `clj_c_frefs`). Every frame fn declares `clj_frefs *FR`
-  and `uint32_t F0`; before an invoke or a direct call the facts say may park (`clj_facts_may_park`: the call's own
-  effects once its arguments are in, recorded by the facts pass per call node) it stores its owned temps but the
-  arguments the call takes over, and its owned C-variable slots in `bound`, into the execution's list at `F0`, sets
-  the length, and sets it back to `F0` right after the call, with nothing between that jumps. `bound` is the slots a
-  binding may have filled: set by `emit_set`, every let, loop and catch slot of a loop's body at its head (and of a
-  fn body a recur re-enters), cleared by a take, a consume or a drop, the two arms of an `if` (and of an inlined
-  call's guard) merged, a `try`'s handlers given the body's start. A bit left set only names a nil; a bit cleared on
-  one path only leaves a reference out, a leak. `--stats` prints the sites and the references: core.clj 984 and 3953.
-  Not wrapped, so not named: intrinsic calls, the worker arm, lowered, fused and outlined sites, an inlined copy's
-  fallback call, and the array slots. Trigger: a leak report through one of them.
+  `emit_frefs_push_with`, `emit_frefs_decl`, compiled_internal.h `clj_c_frefs`). Every frame fn and worker declares
+  `clj_frefs *FR` and `uint32_t F0`; before a call the facts say may park (`clj_facts_may_park`: the call's own
+  effects once its arguments are in, recorded by the facts pass per call node; any other node's subtree) it stores
+  its owned temps but the arguments the call takes over, its owned C-variable slots in `bound`, and its array as
+  `CLJ_FREF_CFRAME`, `&fr`, the array's length, into the execution's list at `F0`, sets the length, and sets it back
+  to `F0` right after the call, with nothing between that jumps. The array is named where it may hold an owned slot
+  (`array_may_own`: a slot no param keeps borrowed for the whole call; past 64 slots always); the collector reads
+  `fr.owned` and the slots where they are. The C-variable slots are the frame's owned ones fixed at its declaration
+  (`vars_owned`: a fused body swaps the promoted set) less the slots typed where the push is (a split's fast branch
+  shadows one with an `int64_t` or a `double`). `bound` is the slots a binding may have filled: set by `emit_set`,
+  every let, loop and catch slot of a loop's body at its head (and of a fn body a recur re-enters), cleared by a
+  take, a consume or a drop, the two arms of an `if` (and of an inlined call's guard) merged, a `try`'s handlers
+  given the body's start. A bit left set only names a nil; a bit cleared on one path only leaves a reference out, a
+  leak. Wrapped: invokes, direct and owned calls, intrinsics (a consumed collection and a reuse token's slot left
+  out), owned `next`/`rest`, take-out gets, lowered calls (the facts give the `LOWERED` node its literal's effects),
+  fused sites with their stages' state (`CLJ_FREF_ARRAY`), the worker call and its fallback, an outlined copy's call,
+  a rebound `lazy-seq*`; a monomorphized fused step whose site may park names its item across a stage's call and the
+  consumer's (`mono_push`). `--stats` prints the sites and the references: core.clj 1007 and 4107. Not named: a call
+  the facts call pure that realizes a parking lazy seq (`first`, `next`), a literal's construction, a `def`, an ObjC
+  send (host code, where a park is an error). Trigger: a stale-park report through one of them (NOTES "Coroutines").
 - [~] **A lazy-seq thunk lets its captures go at its tail cons** (design §7 «Владеющие параметры»; `thunk.c`
   `cljc_thunk_let_go`, compiler.c `emit_let_go`, compiled_internal.h `clj_c_thunk_let_go`, seq.c
   `clj_lazy_seq_let_go`; `CLJ_NO_OPT=owned` turns it off, at emission and, for the boot units, at run time). *Not at

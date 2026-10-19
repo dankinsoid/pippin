@@ -295,11 +295,17 @@
   the rest through RC, `finally` and `with-open` included. `go` and `future` keep their channel for `on_done` in the
   coroutine's `done_value` slot, so the walk sees that edge; `resume` clears the watch bit of a coroutine it wakes.
   A parked one's frames are read as its edges (`visit_frames`, design §7 «Фаза 3», «Кадры перечисляются»): the
-  compiled frames' list (`clj_frefs` on the ring header, which a compiled frame fills before a call the facts say
-  may park and empties after it, `emit_frefs_push`), the interpreter's frames on the ring (`clj_shadow_frame.frame`,
-  each one's owned slots, read through `clj_coro_parked_bytes` when evacuated), and the unshared objects those reach
-  or `alts!` lends its waiter (`clj_waiter.ports`), each entered once, whose references to shared objects are the
-  coroutine's too.
+  execution's list (`clj_frefs` on the ring header, `read_frefs`) — what a compiled frame names before a call the
+  facts say may park and drops after it (`emit_frefs_push_with`: its owned temps, its owned C-variable slots, its
+  array as `CLJ_FREF_CFRAME`, a fused site's state as `CLJ_FREF_ARRAY`, a fused step's item), and the variables C
+  code of the runtime names by address (the next entry) —; the interpreter's frames on the ring
+  (`clj_shadow_frame.frame`): each one's owned slots, every one from 64 slots on with the count before the slots,
+  and the argument buffers on it (`clj_frame.args`, `clj_argbuf`), a fused program's unrecorded frame through its
+  buffer; every read through `clj_coro_parked_bytes` when evacuated; and the unshared objects those reach or `alts!`
+  lends its waiter (`clj_waiter.ports`), each entered once, whose references to shared objects are the coroutine's
+  too. A ring that ever went past its capacity (`wrapped`, set at the push) is not read: an entry below its depth
+  may be a returned frame's. Debug builds stop on `cc/overcount` when a graph with no lost node counts more edges
+  and collector references into a node than it has references.
   Triggers: a channel released to nonzero, as for any cycle; the evacuation sweep, which files a park two passes saw and
   again after 2, 4 … 256 passes while it lasts (`cc_sweep_file`); `clj_cc_collect`, which files every parked coroutine
   (`clj_coro_cc_file_parked`). `clj_debug_runtime_settle` collects every 20 ms while more coroutines live than it
@@ -308,12 +314,42 @@
   inside `with-open`, one under a pending deadline and one at a suspend gate are collected and unwind, and so are
   the shapes only a frame's own reference holds — `alts!` over dropped ports, a dropped `mix` with an input, a channel
   of the go body's own `let`, interpreted and compiled (dev and closed); `alts!` over a dropped channel and a live
-  `timeout` waits for the timeout; a channel Swift holds keeps its park. Not collected: a park of a pinned kind, and a
-  cycle through a reference none of the three kinds names — one C code of the runtime holds across the park (option
-  3), a compiled frame's array slot (captured, read through the static link, a direct fn's parameter), a call the
-  compiler does not wrap (an intrinsic calling a user fn, a worker arm, a lowered or fused site, an inlined copy's
-  fallback), the interpreter's argument buffer but `alts!`'s ports, a frame of more than 64 slots. Trigger: a leak
-  report of that kind or the corpus's residue (NOTES "Corpus").
+  `timeout` waits for the timeout; a channel Swift holds keeps its park. `gapShapeIsCollected`, each in all three
+  backends: the reducer's accumulator, `sort`'s seq of its items, a transducer step's item, a slot a closure
+  captures, a direct fn's parameter, a slot read through the static link, an owned value beside a parking argument,
+  a last use handed to the call, a channel past a frame's 64th slot. `aParkAfterTheRingWrappedIsNotMisread`: a park
+  after a 16-entry ring wrapped under frames that each owned the channel is left alone and wakes. Not collected: a
+  park of a pinned kind, and a cycle through what nothing names (design §7, «Чего это не собирает»): a function of the
+  runtime further up than the one the audit asks, the `CLJ_ROOTS_NONE` exceptions with their reasons, a call the
+  facts call pure that realizes a lazy seq whose thunk parks, a literal's hashing, a `def`'s watches, a top-level
+  form's frame, the interpreter's keyword lookup into a program's `ILookup` type and its protocol dispatch's impl, a
+  coroutine whose ring wrapped. Trigger: the stale-park report naming one, or the corpus's residue (NOTES "Corpus").
+- **C code of the runtime names what it owns across a call of the program's code** (design §7, «Фаза 3», «Код
+  рантайма»; `roots_internal.h`, `scripts/roots-audit.py`). `CLJ_ROOTS(&a, &b)` puts the tagged addresses of the
+  function's owned `clj_value` variables on the execution's frame-reference list for the rest of the block (the
+  `cleanup` attribute drops them; a `Stack overflow` landing restores the length); `CLJ_ROOTS_SPAN(&items, &n)` an
+  array by the addresses of its pointer and its `size_t` length. The collector reads each where it is when it judges
+  the coroutine parked. The invariant: at each call that may park a named variable holds an owned reference or nil,
+  so a hand-over clears it first (`acc = r; r = CLJ_NIL; r = conj(acc, x)`, the reducer's consuming and owned steps,
+  the fused driver's `conj` and `assoc!`), and a release before a later call stores nil. Named: the reducer's
+  accumulator at every `clj_reducer_start`, a walk's seq and its iterator's `held` and `item`, `clj_seq_items`' own
+  items once it retains them, `sort`'s `keep` and the keys of `sort-by`, `apply`'s spread, the fused driver's
+  accumulator, outputs and mapcat fn, `swap-vals!`'s old value, an atom's watches and old value across them, a
+  nested lazy seq's claimed chain, and the rest the audit lists (164 functions). `make roots-audit` (in `make
+  gates`) fails on a C function that calls a program's fn (`clj_invoke` and the rest), a slot a program may fill
+  (`->invoke`, `->seq`, `->first`, `->reduce`, a native's `fn`), walks a seq or parks, with neither `CLJ_ROOTS` nor
+  `CLJ_ROOTS_NONE`; the latter carries its reason in a comment (holds nothing, reader or analysis data, an
+  accessor whose walker names the walk). The cost is a TSD read and a few stores per call of such a function, not
+  per element. Not asked: a function further up that holds a reference across a call into an audited one.
+- **The stale-park report** (design §7, «Фаза 3», «Отчёт о брошенном парке»; `cc.c` `park_report`). Opt-in
+  (`CLJ_PARK_REPORT_S=<seconds>`, `clj_debug_cc_park_report_ms` in tests; off, a collection reads no clock and
+  walks nothing more): the evacuation sweep stamps when it first saw a park (`cc_park_ns`), and a shared collection
+  that leaves black a coroutine parked past the threshold in a channel park whose queues it all found propagates
+  blackness from every outside holder but that coroutine, through edges and wake edges, never through it. If none
+  of its wait channels is reached, only a cancel can end the park — a holder of its handle keeps it, or a reference
+  the collector cannot read — and the park is named once (`cc_reported`) on stderr and in
+  `CLJ_CC_STAT_PARK_REPORTS`. `aParkOnChannelsOnlyItReachesIsReported`: a park whose `go` channel a var holds is
+  named once, a park on a channel Swift holds is not.
 - **Uncaught errors**: a coroutine whose body throws reports through `clj_coro_set_uncaught_handler`, by default
   the message and the trace on stderr with `write(2)` (design §4 reserves stderr for fatal and crash; this is
   the JVM's uncaught-exception report and a host replaces it). A `go` channel then closes with nothing put.
