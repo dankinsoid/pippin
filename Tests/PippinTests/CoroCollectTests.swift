@@ -53,6 +53,40 @@ extension CoreTests {
 			(def suspended nil)
 			""")
 			for k in ["v", "loop", "chan", "timeout", "suspended", "deadline", "future", "alts", "let"] { _ = kw(k) }
+			for (_, k) in CoroCollectTests.gapShapes { _ = kw(k) }
+		}
+
+		// Each cycle hangs on a reference the parked frames' three kinds once missed (design §7, «Фаза 3»).
+		static let gapShapes: [(String, String)] = [
+			// C code of the runtime across the park: the reducer's accumulator, sort's seq of the items, a step's item.
+			("(defn gap-reduce [] (let [c (chan)] (go (try (reduce (fn [acc _] (<! acc) acc) c [1]) (finally (reset! unwound :reduce))))) nil)", "reduce"),
+			("(defn gap-sort [] (let [c (chan)] (go (try (sort (fn [a b] (<! c) 0) [c c]) (finally (reset! unwound :sort))))) nil)", "sort"),
+			("(defn gap-xform [] (let [c (chan)] (go (try (into [] (map (fn [x] (<! x) x)) [c]) (finally (reset! unwound :xform))))) nil)", "xform"),
+			// A compiled frame's array slot: captured by a closure, a direct fn's parameter, read through the static link.
+			("(defn gap-captured [] (go (let [c (chan) f (fn [] c)] (try (<! c) (finally (reset! unwound :captured))) f)) nil)", "captured"),
+			("(defn gap-direct [] (go (let [g (fn [c] (try (<! c) (finally (reset! unwound :direct))))] (g (chan)))) nil)", "direct"),
+			("(defn gap-outer [] (go (let [c (chan) g (fn [] (try (<! c) (finally (reset! unwound :outer))))] (g))) nil)", "outer"),
+			// The interpreter's argument buffer: an owned value beside a parking argument, a last use handed to the call.
+			("(defn gap-args [] (let [d (chan)] (go (try (vector (identity d) (<! d)) (finally (reset! unwound :args))))) nil)", "args"),
+			("(defn gap-handed [] (let [d (chan)] (go (try (<! (identity d)) (finally (reset! unwound :handed))))) nil)", "handed"),
+			// A frame of more than 64 slots, the channel past the 64th.
+			(gapWide, "wide"),
+		]
+
+		private static var gapWide: String {
+			let names = (0..<70).map { "w\($0)" }
+			let binds = names.enumerated().map { "\($1) (identity \($0))" }.joined(separator: " ")
+			return "(defn gap-wide [] (go (let [\(binds) c (chan)] (try (<! c) (finally (reset! unwound :wide))) (+ \(names.joined(separator: " "))))) nil)"
+		}
+
+		// Interpreted, dev-compiled and closed-compiled: a gap of one backend is no gap of another, so each runs all.
+		@Test(arguments: ["interp", "dev", "closed"]) func gapShapesAreCollected(backend: String) throws {
+			let defs = CoroCollectTests.gapShapes.map { $0.0 }.joined(separator: "\n")
+			if backend == "interp" { _ = try eval(defs) } else { try compiledEval(closed: backend == "closed") { _ = try eval(defs) } }
+			for (src, k) in CoroCollectTests.gapShapes {
+				let name = src.split(separator: " ")[1]
+				try abandoned("(\(name))", unwinds: k)
+			}
 		}
 
 		private func reset() throws { _ = try eval("(reset! unwound nil) (reset! res-closed false) (reset! from-swift nil) (reset! alts-done nil)") }
