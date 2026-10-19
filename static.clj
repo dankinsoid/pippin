@@ -61,7 +61,7 @@
 
 ;;; ── Pure core: rows, modes, refinements ────────────────────────────────────
 
-(defn line-total [{& [qty price]}]
+(defn line-total [{&keys [qty price]}]
   (scale price qty))
 ;; => (Fn [{:qty Int :price {:cents Int & s} & r}] {:cents Int & s} {:eff #{}})
 ;; a Line fits without conversion: Qty is used as Int, Usd as its row
@@ -81,7 +81,7 @@
 
 (defn receipt [cart]
   (let [sb (string-builder)]
-    (doseq [{& [sku qty price]} (::lines cart)]
+    (doseq [{&keys [sku qty price]} (::lines cart)]
       (sb-append! sb sku " x" qty " " (:cents price) "\n"))
     (str sb)))
 ;; => (Fn [^:borrowed {::lines [Line] & r}] String {:eff #{}})     sb is local: a builder that never escapes
@@ -144,9 +144,9 @@
 
 ;;; ── Patterns: destructuring, match, case ───────────────────────────────────
 
-(defn shipping-label [{:address {:city city :zip zip} & [name :or {name "customer"}]}]
+(defn shipping-label [{:address {:city city :zip zip} &keys [name :or "customer"]}]
   (str name ", " zip " " city))
-;; key → pattern, as in a data literal; `& [...]` names fields, the rest, :as and defaults
+;; key → pattern, as in a data literal; `&keys [...]` names fields, the rest and :as; :or follows its element
 
 (defn paid-amount [e :- OrderEvent] :- (or nil Usd)
   (match e
@@ -155,7 +155,7 @@
     (or [:order/created _]
         [:order/cancelled _])             nil))
 ;; without the last branch: error, not covered: [:order/cancelled {:reason _}]
-;; {& [::total]} would bind `total` and shadow the function above: a warning
+;; {&keys [::total]} would bind `total` and shadow the function above: a warning
 ;; [:order/paid p extra] is an error, not a fall to `_`: the variant has one field
 
 (defn payment-label [p]
@@ -190,10 +190,10 @@
 ;; => (Fn [Int] Qty {:eff #{}})     the literals meet :- Qty and are checked in phase 1, so no Fail
 
 (defn parse-line [s :- String] :- Line
-  (let [[sku qty cents :or (fail [:bad-line s])] (str/split s #",")]   ; let-else
+  (let [[sku qty cents] (str/split s #",") :or (fail [:bad-line s])]   ; let-else, the form is open
     {:sku (coerce Sku sku) :qty (coerce Qty (parse-long qty)) :price {:cents (parse-long cents)}}))
 ;; without :or it does not compile: [a b c] does not cover [String], use match or let-else
-;; ? :or {cents "0"} beside :or (fail ...): one key, two meanings
+;; :or after an element is that element's default; after the pair it fails the whole pattern (candidate)
 
 (def max-lines 50)
 
