@@ -34,7 +34,7 @@ func loadFixtureSource(_ source: String, file: String) throws {
 }
 
 // The compiled eval for the body, restoring whatever the process had (CLJ_EVAL=compiled keeps it on).
-private func compiledEval<T>(closed: Bool = false, _ body: () throws -> T) throws -> T {
+func compiledEval<T>(closed: Bool = false, _ body: () throws -> T) throws -> T {
 	var o = evalOptions()
 	o.closed = closed
 	#expect(cljc_eval_enable(&o))

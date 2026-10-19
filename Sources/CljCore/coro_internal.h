@@ -243,6 +243,9 @@ struct clj_waiter {
 	// Channel queues holding a node of it, for a coroutine's: the collector finds that many or judges it live.
 	// Exact while unclaimed, since only a claim or the channel's death unlinks such a node.
 	_Atomic uint32_t queued;
+	// alts!'s port vector for the park, borrowed from the parker's frame: the collector walks it under the
+	// coroutine's lock when it is the parker's own (design §7, «Фаза 3», private edges).
+	clj_value        ports;
 };
 
 clj_waiter *clj_waiter_new(clj_coro *c, clj_value callback);

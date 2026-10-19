@@ -42,7 +42,7 @@ extension CoreTests {
 			clj_init()
 			try cljTimingSupport()
 			_ = try cljEvalScoped("""
-			(ns coro-collect-tests (:require [clojure.core.async :refer [chan <! >! >!! timeout go go-loop alts! mult onto-chan! suspend! close!]]))
+			(ns coro-collect-tests (:require [clojure.core.async :refer [chan <! >! >!! timeout go go-loop alts! mult mix admix onto-chan! suspend! close!]]))
 			(refer 'test-support)
 			(defprotocol Res (-close [r]))
 			(deftype Held [closed] Res (-close [_] (reset! closed true)))
@@ -52,10 +52,22 @@ extension CoreTests {
 			(def alts-done (atom nil))
 			(def suspended nil)
 			""")
-			for k in ["v", "loop", "chan", "timeout", "suspended", "deadline", "future"] { _ = kw(k) }
+			for k in ["v", "loop", "chan", "timeout", "suspended", "deadline", "future", "alts", "let"] { _ = kw(k) }
 		}
 
 		private func reset() throws { _ = try eval("(reset! unwound nil) (reset! res-closed false) (reset! from-swift nil) (reset! alts-done nil)") }
+
+		// The source leaves a parked body nothing outside holds: a collection cancels it, its finally sets unwound to
+		// the keyword named, and every object it made goes.
+		private func abandoned(_ source: String, unwinds: String?, _ location: SourceLocation = #_sourceLocation) throws {
+			try reset()
+			let base = CoroBaseline(location)
+			let before = cancelledByCollection()
+			_ = try eval(source)
+			#expect(collected(atLeast: 1, since: before), sourceLocation: location)
+			if let k = unwinds { #expect(eventually { (try? eval("@unwound")) == kw(k) }, sourceLocation: location) }
+			base.check(location)
+		}
 
 		@Test func aDroppedGoLoopIsCollectedAndItsFinallyRuns() throws {
 			try reset()
@@ -78,8 +90,7 @@ extension CoreTests {
 			base.check()
 		}
 
-		// The literal port vector is a frame's own temporary, so the channel under it reads as held: what wakes this
-		// park is the timer, and only its firing ends it.
+		// The timer thread holds the timeout's channel and can wake this park: only its firing ends it.
 		@Test func altsOverADroppedChannelAndALiveTimeoutWaitsForTheTimeout() throws {
 			try reset()
 			let base = CoroBaseline()
@@ -90,6 +101,36 @@ extension CoreTests {
 			#expect(eventually { (try? eval("@alts-done")) == kw("timeout") })
 			#expect(cancelledByCollection() == before)
 			base.check()
+		}
+
+		// The port vector is the parker's own temporary: the walk reads it as the coroutine's, so the ports under it
+		// are held by the garbage alone.
+		@Test func altsOverDroppedPorts() throws {
+			try abandoned("(let [in (chan) stop (chan)] (go (try (loop [] (alts! [in stop]) (recur)) (finally (reset! unwound :alts)))) nil)", unwinds: "alts")
+		}
+
+		// mix parks in alts! over the reads vector its loop state holds; the mix, its output and its input are dropped.
+		// A first mix registers its reify type for the process: that one runs to its end before the baseline.
+		@Test func aDroppedMixWithAnInput() throws {
+			_ = try eval("(let [out (chan) m (mix out) in (chan 1)] (admix m in) (close! out) (>!! in 1) nil)")
+			try abandoned("(let [out (chan) m (mix out) in (chan)] (admix m in) nil)", unwinds: nil)
+		}
+
+		// Only the body's own frame holds the channel it parks on.
+		@Test func aChannelOfTheBodysOwnLet() throws {
+			try abandoned("(go (let [c (chan)] (try (<! c) (finally (reset! unwound :let))))) nil", unwinds: "let")
+		}
+
+		// The same shapes as compiled code: the frames are C, the vector a compiled literal.
+		@Test(arguments: [false, true]) func compiledShapes(closed: Bool) throws {
+			try compiledEval(closed: closed) {
+				_ = try eval("""
+				(defn cc-alts-abandon [] (let [in (chan) stop (chan)] (go (try (loop [] (alts! [in stop]) (recur)) (finally (reset! unwound :alts)))) nil))
+				(defn cc-let-abandon [] (go (let [c (chan)] (try (<! c) (finally (reset! unwound :let))))) nil)
+				""")
+			}
+			try abandoned("(cc-alts-abandon)", unwinds: "alts")
+			try abandoned("(cc-let-abandon)", unwinds: "let")
 		}
 
 		// mult's loop parks on its source with no taps; the mult, the source and the loop's channel are all dropped.

@@ -428,6 +428,7 @@ clj_waiter *clj_waiter_new(clj_coro *c, clj_value callback) {
 	w->callback = clj_retain(callback);
 	w->value = CLJ_NIL;
 	w->port = CLJ_NIL;
+	w->ports = CLJ_NIL;
 	return w;
 }
 

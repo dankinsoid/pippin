@@ -1045,7 +1045,9 @@ clj_value clj_chan_alts(clj_value ports, clj_value opts) {
 			return pair(dflt, kw_default);
 		}
 	}
+	w->ports = ports;
 	clj_park(w, clj_wake_channels());
+	w->ports = CLJ_NIL;
 	if (cancelled_here()) {
 		clj_release(parked_result(w));
 		clj_waiter_release(w);
