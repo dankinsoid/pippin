@@ -117,6 +117,8 @@ size_t     clj_facts_bytes(const clj_facts *f);
 
 uint32_t        clj_facts_nnodes(const clj_facts *f);
 const clj_fact *clj_facts_node(const clj_facts *f, uint32_t id);
+// Evaluating the node may park, as far as the walk knows: a park or an opaque effect in its subtree, or never walked.
+bool clj_facts_may_park(const clj_facts *f, uint32_t id);
 
 uint32_t               clj_facts_nframes(const clj_facts *f);
 const clj_facts_frame *clj_facts_frame_at(const clj_facts *f, uint32_t i);

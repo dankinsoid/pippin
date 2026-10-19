@@ -69,6 +69,7 @@ struct clj_facts {
 	uint32_t         conflicts, widenings;
 	uint32_t         conflict_node; // the test whose refinement first hit BOTTOM, for diagnosing a wrong signature
 	clj_fact        *nodes;
+	uint8_t         *park; // per node, PARK_SEEN once walked, PARK_MAY when its subtree may park
 	clj_facts_frame *frames;
 	uint8_t         *escape;
 	clj_facts_loop  *loops;
@@ -100,6 +101,8 @@ static void *xgrow(void *p, size_t n, size_t size) {
 	if (!q) clj_fatal("out of memory");
 	return q;
 }
+
+enum { PARK_SEEN = 1, PARK_MAY = 2 };
 
 // ---- the lattice
 
@@ -1646,7 +1649,18 @@ static clj_fact infer(pass *p, const clj_node *n, env *e, use_kind use) {
 		return clj_fact_top();
 	}
 	walk_depth++;
-	clj_fact r = infer_node(p, n, e, use);
+	clj_fact r;
+	if (p->record) {
+		// The subtree's own effects, for the compiler's frame references (clj_facts_may_park).
+		uint32_t outer = p->effects;
+		p->effects = 0;
+		r = infer_node(p, n, e, use);
+		uint32_t sub = p->effects;
+		p->effects = outer | sub;
+		p->f->park[n->id] |= PARK_SEEN | ((sub & (CLJ_EFFECT_PARK | CLJ_EFFECT_OPAQUE)) ? PARK_MAY : 0);
+	} else {
+		r = infer_node(p, n, e, use);
+	}
 	walk_depth--;
 	return r;
 }
@@ -2026,6 +2040,7 @@ clj_facts *clj_facts_of(const clj_node *root) {
 	f->nnodes = root->nnodes;
 	f->conflict_node = UINT32_MAX;
 	f->nodes = xalloc(f->nnodes ? f->nnodes : 1, sizeof(clj_fact));
+	f->park = xalloc(f->nnodes ? f->nnodes : 1, 1);
 	for (uint32_t i = 0; i < f->nnodes; i++) f->nodes[i] = clj_fact_top();
 	pass p = {.f = f, .record = true, .def_var = CLJ_NIL, .self_var = CLJ_NIL, .stack_limit = clj_stack_limit()};
 	run_frame(&p, UINT32_MAX, NULL, root, NULL, 0, NULL, NULL, NULL, CLJ_NIL, NULL);
@@ -2047,6 +2062,7 @@ clj_facts *clj_facts_of_with(const clj_node *root, clj_summaries *sums) {
 	f->sums = sums;
 	f->warn = clj_facts_warnings_enabled(clj_ns_current());
 	f->nodes = xalloc(f->nnodes ? f->nnodes : 1, sizeof(clj_fact));
+	f->park = xalloc(f->nnodes ? f->nnodes : 1, 1);
 	for (uint32_t i = 0; i < f->nnodes; i++) f->nodes[i] = clj_fact_top();
 	pass p = {.f = f, .record = true, .def_var = CLJ_NIL, .self_var = CLJ_NIL, .stack_limit = clj_stack_limit()};
 	if (sums) warm_summaries(root, sums);
@@ -2118,6 +2134,7 @@ void clj_facts_free(clj_facts *f) {
 	clj_release(clj_from_ptr((void *)f->root));
 	free_sites(f);
 	free(f->nodes);
+	free(f->park);
 	free(f->frames);
 	free(f->escape);
 	free(f->loops);
@@ -2135,6 +2152,8 @@ size_t clj_facts_bytes(const clj_facts *f) {
 
 uint32_t        clj_facts_nnodes(const clj_facts *f) { return f->nnodes; }
 const clj_fact *clj_facts_node(const clj_facts *f, uint32_t id) { return id < f->nnodes ? &f->nodes[id] : NULL; }
+
+bool clj_facts_may_park(const clj_facts *f, uint32_t id) { return id >= f->nnodes || f->park[id] != PARK_SEEN; }
 uint32_t        clj_facts_nframes(const clj_facts *f) { return f->nframes; }
 
 const clj_facts_frame *clj_facts_frame_at(const clj_facts *f, uint32_t i) { return i < f->nframes ? &f->frames[i] : NULL; }

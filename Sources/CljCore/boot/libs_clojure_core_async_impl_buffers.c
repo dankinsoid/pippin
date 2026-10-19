@@ -37,6 +37,10 @@ static clj_value clojure_core_async_impl_buffers_promise_buffer(void *ctx, const
 static clj_value top_0(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 2 "<embedded>/clojure/core/async/impl/buffers.clj"
 	clj_value t0;
@@ -48,7 +52,14 @@ static clj_value top_0(void) {
 	clj_value t2 = K[1];
 	clj_value a0[1] = {t2};
 	(void)a0;
+	if (!FR) FR = clj_c_frefs(&F0);
+	{
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
+		Fv[0] = o1 ? t1 : CLJ_NIL;
+		FR->n = F0 + 1;
+	}
 	t0 = clj_c_invoke(t1, a0, 1);
+	FR->n = F0;
 	(void)t2;
 	if (o1) clj_release(t1);
 	if (t0 == CLJ_THROWN) {
@@ -64,6 +75,10 @@ L1: ;
 static clj_value top_1(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 2 "<embedded>/clojure/core/async/impl/buffers.clj"
 	clj_value t0;
@@ -73,7 +88,14 @@ static clj_value top_1(void) {
 	goto L1;
 	}
 	const clj_value *a0 = NULL;
+	if (!FR) FR = clj_c_frefs(&F0);
+	{
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
+		Fv[0] = o1 ? t1 : CLJ_NIL;
+		FR->n = F0 + 1;
+	}
 	t0 = clj_c_invoke(t1, a0, 0);
+	FR->n = F0;
 	if (o1) clj_release(t1);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -88,6 +110,10 @@ L1: ;
 static clj_value top_2(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 2 "<embedded>/clojure/core/async/impl/buffers.clj"
 	clj_value t0 = clj_retain(K[2]);
@@ -101,6 +127,10 @@ CLJC_INLINE clj_value clojure_core_async_impl_buffers_fixed_buffer_a1_i(clj_valu
 	(void)fr;
 	clj_value l0 = args[0];
 	(void)l0;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[0], &cc);
 #line 6 "<embedded>/clojure/core/async/impl/buffers.clj"
@@ -114,7 +144,14 @@ CLJC_INLINE clj_value clojure_core_async_impl_buffers_fixed_buffer_a1_i(clj_valu
 	clj_value t2 = l0;
 	clj_value a0[1] = {t2};
 	(void)a0;
+	if (!FR) FR = clj_c_frefs(&F0);
+	{
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
+		Fv[0] = o1 ? t1 : CLJ_NIL;
+		FR->n = F0 + 1;
+	}
 	t0 = clj_c_invoke(t1, a0, 1);
+	FR->n = F0;
 	(void)t2;
 	if (o1) clj_release(t1);
 	CLJC_SITE(&S[0]);
@@ -142,6 +179,10 @@ static clj_value clojure_core_async_impl_buffers_fixed_buffer(void *ctx, const c
 static clj_value top_3(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 6 "<embedded>/clojure/core/async/impl/buffers.clj"
 	clj_value t0 = clj_c_closure(K[4], clojure_core_async_impl_buffers_fixed_buffer, NULL, 0, 0x2, 1, 1);
@@ -166,6 +207,10 @@ CLJC_INLINE clj_value clojure_core_async_impl_buffers_dropping_buffer_a1_i(clj_v
 	(void)fr;
 	clj_value l0 = args[0];
 	(void)l0;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[1], &cc);
 #line 7 "<embedded>/clojure/core/async/impl/buffers.clj"
@@ -179,7 +224,14 @@ CLJC_INLINE clj_value clojure_core_async_impl_buffers_dropping_buffer_a1_i(clj_v
 	clj_value t2 = l0;
 	clj_value a0[1] = {t2};
 	(void)a0;
+	if (!FR) FR = clj_c_frefs(&F0);
+	{
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
+		Fv[0] = o1 ? t1 : CLJ_NIL;
+		FR->n = F0 + 1;
+	}
 	t0 = clj_c_invoke(t1, a0, 1);
+	FR->n = F0;
 	(void)t2;
 	if (o1) clj_release(t1);
 	CLJC_SITE(&S[1]);
@@ -207,6 +259,10 @@ static clj_value clojure_core_async_impl_buffers_dropping_buffer(void *ctx, cons
 static clj_value top_4(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 7 "<embedded>/clojure/core/async/impl/buffers.clj"
 	clj_value t0 = clj_c_closure(K[7], clojure_core_async_impl_buffers_dropping_buffer, NULL, 0, 0x2, 1, 1);
@@ -231,6 +287,10 @@ CLJC_INLINE clj_value clojure_core_async_impl_buffers_sliding_buffer_a1_i(clj_va
 	(void)fr;
 	clj_value l0 = args[0];
 	(void)l0;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[2], &cc);
 #line 8 "<embedded>/clojure/core/async/impl/buffers.clj"
@@ -244,7 +304,14 @@ CLJC_INLINE clj_value clojure_core_async_impl_buffers_sliding_buffer_a1_i(clj_va
 	clj_value t2 = l0;
 	clj_value a0[1] = {t2};
 	(void)a0;
+	if (!FR) FR = clj_c_frefs(&F0);
+	{
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
+		Fv[0] = o1 ? t1 : CLJ_NIL;
+		FR->n = F0 + 1;
+	}
 	t0 = clj_c_invoke(t1, a0, 1);
+	FR->n = F0;
 	(void)t2;
 	if (o1) clj_release(t1);
 	CLJC_SITE(&S[2]);
@@ -272,6 +339,10 @@ static clj_value clojure_core_async_impl_buffers_sliding_buffer(void *ctx, const
 static clj_value top_5(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 8 "<embedded>/clojure/core/async/impl/buffers.clj"
 	clj_value t0 = clj_c_closure(K[10], clojure_core_async_impl_buffers_sliding_buffer, NULL, 0, 0x2, 1, 1);
@@ -294,6 +365,10 @@ CLJC_INLINE clj_value clojure_core_async_impl_buffers_promise_buffer_a0_i(clj_va
 	(void)self; (void)captured; (void)args; (void)nargs;
 	clj_cframe fr = {NULL, captured, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[3], &cc);
 #line 9 "<embedded>/clojure/core/async/impl/buffers.clj"
@@ -305,7 +380,14 @@ CLJC_INLINE clj_value clojure_core_async_impl_buffers_promise_buffer_a0_i(clj_va
 	goto L1;
 	}
 	const clj_value *a0 = NULL;
+	if (!FR) FR = clj_c_frefs(&F0);
+	{
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
+		Fv[0] = o1 ? t1 : CLJ_NIL;
+		FR->n = F0 + 1;
+	}
 	t0 = clj_c_invoke(t1, a0, 0);
+	FR->n = F0;
 	if (o1) clj_release(t1);
 	CLJC_SITE(&S[3]);
 	if (t0 == CLJ_THROWN) {
@@ -332,6 +414,10 @@ static clj_value clojure_core_async_impl_buffers_promise_buffer(void *ctx, const
 static clj_value top_6(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 9 "<embedded>/clojure/core/async/impl/buffers.clj"
 	clj_value t0 = clj_c_closure(K[13], clojure_core_async_impl_buffers_promise_buffer, NULL, 0, 0x1, 0, 0);

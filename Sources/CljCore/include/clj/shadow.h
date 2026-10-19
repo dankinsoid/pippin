@@ -15,6 +15,9 @@ typedef struct {
 	const clj_node *fn_node;
 	const clj_node *call_site; // NULL for a host call or a call from a native
 	const void     *sp;        // a stack address inside the frame that runs the body
+	// The interpreter's clj_frame of the body, whose owned slots a collection reads while the execution is parked;
+	// NULL for an inlined body, which runs in its caller's.
+	const void     *frame;
 } clj_shadow_frame;
 
 // Beyond this depth the innermost frames are kept and the rest counted as dropped.

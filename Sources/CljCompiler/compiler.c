@@ -496,6 +496,10 @@ typedef struct fnctx {
 	uint32_t             nputs, puts_cap;
 	cljc_let_go          let_go[CLJC_LET_GO_MAX]; // a lazy-seq thunk's tail cons sites and the captures each lets go
 	size_t               nlet_go;
+	bool                 frefs; // the frame fn declares FR and F0, its references across a call that may park
+	// Owned C-variable slots that may hold a value where emission is: bound earlier, or anywhere in an enclosing loop.
+	// A slot keeps its value past its let until a rebind, its drop or the frame's exit.
+	uint64_t             bound;
 } fnctx;
 
 // The call site marker of trace.c, after every call that can throw; a top-level form has no frame to name.
@@ -1134,6 +1138,7 @@ static void emit_set(fnctx *f, uint32_t slot, const char *value) {
 	if (slot_kind(f, slot) != UK_NONE) clj_ice("emit/typed-slot-boxed", NULL, "typed slot %u takes a boxed value", slot);
 	if (promoted(f, slot)) sb_printf(&f->out, "\tclj_c_rebind(&l%u, %s);\n", slot, value);
 	else sb_printf(&f->out, "\tclj_c_set(&%s, %u, %s);\n", f->frame, slot, value);
+	if (slot < 64) f->bound |= (uint64_t)1 << slot;
 }
 
 // A split's fast branch types more slots than the plan saw: those hold no reference.
@@ -1863,8 +1868,32 @@ static temp emit_let(fnctx *f, const clj_node *n) {
 	return r;
 }
 
+// The let, loop and catch slots of the frame's own code below n: a turn of a loop holds what the turn before bound.
+static void bound_below(const clj_node *n, void *ctx) {
+	uint64_t *m = ctx;
+	switch (n->kind) {
+	case CLJ_NODE_FN:
+	case CLJ_NODE_DIRECT_FN:
+	case CLJ_NODE_FUSED: return;
+	case CLJ_NODE_LET:
+	case CLJ_NODE_LOOP:
+		for (uint32_t i = 0; i < n->u.let.n; i++) {
+			if (n->u.let.slots[i] < 64) *m |= (uint64_t)1 << n->u.let.slots[i];
+		}
+		break;
+	case CLJ_NODE_TRY:
+		for (uint32_t i = 0; i < n->u.try_.ncatches; i++) {
+			if (n->u.try_.catches[i].slot < 64) *m |= (uint64_t)1 << n->u.try_.catches[i].slot;
+		}
+		break;
+	default: break;
+	}
+	clj_node_children(n, bound_below, ctx);
+}
+
 static temp emit_loop(fnctx *f, const clj_node *n) {
 	emit_bindings(f, n);
+	bound_below(n->u.let.body, &f->bound);
 	uint64_t checked, ints, dbls;
 	temp     r = select_split(f, n, &checked, &ints, &dbls) ? emit_split(f, n, checked, ints, dbls) : emit_loop_body(f, n);
 	emit_drops(f, n, n->u.let.n);
@@ -2579,12 +2608,54 @@ static const cljc_reuse_pair *reuse_hand(const fnctx *f, const clj_node *n, uint
 	return p;
 }
 
+// ---- the frame's own references across a call that may park (design §7, «Фаза 3», «Кадры и частные объекты»)
+
+static bool owned_var_slot(const fnctx *f, uint32_t i) { return promoted(f, i) && !borrowed_slot(f, i) && slot_kind(f, i) == UK_NONE; }
+
+static bool taken_by_call(const temp *t, const temp *args, uint32_t nargs, uint64_t taken) {
+	for (uint32_t i = 0; i < nargs && i < 64; i++) {
+		if (((taken >> i) & 1) && strcmp(args[i].name, t->name) == 0) return true;
+	}
+	return false;
+}
+
+// What the frame's unwind would release, but the arguments the call takes over: its owned temps and the owned
+// C-variable slots in scope. A collection that finds the coroutine parked inside the call reads them as its edges;
+// a reference left out only reads as held from outside. Nothing between push and pop may jump.
+static bool emit_frefs_push(fnctx *f, const clj_node *call, const temp *args, uint32_t nargs, uint64_t taken) {
+	if (!f->frefs || (f->facts && !clj_facts_may_park(f->facts, call->id))) return false;
+	sb       list = {0};
+	uint32_t k = 0;
+	for (int i = 0; i < f->nlive; i++) {
+		const temp *t = &f->live[i];
+		if (taken_by_call(t, args, nargs, taken)) continue;
+		if (t->own == OWN_YES) sb_printf(&list, "\t\tFv[%u] = %s;\n", k++, t->name);
+		else if (t->own == OWN_DYN) sb_printf(&list, "\t\tFv[%u] = %s ? %s : CLJ_NIL;\n", k++, t->flag, t->name);
+	}
+	for (uint32_t i = 0; i < 64; i++) {
+		if (((f->bound >> i) & 1) && owned_var_slot(f, i)) sb_printf(&list, "\t\tFv[%u] = l%u;\n", k++, i);
+	}
+	if (k) {
+		sb_printf(&f->out, "\tif (!FR) FR = clj_c_frefs(&F0);\n\t{\n\t\tclj_value *Fv = clj_c_frefs_at(FR, F0, %u);\n%s\t\tFR->n = F0 + %u;\n\t}\n", k,
+		          list.s, k);
+		f->u->slots.frefs_sites++;
+		f->u->slots.frefs_refs += k;
+	}
+	sb_free(&list);
+	return k != 0;
+}
+
+static void emit_frefs_pop(fnctx *f, bool pushed) {
+	if (pushed) sb_puts(&f->out, "\tFR->n = F0;\n");
+}
+
 // A direct call of an owned entry (design §7 «Владеющие параметры»): every owned argument is made +1 first — a dying
 // slot taken, a borrowed value retained, a fresh one as is — so that each arm below consumes it exactly once: the
 // owned entry by convention, the +0 fallbacks by releasing it after the call. Nothing between the takes and the call
 // can throw, and a throw inside the callee is the callee's to release.
 static void emit_owned_call(fnctx *f, const clj_node *n, const direct_entry *d, uint64_t omask, const char *target, const temp *fn, const temp *args,
                             const char *array, const temp *r) {
+	bool pushed;
 	uint32_t nargs = n->u.invoke.n;
 	bool     fresh;
 	pool_intern(&f->u->externs, target, NULL, &fresh);
@@ -2605,6 +2676,8 @@ static void emit_owned_call(fnctx *f, const clj_node *n, const direct_entry *d, 
 	for (uint32_t i = 0; i < nargs; i++) {
 		if ((omask >> i) & 1) sb_printf(&rel, "\tclj_release(%s);\n", args[i].name);
 	}
+	// After the takes: a slot handed over is the callee's now.
+	pushed = emit_frefs_push(f, n, args, nargs, omask);
 	size_t      vi = var_index(f->u, n->u.invoke.fn->u.var.v);
 	const char *callee = f->stub >= 0 ? "CLJC_CALL_" : "";
 	sb_printf(&f->out, "#ifdef CLJC_LOCAL_%s\n", target);
@@ -2617,6 +2690,7 @@ static void emit_owned_call(fnctx *f, const clj_node *n, const direct_entry *d, 
 	sb_printf(&f->out, "#elif defined(CLJC_DEVO_%s)\n\tif (clj_c_root_runs(V[%zu], CLJC_DEVO_%s)) %s = %s(%s, NULL, %s, %u);\n\telse {\n\t%s = clj_c_invoke(%s, %s, %u);\n%s\t}\n", target, vi,
 	          target, r->name, target, fn->name, array, nargs, r->name, fn->name, array, nargs, rel.s);
 	sb_printf(&f->out, "#else\n\t%s = clj_c_invoke(%s, %s, %u);\n%s#endif\n", r->name, fn->name, array, nargs, rel.s);
+	emit_frefs_pop(f, pushed);
 	sb_free(&rel);
 }
 
@@ -2667,6 +2741,8 @@ static void emit_invoke_boxed(fnctx *f, const clj_node *n, direct_entry *d, bool
 	// a var of the set may hold a protocol method (defprotocol's def) or a builtin (a (def satisfies? ...) shadows it)
 	clj_value method = nargs >= 1 && nargs <= CLJ_FN_MAX_FIXED ? protocol_method_root(head) : CLJ_NIL;
 	bool      folded = false;
+	// The owned arm names them itself, after its takes.
+	bool pushed = !(direct && omask && clj_is_nil(method)) && emit_frefs_push(f, n, args, nargs, 0);
 	if (f->c->opts.closed && nargs == 2 && head->kind == CLJ_NODE_VAR && !d && var_named(head->u.var.v, "clojure.core", "satisfies?")) folded = emit_satisfies(f, n, &fn, args, array, &r);
 	else if (f->c->opts.closed && nargs == 2 && head->kind == CLJ_NODE_VAR && !d && var_named(head->u.var.v, "clojure.core", "extends?")) folded = emit_extends(f, n, &fn, args, array, &r);
 	if (!folded && !clj_is_nil(method)) {
@@ -2705,6 +2781,7 @@ static void emit_invoke_boxed(fnctx *f, const clj_node *n, direct_entry *d, bool
 	} else if (!folded) {
 		sb_printf(&f->out, "\t%s = clj_c_invoke(%s, %s, %u);\n", r.name, fn.name, array, nargs);
 	}
+	emit_frefs_pop(f, pushed);
 	for (uint32_t i = nargs; i-- > 0;) {
 		if (!((consumed >> i) & 1)) release_temp(f, &args[i]);
 		else if (args[i].own != OWN_NO) live_forget(f, &args[i]);
@@ -3956,8 +4033,11 @@ static temp emit_direct_call(fnctx *f, const clj_node *n) {
 	sb_puts(&f->out, ";\n");
 	temp r = new_temp(f, OWN_YES);
 	f->has_direct = true;
+	// The arguments are the callee's frame now.
+	bool pushed = emit_frefs_push(f, n, args, nargs, nargs >= 64 ? UINT64_MAX : ((uint64_t)1 << nargs) - 1);
 	sb_printf(&f->out, "\tclj_value %s = %s_a%u(clj_c_outer(&%s, %u), %s.captured, ds%d, dm%d);\n", r.name, direct_name_of(n->u.direct.fn), arity->nparams, f->frame,
 	          n->u.direct.depth, f->frame, k, k);
+	emit_frefs_pop(f, pushed);
 	for (uint32_t i = nargs; i-- > 0;) live_forget(f, &args[i]);
 	free(args);
 	check_thrown(f, r.name);
@@ -4474,6 +4554,30 @@ static void emit_frame_teardown(fnctx *f, uint32_t arr) {
 	if (arr) sb_printf(&f->out, "\tclj_c_release_slots(&fr, %u);\n", arr);
 }
 
+static void bound_below(const clj_node *n, void *ctx);
+
+static void fn_recur_walk(const clj_node *n, void *ctx) {
+	switch (n->kind) {
+	case CLJ_NODE_FN:
+	case CLJ_NODE_DIRECT_FN:
+	case CLJ_NODE_FUSED:
+	case CLJ_NODE_LOOP: return;
+	case CLJ_NODE_RECUR: *(bool *)ctx = true; return;
+	default: clj_node_children(n, fn_recur_walk, ctx);
+	}
+}
+
+// FR and F0 before the body: the first call that names the frame's references fixes F0, the list's length at entry.
+// A body a recur re-enters holds at its top what its last turn bound.
+static void emit_frefs_decl(fnctx *f, const clj_node *body, uint64_t bound) {
+	sb_puts(&f->out, "\tclj_frefs *FR = NULL;\n\tuint32_t F0 = 0;\n\t(void)FR;\n\t(void)F0;\n");
+	f->frefs = true;
+	f->bound = bound;
+	bool recurs = false;
+	if (body) fn_recur_walk(body, &recurs);
+	if (recurs) bound_below(body, &f->bound);
+}
+
 // Small enough to inline at every direct call site and free of direct calls of its own, so that a trace through the
 // inlined copy is the marker's fn inside the caller's frame, never deeper (trace.c).
 enum { LEAF_BODY_MAX = 3000 };
@@ -4695,6 +4799,7 @@ static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_ar
 		sb_printf(&f.out, "\tclj_c_retain_params(&fr, %u);\n", a->nparams);
 		if (a->self_slot >= 0) sb_puts(&f.out, "\tclj_retain(self);\n");
 	}
+	emit_frefs_decl(&f, a->body, omask | (a->variadic && a->nparams < 64 ? (uint64_t)1 << a->nparams : 0));
 	int fail = new_label(&f);
 	sb_printf(&f.out, "\tclj_ccall cc;\n\tCLJC_ENTER(&S[%u], &cc);\n", stub);
 	push_handler(&f, fail);
@@ -4829,6 +4934,7 @@ static void emit_direct_arity(fnctx *parent, const clj_node *n, const clj_fn_ari
 	direct_name_entry(n)->arr[a->nparams] = arr;
 	emit_promoted_decls(&f);
 	if (a->nslots > 64) sb_printf(&f.out, "\tclj_c_retain_params(&fr, %u);\n", a->nparams);
+	emit_frefs_decl(&f, a->body, 0);
 	int fail = new_label(&f);
 	sb_printf(&f.out, "\tclj_ccall cc;\n\tCLJC_ENTER(&S[%u], &cc);\n", stub);
 	push_handler(&f, fail);
@@ -5056,6 +5162,7 @@ static size_t emit_top_fn(cljc_compiler *c, unit *u, const clj_load_form *form, 
 	else sb_puts(&f.out, "\tclj_cframe fr = {NULL, NULL, 0, NULL};\n");
 	sb_puts(&f.out, "\t(void)fr;\n");
 	emit_promoted_decls(&f);
+	emit_frefs_decl(&f, NULL, 0);
 	sb_puts(&f.out, "\tclj_eval_top_enter();\n");
 	int fail = new_label(&f);
 	push_handler(&f, fail);

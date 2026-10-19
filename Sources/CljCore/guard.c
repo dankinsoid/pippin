@@ -231,6 +231,7 @@ void clj_recovery_push(clj_recovery *r) {
 	r->exec_depth = clj_eval_exec_depth();
 	r->bindings = clj_var_bindings_mark();
 	r->ice = s->ice;
+	r->frefs = s->frefs.n;
 	s->recovery = r;
 }
 
@@ -244,6 +245,7 @@ clj_value clj_recovery_throw(clj_recovery *r) {
 	ASAN_LANDED(s);
 	s->depth = r->depth;
 	s->ice = r->ice;
+	s->frefs.n = r->frefs;
 	clj_eval_exec_depth_set(r->exec_depth);
 	clj_var_bindings_unwind(r->bindings);
 	clj_release(clj_take_pending());

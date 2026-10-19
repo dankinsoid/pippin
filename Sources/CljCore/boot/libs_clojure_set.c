@@ -206,6 +206,10 @@ static clj_ctree XG[1] = {
 static clj_value top_0(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 2 "<embedded>/clojure/set.clj"
 	clj_value t0;
@@ -217,7 +221,14 @@ static clj_value top_0(void) {
 	clj_value t2 = K[1];
 	clj_value a0[1] = {t2};
 	(void)a0;
+	if (!FR) FR = clj_c_frefs(&F0);
+	{
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
+		Fv[0] = o1 ? t1 : CLJ_NIL;
+		FR->n = F0 + 1;
+	}
 	t0 = clj_c_invoke(t1, a0, 1);
+	FR->n = F0;
 	(void)t2;
 	if (o1) clj_release(t1);
 	if (t0 == CLJ_THROWN) {
@@ -233,6 +244,10 @@ L1: ;
 static clj_value top_1(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 2 "<embedded>/clojure/set.clj"
 	clj_value t0;
@@ -242,7 +257,14 @@ static clj_value top_1(void) {
 	goto L1;
 	}
 	const clj_value *a0 = NULL;
+	if (!FR) FR = clj_c_frefs(&F0);
+	{
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
+		Fv[0] = o1 ? t1 : CLJ_NIL;
+		FR->n = F0 + 1;
+	}
 	t0 = clj_c_invoke(t1, a0, 0);
+	FR->n = F0;
 	if (o1) clj_release(t1);
 	if (t0 == CLJ_THROWN) {
 	goto L1;
@@ -257,6 +279,10 @@ L1: ;
 static clj_value top_2(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 2 "<embedded>/clojure/set.clj"
 	clj_value t0 = clj_retain(K[2]);
@@ -270,6 +296,10 @@ CLJC_INLINE clj_value clojure_set_bubble_max_key__0_a1_i(clj_value self, const c
 	(void)fr;
 	clj_value l0 = args[0];
 	(void)l0;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[1], &cc);
 #line 8 "<embedded>/clojure/set.clj"
@@ -317,6 +347,10 @@ CLJC_FRAME clj_value clojure_set_bubble_max_key_a2(clj_value self, const clj_val
 	clj_value l1 = args[1];
 	(void)l1;
 	for (uint32_t i = 2; i < 3; i++) s[i] = CLJ_NIL;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[0], &cc);
 #line 7 "<embedded>/clojure/set.clj"
@@ -338,7 +372,15 @@ CLJC_FRAME clj_value clojure_set_bubble_max_key_a2(clj_value self, const clj_val
 	clj_value t4 = l1;
 	clj_value a0[3] = {t2, t3, t4};
 	(void)a0;
+	if (!FR) FR = clj_c_frefs(&F0);
+	{
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		Fv[0] = o1 ? t1 : CLJ_NIL;
+		Fv[1] = o2 ? t2 : CLJ_NIL;
+		FR->n = F0 + 2;
+	}
 	t0 = clj_c_invoke(t1, a0, 3);
+	FR->n = F0;
 	(void)t4;
 	(void)t3;
 	if (o2) clj_release(t2);
@@ -415,6 +457,10 @@ static clj_value clojure_set_bubble_max_key(void *ctx, const clj_value *args, si
 static clj_value top_3(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 4 "<embedded>/clojure/set.clj"
 	clj_value t0 = clj_c_closure(K[4], clojure_set_bubble_max_key, NULL, 0, 0x4, 2, 2);
@@ -437,6 +483,10 @@ CLJC_INLINE clj_value clojure_set_union_a0_i(clj_value self, const clj_value *ca
 	(void)self; (void)captured; (void)args; (void)nargs;
 	clj_cframe fr = {NULL, captured, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[2], &cc);
 #line 10 "<embedded>/clojure/set.clj"
@@ -458,6 +508,10 @@ CLJC_INLINE clj_value clojure_set_union_a1_o1_i(clj_value self, const clj_value 
 	(void)fr;
 	clj_value l0 = args[0];
 	(void)l0;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[2], &cc);
 #line 10 "<embedded>/clojure/set.clj"
@@ -478,6 +532,10 @@ CLJC_INLINE clj_value clojure_set_union_a2_i(clj_value self, const clj_value *ca
 	(void)l0;
 	clj_value l1 = args[1];
 	(void)l1;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[2], &cc);
 #line 15 "<embedded>/clojure/set.clj"
@@ -617,6 +675,10 @@ CLJC_FRAME clj_value clojure_set_union_v2(clj_value self, const clj_value *captu
 	clj_value l2 = CLJ_NIL;
 	clj_value l3 = CLJ_NIL;
 	l2 = clj_rest_args(args, nargs, 2);
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[2], &cc);
 #line 19 "<embedded>/clojure/set.clj"
@@ -664,6 +726,15 @@ CLJC_FRAME clj_value clojure_set_union_v2(clj_value self, const clj_value *captu
 	}
 	clj_value a0[2] = {t2, t3};
 	(void)a0;
+	if (!FR) FR = clj_c_frefs(&F0);
+	{
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
+		Fv[0] = o1 ? t1 : CLJ_NIL;
+		Fv[1] = o2 ? t2 : CLJ_NIL;
+		Fv[2] = t3;
+		Fv[3] = l2;
+		FR->n = F0 + 4;
+	}
 #ifdef CLJC_LOCAL_clojure_set_bubble_max_key_a2
 	t0 = CLJC_CALL_clojure_set_bubble_max_key_a2(CLJ_NIL, NULL, a0, 2);
 #elif defined(CLJC_DIRECT_clojure_set_bubble_max_key_a2)
@@ -672,6 +743,7 @@ CLJC_FRAME clj_value clojure_set_union_v2(clj_value self, const clj_value *captu
 #else
 	t0 = clj_c_invoke(t1, a0, 2);
 #endif
+	FR->n = F0;
 	clj_release(t3);
 	if (o2) clj_release(t2);
 	if (o1) clj_release(t1);
@@ -765,6 +837,10 @@ static clj_value clojure_set_union(void *ctx, const clj_value *args, size_t n) {
 static clj_value top_4(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 10 "<embedded>/clojure/set.clj"
 	clj_value t0 = clj_c_closure(K[7], clojure_set_union, NULL, 0, 0x7, 2, CLJ_ARITY_ANY);
@@ -794,6 +870,10 @@ CLJC_INLINE clj_value clojure_set_intersection_a1_o1_i(clj_value self, const clj
 	(void)fr;
 	clj_value l0 = args[0];
 	(void)l0;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[3], &cc);
 #line 22 "<embedded>/clojure/set.clj"
@@ -819,6 +899,10 @@ CLJC_INLINE clj_value clojure_set_intersection__0_a2_o1_i(clj_value self, const 
 	(void)l0;
 	clj_value l1 = args[1];
 	(void)l1;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[4], &cc);
 #line 29 "<embedded>/clojure/set.clj"
@@ -906,6 +990,10 @@ CLJC_INLINE clj_value clojure_set_intersection_a2_o1_i(clj_value self, const clj
 	clj_value l0 = args[0];
 	(void)l0;
 	s[1] = args[1];
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[3], &cc);
 L2: ;
@@ -1039,6 +1127,10 @@ CLJC_INLINE clj_value clojure_set_intersection__2_a1_i(clj_value self, const clj
 	(void)fr;
 	clj_value l0 = args[0];
 	(void)l0;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[5], &cc);
 #line 34 "<embedded>/clojure/set.clj"
@@ -1102,6 +1194,10 @@ CLJC_FRAME clj_value clojure_set_intersection_v2(clj_value self, const clj_value
 	clj_value l2 = CLJ_NIL;
 	clj_value l3 = CLJ_NIL;
 	l2 = clj_rest_args(args, nargs, 2);
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[3], &cc);
 #line 34 "<embedded>/clojure/set.clj"
@@ -1143,6 +1239,15 @@ CLJC_FRAME clj_value clojure_set_intersection_v2(clj_value self, const clj_value
 	}
 	clj_value a0[2] = {t2, t3};
 	(void)a0;
+	if (!FR) FR = clj_c_frefs(&F0);
+	{
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
+		Fv[0] = o1 ? t1 : CLJ_NIL;
+		Fv[1] = t2;
+		Fv[2] = t3;
+		Fv[3] = l2;
+		FR->n = F0 + 4;
+	}
 #ifdef CLJC_LOCAL_clojure_set_bubble_max_key_a2
 	t0 = CLJC_CALL_clojure_set_bubble_max_key_a2(CLJ_NIL, NULL, a0, 2);
 #elif defined(CLJC_DIRECT_clojure_set_bubble_max_key_a2)
@@ -1151,6 +1256,7 @@ CLJC_FRAME clj_value clojure_set_intersection_v2(clj_value self, const clj_value
 #else
 	t0 = clj_c_invoke(t1, a0, 2);
 #endif
+	FR->n = F0;
 	clj_release(t3);
 	clj_release(t2);
 	if (o1) clj_release(t1);
@@ -1243,6 +1349,10 @@ static clj_value clojure_set_intersection(void *ctx, const clj_value *args, size
 static clj_value top_5(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 22 "<embedded>/clojure/set.clj"
 	clj_value t0 = clj_c_closure(K[11], clojure_set_intersection, NULL, 0, 0x6, 2, CLJ_ARITY_ANY);
@@ -1272,6 +1382,10 @@ CLJC_INLINE clj_value clojure_set_difference_a1_o1_i(clj_value self, const clj_v
 	(void)fr;
 	clj_value l0 = args[0];
 	(void)l0;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[6], &cc);
 #line 37 "<embedded>/clojure/set.clj"
@@ -1297,6 +1411,10 @@ CLJC_INLINE clj_value clojure_set_difference__0_a2_o1_i(clj_value self, const cl
 	(void)l0;
 	clj_value l1 = args[1];
 	(void)l1;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[7], &cc);
 #line 43 "<embedded>/clojure/set.clj"
@@ -1380,6 +1498,10 @@ CLJC_FRAME clj_value clojure_set_difference_a2(clj_value self, const clj_value *
 	clj_value l0 = args[0];
 	(void)l0;
 	s[1] = args[1];
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[6], &cc);
 #line 41 "<embedded>/clojure/set.clj"
@@ -1532,6 +1654,10 @@ CLJC_FRAME clj_value clojure_set_difference_v2(clj_value self, const clj_value *
 	(void)l1;
 	clj_value l2 = CLJ_NIL;
 	l2 = clj_rest_args(args, nargs, 2);
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[6], &cc);
 #line 49 "<embedded>/clojure/set.clj"
@@ -1603,6 +1729,10 @@ static clj_value clojure_set_difference(void *ctx, const clj_value *args, size_t
 static clj_value top_6(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 37 "<embedded>/clojure/set.clj"
 	clj_value t0 = clj_c_closure(K[14], clojure_set_difference, NULL, 0, 0x6, 2, CLJ_ARITY_ANY);
@@ -1634,6 +1764,10 @@ CLJC_INLINE clj_value clojure_set_select__0_a2_o1_i(clj_value self, const clj_va
 	(void)l0;
 	clj_value l1 = args[1];
 	(void)l1;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[9], &cc);
 #line 54 "<embedded>/clojure/set.clj"
@@ -1642,7 +1776,14 @@ CLJC_INLINE clj_value clojure_set_select__0_a2_o1_i(clj_value self, const clj_va
 	clj_value t2 = l1;
 	clj_value a0[1] = {t2};
 	(void)a0;
+	if (!FR) FR = clj_c_frefs(&F0);
+	{
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
+		Fv[0] = l0;
+		FR->n = F0 + 1;
+	}
 	t0 = clj_c_invoke(t1, a0, 1);
+	FR->n = F0;
 	(void)t2;
 	(void)t1;
 	CLJC_SITE(&S[9]);
@@ -1711,6 +1852,10 @@ CLJC_INLINE clj_value clojure_set_select_a2_i(clj_value self, const clj_value *c
 	s[0] = args[0];
 	clj_value l1 = args[1];
 	(void)l1;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[8], &cc);
 #line 54 "<embedded>/clojure/set.clj"
@@ -1744,7 +1889,15 @@ CLJC_INLINE clj_value clojure_set_select_a2_i(clj_value self, const clj_value *c
 	clj_value t9 = l1;
 	clj_value a2[3] = {t7, t8, t9};
 	(void)a2;
+	if (!FR) FR = clj_c_frefs(&F0);
+	{
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		Fv[0] = o6 ? t6 : CLJ_NIL;
+		Fv[1] = t7;
+		FR->n = F0 + 2;
+	}
 	t5 = clj_c_invoke(t6, a2, 3);
+	FR->n = F0;
 	(void)t9;
 	(void)t8;
 	clj_release(t7);
@@ -1778,6 +1931,10 @@ static clj_value clojure_set_select(void *ctx, const clj_value *args, size_t n) 
 static clj_value top_7(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 51 "<embedded>/clojure/set.clj"
 	clj_value t0 = clj_c_closure(K[17], clojure_set_select, NULL, 0, 0x4, 2, 2);
@@ -1802,6 +1959,10 @@ static CLJC_FRAME clj_value clojure_set_project__0_a1(clj_value self, const clj_
 	(void)fr;
 	clj_value l0 = args[0];
 	(void)l0;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[11], &cc);
 #line 60 "<embedded>/clojure/set.clj"
@@ -1858,6 +2019,10 @@ CLJC_FRAME clj_value clojure_set_project_a2(clj_value self, const clj_value *cap
 	clj_value l0 = args[0];
 	(void)l0;
 	s[1] = args[1];
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[10], &cc);
 #line 60 "<embedded>/clojure/set.clj"
@@ -1963,6 +2128,10 @@ static clj_value clojure_set_project(void *ctx, const clj_value *args, size_t n)
 static clj_value top_8(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 57 "<embedded>/clojure/set.clj"
 	clj_value t0 = clj_c_closure(K[20], clojure_set_project, NULL, 0, 0x4, 2, 2);
@@ -1997,6 +2166,10 @@ CLJC_INLINE clj_value clojure_set_rename_keys__0_a2_o1_i(clj_value self, const c
 	clj_value l2 = CLJ_NIL;
 	clj_value l3 = CLJ_NIL;
 	clj_value l4 = CLJ_NIL;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[13], &cc);
 #line 66 "<embedded>/clojure/set.clj"
@@ -2155,6 +2328,10 @@ static CLJC_FRAME clj_value clojure_set_rename_keys__2_a3_o1(clj_value self, con
 	clj_value l5 = CLJ_NIL;
 	clj_value l6 = CLJ_NIL;
 	clj_value l7 = CLJ_NIL;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[14], &cc);
 #line 66 "<embedded>/clojure/set.clj"
@@ -2414,6 +2591,10 @@ CLJC_FRAME clj_value clojure_set_rename_keys_a2(clj_value self, const clj_value 
 	s[0] = args[0];
 	clj_value l1 = args[1];
 	(void)l1;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[12], &cc);
 #line 65 "<embedded>/clojure/set.clj"
@@ -2607,6 +2788,10 @@ static clj_value clojure_set_rename_keys(void *ctx, const clj_value *args, size_
 static clj_value top_9(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 62 "<embedded>/clojure/set.clj"
 	clj_value t0 = clj_c_closure(K[23], clojure_set_rename_keys, NULL, 0, 0x4, 2, 2);
@@ -2631,6 +2816,10 @@ static CLJC_FRAME clj_value clojure_set_rename__0_a1(clj_value self, const clj_v
 	(void)fr;
 	clj_value l0 = args[0];
 	(void)l0;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[16], &cc);
 #line 75 "<embedded>/clojure/set.clj"
@@ -2687,6 +2876,10 @@ CLJC_FRAME clj_value clojure_set_rename_a2(clj_value self, const clj_value *capt
 	clj_value l0 = args[0];
 	(void)l0;
 	s[1] = args[1];
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[15], &cc);
 #line 75 "<embedded>/clojure/set.clj"
@@ -2792,6 +2985,10 @@ static clj_value clojure_set_rename(void *ctx, const clj_value *args, size_t n) 
 static clj_value top_10(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 72 "<embedded>/clojure/set.clj"
 	clj_value t0 = clj_c_closure(K[28], clojure_set_rename, NULL, 0, 0x4, 2, 2);
@@ -2824,6 +3021,10 @@ static CLJC_FRAME clj_value clojure_set_index__0_a2_o1(clj_value self, const clj
 	clj_value l1 = args[1];
 	(void)l1;
 	clj_value l2 = CLJ_NIL;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[18], &cc);
 #line 83 "<embedded>/clojure/set.clj"
@@ -2946,6 +3147,10 @@ CLJC_INLINE clj_value clojure_set_index_a2_i(clj_value self, const clj_value *ca
 	clj_value l0 = args[0];
 	(void)l0;
 	s[1] = args[1];
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[17], &cc);
 #line 81 "<embedded>/clojure/set.clj"
@@ -3015,6 +3220,10 @@ static clj_value clojure_set_index(void *ctx, const clj_value *args, size_t n) {
 static clj_value top_11(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 77 "<embedded>/clojure/set.clj"
 	clj_value t0 = clj_c_closure(K[31], clojure_set_index, NULL, 0, 0x4, 2, 2);
@@ -3049,6 +3258,10 @@ CLJC_INLINE clj_value clojure_set_map_invert__0_a2_o1_i(clj_value self, const cl
 	clj_value l2 = CLJ_NIL;
 	clj_value l3 = CLJ_NIL;
 	clj_value l4 = CLJ_NIL;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[20], &cc);
 #line 89 "<embedded>/clojure/set.clj"
@@ -3160,6 +3373,10 @@ static CLJC_FRAME clj_value clojure_set_map_invert__2_a3_o1(clj_value self, cons
 	clj_value l5 = CLJ_NIL;
 	clj_value l6 = CLJ_NIL;
 	clj_value l7 = CLJ_NIL;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[21], &cc);
 #line 89 "<embedded>/clojure/set.clj"
@@ -3322,6 +3539,10 @@ CLJC_INLINE clj_value clojure_set_map_invert_a1_i(clj_value self, const clj_valu
 	(void)fr;
 	clj_value l0 = args[0];
 	(void)l0;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[19], &cc);
 #line 89 "<embedded>/clojure/set.clj"
@@ -3385,6 +3606,10 @@ static clj_value clojure_set_map_invert(void *ctx, const clj_value *args, size_t
 static clj_value top_12(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 87 "<embedded>/clojure/set.clj"
 	clj_value t0 = clj_c_closure(K[36], clojure_set_map_invert, NULL, 0, 0x2, 1, 1);
@@ -3416,6 +3641,10 @@ CLJC_INLINE clj_value clojure_set_join__0__1_a2_o1_i(clj_value self, const clj_v
 	(void)l0;
 	clj_value l1 = args[1];
 	(void)l1;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[24], &cc);
 #line 105 "<embedded>/clojure/set.clj"
@@ -3497,6 +3726,10 @@ static CLJC_FRAME clj_value clojure_set_join__0_a2_o1(clj_value self, const clj_
 	(void)l0;
 	s[1] = args[1];
 	clj_value l2 = CLJ_NIL;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[23], &cc);
 #line 103 "<embedded>/clojure/set.clj"
@@ -3533,7 +3766,15 @@ static CLJC_FRAME clj_value clojure_set_join__0_a2_o1(clj_value self, const clj_
 	}
 	clj_value a0[1] = {t2};
 	(void)a0;
+	if (!FR) FR = clj_c_frefs(&F0);
+	{
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		Fv[0] = t2;
+		Fv[1] = l0;
+		FR->n = F0 + 2;
+	}
 	t0 = clj_c_invoke(t1, a0, 1);
+	FR->n = F0;
 	clj_release(t2);
 	(void)t1;
 	CLJC_SITE(&S[23]);
@@ -3650,6 +3891,10 @@ CLJC_FRAME clj_value clojure_set_join_a2_o3(clj_value self, const clj_value *cap
 	clj_value l9 = CLJ_NIL;
 	clj_value l10 = CLJ_NIL;
 	clj_value l11 = CLJ_NIL;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[22], &cc);
 #line 96 "<embedded>/clojure/set.clj"
@@ -4107,7 +4352,25 @@ CLJC_FRAME clj_value clojure_set_join_a2_o3(clj_value self, const clj_value *cap
 	clj_value t78 = l6;
 	clj_value a18[3] = {t76, t77, t78};
 	(void)a18;
+	if (!FR) FR = clj_c_frefs(&F0);
+	{
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 12);
+		Fv[0] = o75 ? t75 : CLJ_NIL;
+		Fv[1] = t76;
+		Fv[2] = l0;
+		Fv[3] = l1;
+		Fv[4] = l2;
+		Fv[5] = l4;
+		Fv[6] = l5;
+		Fv[7] = l6;
+		Fv[8] = l8;
+		Fv[9] = l9;
+		Fv[10] = l10;
+		Fv[11] = l11;
+		FR->n = F0 + 12;
+	}
 	t74 = clj_c_invoke(t75, a18, 3);
+	FR->n = F0;
 	(void)t78;
 	(void)t77;
 	clj_release(t76);
@@ -4168,6 +4431,10 @@ CLJC_INLINE clj_value clojure_set_join__4__5_a2_o1_i(clj_value self, const clj_v
 	(void)l0;
 	clj_value l1 = args[1];
 	(void)l1;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[26], &cc);
 #line 117 "<embedded>/clojure/set.clj"
@@ -4249,6 +4516,10 @@ static CLJC_FRAME clj_value clojure_set_join__4_a2_o1(clj_value self, const clj_
 	(void)l0;
 	s[1] = args[1];
 	clj_value l2 = CLJ_NIL;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[25], &cc);
 #line 115 "<embedded>/clojure/set.clj"
@@ -4345,7 +4616,15 @@ static CLJC_FRAME clj_value clojure_set_join__4_a2_o1(clj_value self, const clj_
 	}
 	clj_value a0[1] = {t2};
 	(void)a0;
+	if (!FR) FR = clj_c_frefs(&F0);
+	{
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		Fv[0] = t2;
+		Fv[1] = l0;
+		FR->n = F0 + 2;
+	}
 	t0 = clj_c_invoke(t1, a0, 1);
+	FR->n = F0;
 	clj_release(t2);
 	(void)t1;
 	CLJC_SITE(&S[25]);
@@ -4465,6 +4744,10 @@ CLJC_FRAME clj_value clojure_set_join_a3_o7(clj_value self, const clj_value *cap
 	clj_value l10 = CLJ_NIL;
 	clj_value l11 = CLJ_NIL;
 	clj_value l12 = CLJ_NIL;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[22], &cc);
 #line 110 "<embedded>/clojure/set.clj"
@@ -4809,7 +5092,26 @@ CLJC_FRAME clj_value clojure_set_join_a3_o7(clj_value self, const clj_value *cap
 	clj_value t72 = l5;
 	clj_value a12[3] = {t70, t71, t72};
 	(void)a12;
+	if (!FR) FR = clj_c_frefs(&F0);
+	{
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 13);
+		Fv[0] = o69 ? t69 : CLJ_NIL;
+		Fv[1] = t70;
+		Fv[2] = l0;
+		Fv[3] = l1;
+		Fv[4] = l2;
+		Fv[5] = l3;
+		Fv[6] = l4;
+		Fv[7] = l5;
+		Fv[8] = l8;
+		Fv[9] = l9;
+		Fv[10] = l10;
+		Fv[11] = l11;
+		Fv[12] = l12;
+		FR->n = F0 + 13;
+	}
 	t68 = clj_c_invoke(t69, a12, 3);
+	FR->n = F0;
 	(void)t72;
 	(void)t71;
 	clj_release(t70);
@@ -4864,6 +5166,10 @@ static clj_value clojure_set_join(void *ctx, const clj_value *args, size_t n) {
 static clj_value top_13(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 91 "<embedded>/clojure/set.clj"
 	clj_value t0 = clj_c_closure(K[40], clojure_set_join, NULL, 0, 0xc, 2, 3);
@@ -4888,6 +5194,10 @@ CLJC_INLINE clj_value clojure_set_subset_QMARK___0_a1_i(clj_value self, const cl
 	(void)fr;
 	clj_value l0 = args[0];
 	(void)l0;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[30], &cc);
 #line 125 "<embedded>/clojure/set.clj"
@@ -4936,6 +5246,10 @@ CLJC_FRAME clj_value clojure_set_subset_QMARK__a2(clj_value self, const clj_valu
 	clj_value l2 = CLJ_NIL;
 	clj_value l3 = CLJ_NIL;
 	clj_value l4 = CLJ_NIL;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[27], &cc);
 #line 124 "<embedded>/clojure/set.clj"
@@ -5183,6 +5497,10 @@ static clj_value clojure_set_subset_QMARK_(void *ctx, const clj_value *args, siz
 static clj_value top_14(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 121 "<embedded>/clojure/set.clj"
 	clj_value t0 = clj_c_closure(K[45], clojure_set_subset_QMARK_, NULL, 0, 0x4, 2, 2);
@@ -5207,6 +5525,10 @@ CLJC_INLINE clj_value clojure_set_superset_QMARK___0_a1_i(clj_value self, const 
 	(void)fr;
 	clj_value l0 = args[0];
 	(void)l0;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[34], &cc);
 #line 131 "<embedded>/clojure/set.clj"
@@ -5255,6 +5577,10 @@ CLJC_FRAME clj_value clojure_set_superset_QMARK__a2(clj_value self, const clj_va
 	clj_value l2 = CLJ_NIL;
 	clj_value l3 = CLJ_NIL;
 	clj_value l4 = CLJ_NIL;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_ccall cc;
 	CLJC_ENTER(&S[31], &cc);
 #line 130 "<embedded>/clojure/set.clj"
@@ -5502,6 +5828,10 @@ static clj_value clojure_set_superset_QMARK_(void *ctx, const clj_value *args, s
 static clj_value top_15(void) {
 	clj_cframe fr = {NULL, NULL, 0, NULL};
 	(void)fr;
+	clj_frefs *FR = NULL;
+	uint32_t F0 = 0;
+	(void)FR;
+	(void)F0;
 	clj_eval_top_enter();
 #line 127 "<embedded>/clojure/set.clj"
 	clj_value t0 = clj_c_closure(K[51], clojure_set_superset_QMARK_, NULL, 0, 0x4, 2, 2);

@@ -7,8 +7,16 @@
 
 #include "clj/shadow.h"
 #include "trace_internal.h"
+#include "tsd_internal.h"
 
 #define CLJ_TRACE_MAX 256
+
+// The references compiled frames own across a call that may park, [0, n) of v (design §7, «Фаза 3», «Кадры»):
+// the collector reads a parked execution's as its edges. Written by the owner only, read under the parked lock.
+typedef struct {
+	clj_value *v;
+	uint32_t   n, cap;
+} clj_frefs;
 
 // A ring, one per execution: past the capacity the oldest frame is overwritten, so the innermost ones survive.
 // The header is in the clj_coro: a canceller writes it while the owner is parked and its mapping may be evacuated.
@@ -29,6 +37,7 @@ typedef struct {
 	void             *ice;         // innermost clj_ice_frame (ice.c)
 	size_t            noverflow;   // the frames the guard handler collected before landing (guard.c)
 	clj_trace_frame  *overflow;    // CLJ_TRACE_MAX entries, after the frames
+	clj_frefs         frefs;
 #if CLJ_STATS
 	void             *census;      // the allocation census's frames of this execution (stats.c), made on first use
 #endif
@@ -55,9 +64,20 @@ void clj_shadow_stack_bounds(clj_shadow_stack *s);
 static inline void clj_shadow_push(const clj_node *fn_node, const clj_node *call_site, const void *sp) {
 	clj_shadow_stack *s = clj_shadow_tls;
 	if (__builtin_expect(!s, 0)) s = clj_shadow_stack_init();
-	s->frames[s->depth & s->mask] = (clj_shadow_frame){fn_node, call_site, sp};
+	s->frames[s->depth & s->mask] = (clj_shadow_frame){fn_node, call_site, sp, NULL};
 	s->depth++;
 }
+
+extern pthread_key_t clj_carrier_key;
+
+// The running execution's ring without a TLV call: the first field of the thread's carrier (coro_internal.h).
+static inline clj_shadow_stack *clj_shadow_running(void) {
+	clj_shadow_stack *const *car = clj_tsd_get(clj_carrier_key);
+	return __builtin_expect(car != NULL, 1) ? *car : clj_shadow_stack_init();
+}
+
+// Makes room for n entries; a failed allocation is fatal.
+void clj_frefs_grow(clj_frefs *fl, uint32_t n);
 
 // The depth left; 0 means no closure runs on the thread.
 static inline size_t clj_shadow_pop(void) { return --clj_shadow_tls->depth; }

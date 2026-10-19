@@ -456,6 +456,20 @@ static inline void clj_c_instrument_leave(const clj_node *stub, clj_ccall *c) {
 	}
 }
 
+// The running execution's list of compiled frames' references across calls that may park (shadow_internal.h): the
+// first call of an activation that names some fixes its base, the list's length then, and every push and pop stores
+// the length outright. The pointer is the execution's own, so it stays valid across a park.
+static inline clj_frefs *clj_c_frefs(uint32_t *base) {
+	clj_frefs *fl = &clj_shadow_running()->frefs;
+	*base = fl->n;
+	return fl;
+}
+
+static inline clj_value *clj_c_frefs_at(clj_frefs *fl, uint32_t base, uint32_t k) {
+	if (__builtin_expect(base + k > fl->cap, 0)) clj_frefs_grow(fl, base + k);
+	return fl->v + base;
+}
+
 // One loop turn: true when the deadline throw is pending.
 // The ring captured at the loop's entry (clj_c_tick_ring, eval.c): a TLS read after a park inside the loop would go
 // through an address clang computed on the thread the loop started on.

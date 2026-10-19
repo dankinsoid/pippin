@@ -18,6 +18,7 @@ typedef struct clj_recovery {
 	uint32_t             exec_depth;
 	void                *bindings;
 	void                *ice; // the clj_ice_frame a landing restores
+	uint32_t             frefs; // the compiled frames' references below it (shadow_internal.h, clj_frefs)
 } clj_recovery;
 
 void      clj_recovery_push(clj_recovery *r);

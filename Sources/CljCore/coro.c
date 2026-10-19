@@ -326,6 +326,7 @@ void clj_coro_free_stack(clj_coro *c) {
 #if CLJ_STATS
 	clj_census_ring_free(c->shadow);
 #endif
+	free(c->shadow->frefs.v);
 	c->shadow = NULL;
 	TSAN_FIBER_FREE(c);
 }
@@ -362,6 +363,7 @@ static void thread_exit(void *p) {
 		clj_cc_execution_free(c);
 		free(c->retired);
 		free(c->shadow->frames);
+		free(c->shadow->frefs.v);
 #if CLJ_STATS
 		clj_census_ring_free(c->shadow);
 #endif
@@ -393,6 +395,7 @@ static clj_coro *implicit_init(void) {
 	clj_shadow_stack_bounds(c->shadow);
 	c->carrier = car;
 	car->implicit = car->current = c;
+	car->ring = c->shadow;
 	clj_shadow_tls = c->shadow;
 	pthread_setspecific(clj_carrier_key, car);
 	clj_guard_thread_init(car);
@@ -429,6 +432,17 @@ uint32_t clj_debug_owner_assume(uint32_t tag) {
 
 clj_shadow_stack *clj_shadow_stack_init(void) { return clj_coro_current()->shadow; }
 
+_Static_assert(offsetof(struct clj_carrier, ring) == 0, "clj_shadow_running reads the ring as the carrier's first field");
+
+CLJ_UNIT_ENTRY void clj_frefs_grow(clj_frefs *fl, uint32_t n) {
+	uint32_t cap = fl->cap ? fl->cap : 16;
+	while (cap < n) cap *= 2;
+	clj_value *v = realloc(fl->v, cap * sizeof *v);
+	if (!v) clj_fatal("out of memory");
+	fl->v = v;
+	fl->cap = cap;
+}
+
 const clj_carrier *clj_carrier_current(void) {
 	return clj_tsd_get(clj_carrier_key);
 }
@@ -459,6 +473,7 @@ void clj_coro_switch_in(clj_carrier *car, clj_coro *c) {
 	if (__builtin_expect(c->evacuated, 0)) evac_restore(c);
 	c->carrier = car;
 	__atomic_store_n(&car->current, c, __ATOMIC_RELAXED); // clj_debug_sched_dump reads it from another thread
+	car->ring = c->shadow;
 	clj_shadow_tls = c->shadow;
 	atomic_store_explicit(&c->state, CLJ_CORO_RUNNING, memory_order_relaxed);
 	atomic_fetch_add_explicit(&switches, 1, memory_order_relaxed);
@@ -467,6 +482,7 @@ void clj_coro_switch_in(clj_carrier *car, clj_coro *c) {
 	clj_ctx_switch(&car->return_sp, c->sp);
 	ASAN_FINISH(car->asan_fake);
 	__atomic_store_n(&car->current, car->implicit, __ATOMIC_RELAXED);
+	car->ring = car->implicit->shadow;
 	clj_shadow_tls = car->implicit->shadow;
 }
 
@@ -575,6 +591,17 @@ bool clj_coro_evacuate_locked(clj_coro *c) {
 	atomic_fetch_add_explicit(&evacuated_bytes, size, memory_order_relaxed);
 	atomic_fetch_add_explicit(&evacuations, 1, memory_order_relaxed);
 	return true;
+}
+
+const void *clj_coro_parked_bytes(const clj_coro *c, const void *addr, size_t len) {
+	if (!c->evacuated) return addr;
+	const clj_shadow_stack *s = c->shadow;
+	const char             *a = addr, *sp = c->sp, *map = c->map, *end = map + c->map_size;
+	if (a + len <= map || a >= end) return addr;
+	if (a >= sp && a + len <= s->stack_hi) return (const char *)c->evac + (a - sp);
+	const char *ring = (const char *)s->frames;
+	if (a >= ring && a + len <= ring + ring_live(s)) return (const char *)c->evac + (s->stack_hi - sp) + (a - ring);
+	return NULL;
 }
 
 // Same addresses, so no pointer in the frames needs fixing; on the carrier before the switch, or under c->lock.

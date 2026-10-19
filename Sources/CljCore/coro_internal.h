@@ -152,6 +152,8 @@ struct clj_coro {
 
 // A thread that runs coroutines: a pool thread, the main thread, or any bare thread with its implicit one.
 struct clj_carrier {
+	// First: compiled code reads it inline through the carrier key (clj_shadow_running). Written with current.
+	clj_shadow_stack *ring;
 	clj_coro *current;   // the running execution
 	clj_coro *implicit;  // the thread's own
 	void     *altstack;  // the alternate signal stack (guard.c)
@@ -280,6 +282,9 @@ void      clj_coro_advise_stack(clj_coro *c);
 void clj_coro_live_link(clj_coro *c);
 // Under c->lock with c parked: the live bytes to a blob, the mapping handed back; false when there is nothing to do.
 bool clj_coro_evacuate_locked(clj_coro *c);
+// Under c->lock, parked: where the bytes [addr, addr + len) of its frames are read now, the blob's copy while
+// evacuated; NULL for bytes of the mapping outside its live ranges. Memory off the mapping is read where it is.
+const void *clj_coro_parked_bytes(const clj_coro *c, const void *addr, size_t len);
 void      clj_coro_entry(void);
 // Runs a coroutine's body on its own stack: called by the carrier loop, returns when it parks or finishes.
 void clj_coro_switch_in(clj_carrier *car, clj_coro *c);

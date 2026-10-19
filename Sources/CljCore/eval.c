@@ -533,7 +533,7 @@ static inline __attribute__((always_inline)) clj_value run_body(const clj_node *
 		slots_release(frame, arity->nslots);
 		return deadline_throw(s);
 	}
-	s->frames[s->depth & s->mask] = (clj_shadow_frame){code, site, __builtin_frame_address(0)};
+	s->frames[s->depth & s->mask] = (clj_shadow_frame){code, site, __builtin_frame_address(0), frame};
 	s->depth++;
 #if CLJ_STATS
 	clj_census_mark census = clj_census_enter(code);
@@ -599,7 +599,7 @@ static clj_value eval_inline(const clj_node *n, clj_frame *f) {
 	clj_shadow_stack *s = clj_shadow_tls;
 	if (__builtin_expect(!s, 0)) s = clj_shadow_stack_init();
 	const clj_node *code = n->u.inline_.fn;
-	s->frames[s->depth & s->mask] = (clj_shadow_frame){code, n, __builtin_frame_address(0)};
+	s->frames[s->depth & s->mask] = (clj_shadow_frame){code, n, __builtin_frame_address(0), NULL};
 	s->depth++;
 	uint8_t  instrument = clj_instrument;
 	uint64_t t0 = 0;

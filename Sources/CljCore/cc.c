@@ -12,6 +12,7 @@
 #include "alloc.h"
 #include "cc_internal.h"
 #include "clj/coro.h"
+#include "clj/eval.h"
 #include "clj/ice.h"
 #include "clj/map.h"
 #include "clj/seq.h"
@@ -37,8 +38,8 @@ enum {
 	CHECKED_RECENT = 1024,
 	AUDIT_EVERY = 16,
 	AUDIT_NODES = 1024,
-	// The private objects a parked coroutine's walk enters, under the coroutine's lock.
-	PRIVATE_MAX_NODES = 64,
+	// The unshared objects a parked coroutine's walk enters, under the coroutine's lock; a power of two.
+	PRIVATE_MAX_NODES = 256,
 };
 static const uint64_t MAIN_IDLE_BUDGET_NS = 1000000;
 static const uint64_t DEEP_RETRY_BASE_NS = 1000000000;
@@ -849,44 +850,78 @@ static void visit_locked(void *self, void *ctx) {
 	if (h->type->cc_wakes) h->type->cc_wakes(h, visit_wake, g);
 }
 
-// Only a parked coroutine's frames reach its unshared objects (design §7, «Фаза 3», «Частные рёбра»).
+// A parked coroutine's own references: those its frames own, and those of its unshared objects, which nothing but
+// its frames reaches (design §7, «Фаза 3», «Кадры и частные объекты»). Each unshared object is entered once, so no
+// slot is read twice; one past the cap is left out, and an edge left out reads as held from outside.
 typedef struct {
-	graph       *g;
-	clj_header **stack;
-	uint32_t     n, entered;
+	graph             *g;
+	const clj_coro    *c;
+	const clj_header **seen; // open addressing, 2 * PRIVATE_MAX_NODES
+	const clj_header **stack;
+	uint32_t           n, entered;
 } private_walk;
+
+static void private_enter(private_walk *p, clj_header *h) {
+	// A registry reaches an opaque type without a reference: its slots are not the coroutine's alone.
+	if (opaque(h->type) || p->entered >= PRIVATE_MAX_NODES) return;
+	uint32_t i = ck_slot(2 * PRIVATE_MAX_NODES, h);
+	while (p->seen[i]) {
+		if (p->seen[i] == h) return;
+		i = (i + 1) & (2 * PRIVATE_MAX_NODES - 1);
+	}
+#if CLJ_DEBUG
+	if ((h->flags >> CLJ_OWNER_SHIFT) != p->c->debug_owner)
+		clj_ice("cc/private-owner", NULL, "a parked coroutine reaches an unshared %s it does not own", h->type->name);
+#endif
+	p->seen[i] = h;
+	p->stack[p->n++] = h;
+	p->entered++;
+}
 
 static void private_child(clj_value v, void *ctx) {
 	private_walk *p = ctx;
 	if (!clj_is_ptr(v)) return;
 	clj_header *h = clj_header_of(v);
 	if (h->flags & CLJ_FLAG_IMMORTAL) return;
-	if (h->flags & CLJ_FLAG_SHARED) {
-		visit_child(v, p->g);
-		return;
-	}
-	// Left out, an edge reads as held from outside. A registry reaches an opaque type without a reference.
-	if ((CLJ_RC_UNSHARED_LOAD(h) & CLJ_RC_COUNT_MASK) != 1 || opaque(h->type) || p->entered >= PRIVATE_MAX_NODES) return;
-	p->stack[p->n++] = h;
-	p->entered++;
+	if (h->flags & CLJ_FLAG_SHARED) visit_child(v, p->g);
+	else private_enter(p, h);
 }
 
-static void visit_private(graph *g, const clj_coro *c, clj_value root) {
-	if (!clj_is_ptr(root)) return;
-	clj_header *h = clj_header_of(root);
-	if ((h->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL)) || opaque(h->type)) return;
-#if CLJ_DEBUG
-	if ((h->flags >> CLJ_OWNER_SHIFT) != c->debug_owner)
-		clj_ice("cc/private-owner", NULL, "a parked coroutine names an unshared %s it does not own", h->type->name);
-#else
-	(void)c;
-#endif
-	clj_header  *stack[PRIVATE_MAX_NODES];
-	private_walk p = {.g = g, .stack = stack, .n = 1, .entered = 1};
-	stack[0] = h;
+// A reference a frame owns: an edge to a shared object, an unshared one entered.
+static void frame_owned(private_walk *p, clj_value v) { private_child(v, p); }
+
+// A reference a frame lends: only an unshared object's slots are the coroutine's.
+static void frame_lent(private_walk *p, clj_value v) {
+	if (clj_is_ptr(v) && !(clj_header_of(v)->flags & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL))) private_enter(p, clj_header_of(v));
+}
+
+// The interpreter's frames on the ring, each one's owned slots. A frame of more than 64 slots owns all of them and
+// says so with every bit: it is left out, as its count is not at hand.
+static void interp_frames(private_walk *p) {
+	const clj_shadow_stack *s = p->c->shadow;
+	size_t                  held = s->depth < s->mask + 1 ? s->depth : s->mask + 1;
+	for (size_t i = 0; i < held; i++) {
+		const clj_shadow_frame *sf = clj_coro_parked_bytes(p->c, &s->frames[i], sizeof *sf);
+		const clj_frame        *fr = sf && sf->frame ? clj_coro_parked_bytes(p->c, sf->frame, sizeof *fr) : NULL;
+		if (!fr || !fr->owned || fr->owned == UINT64_MAX) continue;
+		uint32_t         top = 64 - (uint32_t)__builtin_clzll(fr->owned);
+		const clj_value *slots = clj_coro_parked_bytes(p->c, fr->slots, top * sizeof *slots);
+		if (!slots) continue;
+		for (uint64_t m = fr->owned; m; m &= m - 1) frame_owned(p, slots[__builtin_ctzll(m)]);
+	}
+}
+
+// Under its lock, which keeps it parked: its frames are still there and its owner touches nothing of its own.
+static void visit_frames(graph *g, const clj_coro *c) {
+	const clj_header *seen[2 * PRIVATE_MAX_NODES] = {0}, *stack[PRIVATE_MAX_NODES];
+	private_walk      p = {.g = g, .c = c, .seen = seen, .stack = stack};
+	const clj_frefs  *fl = &c->shadow->frefs;
+	for (uint32_t i = 0; i < fl->n; i++) frame_owned(&p, fl->v[i]);
+	interp_frames(&p);
+	if (c->waiter) frame_lent(&p, c->waiter->ports);
 	while (p.n) {
-		clj_header *u = stack[--p.n];
-		if (u->type->each_child) u->type->each_child(u, private_child, &p);
+		const clj_header *u = stack[--p.n];
+		if (u->type->each_child) u->type->each_child((void *)u, private_child, &p);
 	}
 }
 
@@ -903,8 +938,7 @@ static void visit_coro_locked(clj_coro *c, int verdict, uint32_t internal, uint3
 	nd->internal += internal;
 	nd->queued = queued;
 	clj_coro_type.each_child(c, visit_child, g);
-	// The lock keeps it parked, so the frame lending the vector is still there and its owner cannot touch it.
-	if (verdict == CLJ_CORO_CC_PARKED && c->waiter) visit_private(g, c, c->waiter->ports);
+	if (verdict == CLJ_CORO_CC_PARKED) visit_frames(g, c);
 }
 
 // Its own frame, the one scripts/tsan.supp names: the slots are read while their writers store without a lock.
