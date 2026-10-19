@@ -51,6 +51,7 @@ typedef struct {
 	clj_frefs         frefs;
 	// A push went past the capacity: an entry below the depth may be a returned frame's, so none is read (cc.c).
 	bool              wrapped;
+	bool              collectable; // a coroutine's, which a collection may read: the interpreter puts buffers on only here
 #if CLJ_STATS
 	void             *census;      // the allocation census's frames of this execution (stats.c), made on first use
 #endif

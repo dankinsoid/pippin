@@ -366,10 +366,14 @@ static inline void release_owned(const clj_value *vals, uint32_t n, uint64_t own
 
 static void slots_release(const clj_frame *f, uint32_t n) { release_owned(f->slots, n, f->owned); }
 
+// A frame no collection reads (a bare thread's own execution, a top-level form's): its buffers are never put on.
+#define ARGS_OFF ((const clj_argbuf *)(uintptr_t)1)
+
 // On its frame from an owned value before an argument that may park, and through a call (design §7, «Фаза 3»).
 // Whether it is on is a separate local, kept in a register: the buffer's address escapes, the flag's never does.
 static inline __attribute__((always_inline)) void argrec_put(clj_frame *f, clj_argbuf *b, bool *on, const clj_value *v, uint64_t owned,
                                                              const clj_frame *inner) {
+	if (f->args == ARGS_OFF) return;
 	b->vals = v;
 	b->owned = owned;
 	b->frame = inner;
@@ -620,6 +624,7 @@ static inline __attribute__((always_inline)) clj_value run_body(const clj_node *
 	}
 	if (__builtin_expect(s->depth > s->mask, 0)) s->wrapped = true;
 	s->frames[s->depth & s->mask] = (clj_shadow_frame){code, site, __builtin_frame_address(0), frame};
+	frame->args = s->collectable ? NULL : ARGS_OFF;
 	s->depth++;
 #if CLJ_STATS
 	clj_census_mark census = clj_census_enter(code);
@@ -1175,7 +1180,7 @@ static clj_value eval_fused(const clj_node *n, clj_frame *f) {
 	bool ron = false;
 	if (eval_all(n->u.fused.args, nargs, f, vals, &owned, &rb, &ron)) {
 		bool      fuse = clj_fusion_guard(n->u.fused.guards, n->u.fused.nguards);
-		clj_frame inner = {vals, NULL, f->exec, 0, NULL, NULL};
+		clj_frame inner = {vals, NULL, f->exec, 0, NULL, f->args == ARGS_OFF ? ARGS_OFF : NULL};
 		// inner, which no ring entry records, is read through the buffer, its own buffers with it
 		argrec_end(f, &rb, &ron);
 		argrec_put(f, &rb, &ron, vals, owned, &inner);
@@ -1995,7 +2000,7 @@ static clj_value exec_run_at(const clj_exec *e, const clj_node *n) {
 		if (!slots) clj_fatal("out of memory");
 	}
 	memset(slots, 0, nslots * sizeof *slots);
-	clj_frame frame = {slots, NULL, e, 0, NULL, NULL};
+	clj_frame frame = {slots, NULL, e, 0, NULL, ARGS_OFF};
 	exec_depth_enter(clj_coro_current());
 	clj_value v = eval_child(n, &frame);
 	CLJ_ASSERT(v != CLJ_RECUR, "recur escaped its target");

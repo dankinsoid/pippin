@@ -293,6 +293,7 @@ clj_coro *clj_coro_alloc(void) {
 	// A cached ring keeps stale frames: valid up to depth, the overflow array up to noverflow only.
 	clj_shadow_stack_arrays(s, top);
 	s->mask = atomic_load_explicit(&ring_capacity, memory_order_relaxed) - 1;
+	s->collectable = true;
 	s->stack_lo = (char *)base + guard;
 	s->stack_hi = top;
 	s->stack_limit = s->stack_lo + 64 * 1024;
