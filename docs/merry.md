@@ -1166,12 +1166,12 @@ handler'ом, слияние потоков объединяет строки �
   последовательности, макросы потока (`->`, `cond->`, `some->`, `as->`, `for`, `with-open`), с поправками на
   особенности Merry и добавлениями: sorted и ordered коллекции, `identified-vector` (порядок и быстрый поиск по id,
   как `IdentifiedArray` в TCA; сочетается с сущностями). Рядом, как в Clojure, — `merry.string`, `merry.set`,
-  `merry.walk`.
+  `merry.walk`, `merry.edn` (читатель — часть языка).
 - **Три слоя неймспейсов** (решение автора):
 
   | слой | что | версия | образец |
   |---|---|---|---|
-  | язык | `merry.core`, `merry.string`, `merry.set`, `merry.walk` | с компилятором | Clojure |
+  | язык | `merry.core`, `merry.string`, `merry.set`, `merry.walk`, `merry.edn` | с компилятором | Clojure |
   | платформа | `merry.time`, `merry.net.http`, `merry.tls`, `merry.json`, `merry.i18n`, `merry.color`… | ставится с языком, версия своя | default gems Ruby, boot libraries GHC |
   | инкубатор | `merry.x.*` | без гарантий совместимости | `golang.org/x` |
 
