@@ -93,7 +93,7 @@
 ;;; ── Givens: dictionaries chosen by type ────────────────────────────────────
 
 ;; variant: protocols are givens (docs «Кандидат: given'ы»); defprotocol is sugar over this.
-;; std: (deftype ^:witness (Add T) {:add (Fn [T T] T) :add-all (Fn [T [T]] T)}), + takes ^:using (Add T)
+;; std: (deftype ^:witness (Add T) {:add (Fn [T T] T) :add-all (Fn [T [T]] T)}), + takes ^:using (Add a)
 
 (deftype ^:witness (Describe T)
   {:describe (Fn [T] String {:eff #{}})   ; the effect bound every implementation must fit
