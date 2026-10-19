@@ -262,15 +262,7 @@ CLJC_FRAME clj_value clojure_template_apply_template_a3(clj_value self, const cl
 	clj_value t12 = K[8];
 	clj_value a1[2] = {t11, t12};
 	(void)a1;
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
-		Fv[0] = o6 ? t6 : CLJ_NIL;
-		Fv[1] = t11;
-		FR->n = F0 + 2;
-	}
 	t5 = clj_c_invoke(t6, a1, 2);
-	FR->n = F0;
 	(void)t12;
 	clj_release(t11);
 	if (o6) clj_release(t6);
@@ -382,15 +374,7 @@ CLJC_FRAME clj_value clojure_template_apply_template_a3(clj_value self, const cl
 	clj_value t29 = K[8];
 	clj_value a5[2] = {t28, t29};
 	(void)a5;
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
-		Fv[0] = o23 ? t23 : CLJ_NIL;
-		Fv[1] = t28;
-		FR->n = F0 + 2;
-	}
 	t22 = clj_c_invoke(t23, a5, 2);
-	FR->n = F0;
 	(void)t29;
 	clj_release(t28);
 	if (o23) clj_release(t23);
@@ -741,16 +725,6 @@ CLJC_FRAME clj_value clojure_template_do_template_v4(clj_value self, const clj_v
 	}
 	clj_value a2[2] = {t4, t7};
 	(void)a2;
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
-		Fv[0] = o3 ? t3 : CLJ_NIL;
-		Fv[1] = t4;
-		Fv[2] = t7;
-		Fv[3] = l4;
-		Fv[4] = l5;
-		FR->n = F0 + 5;
-	}
 #ifdef CLJC_LOCAL_clojure_core_concat_a2
 	t2 = CLJC_CALL_clojure_core_concat_a2(clj_var_root_relaxed(V[15]), NULL, a2, 2);
 #elif defined(CLJC_DIRECT_clojure_core_concat_a2)
@@ -759,7 +733,6 @@ CLJC_FRAME clj_value clojure_template_do_template_v4(clj_value self, const clj_v
 #else
 	t2 = clj_c_invoke(t3, a2, 2);
 #endif
-	FR->n = F0;
 	clj_release(t7);
 	clj_release(t4);
 	if (o3) clj_release(t3);

@@ -2642,13 +2642,10 @@ CLJC_FRAME clj_value clojure_core_async_alts_BANG__v1(clj_value self, const clj_
 	(void)a2;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
 		Fv[0] = o11 ? t11 : CLJ_NIL;
-		Fv[1] = l1;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		FR->n = F0 + 5;
+		Fv[1] = l4;
+		FR->n = F0 + 2;
 	}
 	t10 = clj_c_invoke(t11, a2, 2);
 	FR->n = F0;
@@ -2938,16 +2935,13 @@ static CLJC_FRAME clj_value clojure_core_async_do_alt__1__2_a2_o1(clj_value self
 	const clj_value *a5 = NULL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 8);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
 		Fv[0] = o23 ? t23 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		Fv[5] = l5;
-		Fv[6] = l6;
-		Fv[7] = l7;
-		FR->n = F0 + 8;
+		Fv[1] = l3;
+		Fv[2] = l4;
+		Fv[3] = l6;
+		Fv[4] = l7;
+		FR->n = F0 + 5;
 	}
 	t22 = clj_c_invoke(t23, a5, 0);
 	FR->n = F0;
@@ -2968,17 +2962,14 @@ static CLJC_FRAME clj_value clojure_core_async_do_alt__1__2_a2_o1(clj_value self
 	const clj_value *a6 = NULL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 9);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
 		Fv[0] = o25 ? t25 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		Fv[5] = l5;
-		Fv[6] = l6;
-		Fv[7] = l7;
-		Fv[8] = l8;
-		FR->n = F0 + 9;
+		Fv[1] = l3;
+		Fv[2] = l4;
+		Fv[3] = l6;
+		Fv[4] = l7;
+		Fv[5] = l8;
+		FR->n = F0 + 6;
 	}
 	t24 = clj_c_invoke(t25, a6, 0);
 	FR->n = F0;
@@ -3088,18 +3079,11 @@ static CLJC_FRAME clj_value clojure_core_async_do_alt__1__2_a2_o1(clj_value self
 	const clj_value *a13 = NULL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 10);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o42 ? t42 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		Fv[5] = l5;
-		Fv[6] = l6;
-		Fv[7] = l7;
-		Fv[8] = l8;
-		Fv[9] = l9;
-		FR->n = F0 + 10;
+		Fv[1] = l3;
+		Fv[2] = l4;
+		FR->n = F0 + 3;
 	}
 	t41 = clj_c_invoke(t42, a13, 0);
 	FR->n = F0;
@@ -3328,17 +3312,14 @@ static CLJC_FRAME clj_value clojure_core_async_do_alt__1__4_a3_o1(clj_value self
 	const clj_value *a3 = NULL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 9);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
 		Fv[0] = o23 ? t23 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l3;
-		Fv[3] = l4;
-		Fv[4] = l5;
-		Fv[5] = l7;
-		Fv[6] = l8;
-		Fv[7] = l12;
-		Fv[8] = l13;
-		FR->n = F0 + 9;
+		Fv[1] = l4;
+		Fv[2] = l5;
+		Fv[3] = l7;
+		Fv[4] = l8;
+		Fv[5] = l13;
+		FR->n = F0 + 6;
 	}
 	t22 = clj_c_invoke(t23, a3, 0);
 	FR->n = F0;
@@ -3359,18 +3340,15 @@ static CLJC_FRAME clj_value clojure_core_async_do_alt__1__4_a3_o1(clj_value self
 	const clj_value *a4 = NULL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 10);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 7);
 		Fv[0] = o25 ? t25 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l3;
-		Fv[3] = l4;
-		Fv[4] = l5;
-		Fv[5] = l7;
-		Fv[6] = l8;
-		Fv[7] = l9;
-		Fv[8] = l12;
-		Fv[9] = l13;
-		FR->n = F0 + 10;
+		Fv[1] = l4;
+		Fv[2] = l5;
+		Fv[3] = l7;
+		Fv[4] = l8;
+		Fv[5] = l9;
+		Fv[6] = l13;
+		FR->n = F0 + 7;
 	}
 	t24 = clj_c_invoke(t25, a4, 0);
 	FR->n = F0;
@@ -3585,20 +3563,14 @@ static CLJC_FRAME clj_value clojure_core_async_do_alt__1__4_a3_o1(clj_value self
 	const clj_value *a16 = NULL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 12);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
 		Fv[0] = o64 ? t64 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l3;
-		Fv[3] = l4;
-		Fv[4] = l5;
-		Fv[5] = l6;
-		Fv[6] = l7;
-		Fv[7] = l8;
-		Fv[8] = l9;
-		Fv[9] = l10;
-		Fv[10] = l12;
-		Fv[11] = l13;
-		FR->n = F0 + 12;
+		Fv[1] = l4;
+		Fv[2] = l5;
+		Fv[3] = l7;
+		Fv[4] = l8;
+		Fv[5] = l13;
+		FR->n = F0 + 6;
 	}
 	t63 = clj_c_invoke(t64, a16, 0);
 	FR->n = F0;
@@ -3619,20 +3591,15 @@ static CLJC_FRAME clj_value clojure_core_async_do_alt__1__4_a3_o1(clj_value self
 	const clj_value *a17 = NULL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 12);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 7);
 		Fv[0] = o66 ? t66 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l3;
-		Fv[3] = l4;
-		Fv[4] = l5;
-		Fv[5] = l6;
-		Fv[6] = l7;
-		Fv[7] = l8;
-		Fv[8] = l9;
-		Fv[9] = l10;
-		Fv[10] = l12;
-		Fv[11] = l13;
-		FR->n = F0 + 12;
+		Fv[1] = l4;
+		Fv[2] = l5;
+		Fv[3] = l7;
+		Fv[4] = l8;
+		Fv[5] = l9;
+		Fv[6] = l13;
+		FR->n = F0 + 7;
 	}
 	t65 = clj_c_invoke(t66, a17, 0);
 	FR->n = F0;
@@ -3742,20 +3709,13 @@ static CLJC_FRAME clj_value clojure_core_async_do_alt__1__4_a3_o1(clj_value self
 	const clj_value *a24 = NULL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 12);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
 		Fv[0] = o83 ? t83 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l3;
-		Fv[3] = l4;
-		Fv[4] = l5;
-		Fv[5] = l6;
-		Fv[6] = l7;
-		Fv[7] = l8;
-		Fv[8] = l9;
-		Fv[9] = l10;
-		Fv[10] = l12;
-		Fv[11] = l13;
-		FR->n = F0 + 12;
+		Fv[1] = l4;
+		Fv[2] = l5;
+		Fv[3] = l12;
+		Fv[4] = l13;
+		FR->n = F0 + 5;
 	}
 	t82 = clj_c_invoke(t83, a24, 0);
 	FR->n = F0;
@@ -4078,19 +4038,15 @@ static CLJC_FRAME clj_value clojure_core_async_do_alt__1_a2_o1(clj_value self, c
 	(void)a8;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 11);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 7);
 		Fv[0] = o33 ? t33 : CLJ_NIL;
 		Fv[1] = t34;
 		Fv[2] = t37;
-		Fv[3] = l0;
-		Fv[4] = l2;
-		Fv[5] = l3;
-		Fv[6] = l4;
-		Fv[7] = l5;
-		Fv[8] = l6;
-		Fv[9] = l7;
-		Fv[10] = l8;
-		FR->n = F0 + 11;
+		Fv[3] = l3;
+		Fv[4] = l4;
+		Fv[5] = l7;
+		Fv[6] = l8;
+		FR->n = F0 + 7;
 	}
 	t32 = clj_c_invoke(t33, a8, 3);
 	FR->n = F0;
@@ -5098,14 +5054,13 @@ CLJC_FRAME clj_value clojure_core_async_do_alt_a2(clj_value self, const clj_valu
 	(void)a4;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
 		Fv[0] = o20 ? t20 : CLJ_NIL;
 		Fv[1] = t21;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		Fv[5] = l5;
-		FR->n = F0 + 6;
+		Fv[2] = l3;
+		Fv[3] = l4;
+		Fv[4] = l5;
+		FR->n = F0 + 5;
 	}
 	t19 = clj_c_invoke(t20, a4, 3);
 	FR->n = F0;
@@ -5174,16 +5129,13 @@ CLJC_FRAME clj_value clojure_core_async_do_alt_a2(clj_value self, const clj_valu
 	(void)a7;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 8);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
 		Fv[0] = o33 ? t33 : CLJ_NIL;
-		Fv[1] = l2;
-		Fv[2] = l3;
-		Fv[3] = l4;
-		Fv[4] = l5;
-		Fv[5] = l6;
-		Fv[6] = l7;
-		Fv[7] = l8;
-		FR->n = F0 + 8;
+		Fv[1] = l3;
+		Fv[2] = l4;
+		Fv[3] = l7;
+		Fv[4] = l8;
+		FR->n = F0 + 5;
 	}
 	t32 = clj_c_invoke(t33, a7, 1);
 	FR->n = F0;
@@ -5207,16 +5159,13 @@ CLJC_FRAME clj_value clojure_core_async_do_alt_a2(clj_value self, const clj_valu
 	(void)a8;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 8);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
 		Fv[0] = o36 ? t36 : CLJ_NIL;
-		Fv[1] = l2;
-		Fv[2] = l3;
-		Fv[3] = l4;
-		Fv[4] = l5;
-		Fv[5] = l6;
-		Fv[6] = l7;
-		Fv[7] = l8;
-		FR->n = F0 + 8;
+		Fv[1] = l3;
+		Fv[2] = l4;
+		Fv[3] = l7;
+		Fv[4] = l8;
+		FR->n = F0 + 5;
 	}
 	t35 = clj_c_invoke(t36, a8, 1);
 	FR->n = F0;
@@ -5327,7 +5276,7 @@ CLJC_FRAME clj_value clojure_core_async_do_alt_a2(clj_value self, const clj_valu
 	(void)a16;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 15);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 12);
 		Fv[0] = o39 ? t39 : CLJ_NIL;
 		Fv[1] = t40;
 		Fv[2] = o44 ? t44 : CLJ_NIL;
@@ -5336,14 +5285,11 @@ CLJC_FRAME clj_value clojure_core_async_do_alt_a2(clj_value self, const clj_valu
 		Fv[5] = o49 ? t49 : CLJ_NIL;
 		Fv[6] = o51 ? t51 : CLJ_NIL;
 		Fv[7] = o52 ? t52 : CLJ_NIL;
-		Fv[8] = l2;
-		Fv[9] = l3;
-		Fv[10] = l4;
-		Fv[11] = l5;
-		Fv[12] = l6;
-		Fv[13] = l7;
-		Fv[14] = l8;
-		FR->n = F0 + 15;
+		Fv[8] = l3;
+		Fv[9] = l4;
+		Fv[10] = l7;
+		Fv[11] = l8;
+		FR->n = F0 + 12;
 	}
 	t50 = clj_c_invoke(t51, a16, 2);
 	FR->n = F0;
@@ -5952,7 +5898,7 @@ CLJC_FRAME clj_value clojure_core_async_do_alt_a2(clj_value self, const clj_valu
 	(void)a33;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 25);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 22);
 		Fv[0] = o39 ? t39 : CLJ_NIL;
 		Fv[1] = t40;
 		Fv[2] = o44 ? t44 : CLJ_NIL;
@@ -5971,14 +5917,11 @@ CLJC_FRAME clj_value clojure_core_async_do_alt_a2(clj_value self, const clj_valu
 		Fv[15] = o89 ? t89 : CLJ_NIL;
 		Fv[16] = o90 ? t90 : CLJ_NIL;
 		Fv[17] = t91;
-		Fv[18] = l2;
-		Fv[19] = l3;
-		Fv[20] = l4;
-		Fv[21] = l5;
-		Fv[22] = l6;
-		Fv[23] = l7;
-		Fv[24] = l8;
-		FR->n = F0 + 25;
+		Fv[18] = l3;
+		Fv[19] = l4;
+		Fv[20] = l7;
+		Fv[21] = l8;
+		FR->n = F0 + 22;
 	}
 	t88 = clj_c_invoke(t89, a33, 2);
 	FR->n = F0;
@@ -6006,34 +5949,6 @@ CLJC_FRAME clj_value clojure_core_async_do_alt_a2(clj_value self, const clj_valu
 	}
 	clj_value a32[1] = {t88};
 	(void)a32;
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 23);
-		Fv[0] = o39 ? t39 : CLJ_NIL;
-		Fv[1] = t40;
-		Fv[2] = o44 ? t44 : CLJ_NIL;
-		Fv[3] = o46 ? t46 : CLJ_NIL;
-		Fv[4] = o47 ? t47 : CLJ_NIL;
-		Fv[5] = o49 ? t49 : CLJ_NIL;
-		Fv[6] = t50;
-		Fv[7] = t54;
-		Fv[8] = o75 ? t75 : CLJ_NIL;
-		Fv[9] = o77 ? t77 : CLJ_NIL;
-		Fv[10] = t78;
-		Fv[11] = o82 ? t82 : CLJ_NIL;
-		Fv[12] = o84 ? t84 : CLJ_NIL;
-		Fv[13] = o85 ? t85 : CLJ_NIL;
-		Fv[14] = o87 ? t87 : CLJ_NIL;
-		Fv[15] = t88;
-		Fv[16] = l2;
-		Fv[17] = l3;
-		Fv[18] = l4;
-		Fv[19] = l5;
-		Fv[20] = l6;
-		Fv[21] = l7;
-		Fv[22] = l8;
-		FR->n = F0 + 23;
-	}
 #ifdef CLJC_LOCAL_clojure_core_concat_a1
 	t86 = CLJC_CALL_clojure_core_concat_a1(clj_var_root_relaxed(V[49]), NULL, a32, 1);
 #elif defined(CLJC_DIRECT_clojure_core_concat_a1)
@@ -6042,7 +5957,6 @@ CLJC_FRAME clj_value clojure_core_async_do_alt_a2(clj_value self, const clj_valu
 #else
 	t86 = clj_c_invoke(t87, a32, 1);
 #endif
-	FR->n = F0;
 	clj_release(t88);
 	if (o87) clj_release(t87);
 	CLJC_SITE(&S[15]);
@@ -6092,35 +6006,7 @@ CLJC_FRAME clj_value clojure_core_async_do_alt_a2(clj_value self, const clj_valu
 	}
 	clj_value a30[2] = {t85, t95};
 	(void)a30;
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 22);
-		Fv[0] = o39 ? t39 : CLJ_NIL;
-		Fv[1] = t40;
-		Fv[2] = o44 ? t44 : CLJ_NIL;
-		Fv[3] = o46 ? t46 : CLJ_NIL;
-		Fv[4] = o47 ? t47 : CLJ_NIL;
-		Fv[5] = o49 ? t49 : CLJ_NIL;
-		Fv[6] = t50;
-		Fv[7] = t54;
-		Fv[8] = o75 ? t75 : CLJ_NIL;
-		Fv[9] = o77 ? t77 : CLJ_NIL;
-		Fv[10] = t78;
-		Fv[11] = o82 ? t82 : CLJ_NIL;
-		Fv[12] = o84 ? t84 : CLJ_NIL;
-		Fv[13] = o85 ? t85 : CLJ_NIL;
-		Fv[14] = t95;
-		Fv[15] = l2;
-		Fv[16] = l3;
-		Fv[17] = l4;
-		Fv[18] = l5;
-		Fv[19] = l6;
-		Fv[20] = l7;
-		Fv[21] = l8;
-		FR->n = F0 + 22;
-	}
 	t83 = clj_c_invoke(t84, a30, 2);
-	FR->n = F0;
 	clj_release(t95);
 	if (o85) clj_release(t85);
 	if (o84) clj_release(t84);
@@ -6142,33 +6028,7 @@ CLJC_FRAME clj_value clojure_core_async_do_alt_a2(clj_value self, const clj_valu
 	}
 	clj_value a29[1] = {t83};
 	(void)a29;
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 20);
-		Fv[0] = o39 ? t39 : CLJ_NIL;
-		Fv[1] = t40;
-		Fv[2] = o44 ? t44 : CLJ_NIL;
-		Fv[3] = o46 ? t46 : CLJ_NIL;
-		Fv[4] = o47 ? t47 : CLJ_NIL;
-		Fv[5] = o49 ? t49 : CLJ_NIL;
-		Fv[6] = t50;
-		Fv[7] = t54;
-		Fv[8] = o75 ? t75 : CLJ_NIL;
-		Fv[9] = o77 ? t77 : CLJ_NIL;
-		Fv[10] = t78;
-		Fv[11] = o82 ? t82 : CLJ_NIL;
-		Fv[12] = t83;
-		Fv[13] = l2;
-		Fv[14] = l3;
-		Fv[15] = l4;
-		Fv[16] = l5;
-		Fv[17] = l6;
-		Fv[18] = l7;
-		Fv[19] = l8;
-		FR->n = F0 + 20;
-	}
 	t81 = clj_c_invoke(t82, a29, 1);
-	FR->n = F0;
 	clj_release(t83);
 	if (o82) clj_release(t82);
 	CLJC_SITE(&S[15]);
@@ -6229,7 +6089,7 @@ CLJC_FRAME clj_value clojure_core_async_do_alt_a2(clj_value self, const clj_valu
 	(void)a35;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 21);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 18);
 		Fv[0] = o39 ? t39 : CLJ_NIL;
 		Fv[1] = t40;
 		Fv[2] = o44 ? t44 : CLJ_NIL;
@@ -6244,14 +6104,11 @@ CLJC_FRAME clj_value clojure_core_async_do_alt_a2(clj_value self, const clj_valu
 		Fv[11] = t81;
 		Fv[12] = o97 ? t97 : CLJ_NIL;
 		Fv[13] = o98 ? t98 : CLJ_NIL;
-		Fv[14] = l2;
-		Fv[15] = l3;
-		Fv[16] = l4;
-		Fv[17] = l5;
-		Fv[18] = l6;
-		Fv[19] = l7;
-		Fv[20] = l8;
-		FR->n = F0 + 21;
+		Fv[14] = l3;
+		Fv[15] = l4;
+		Fv[16] = l7;
+		Fv[17] = l8;
+		FR->n = F0 + 18;
 	}
 	t96 = clj_c_invoke(t97, a35, 2);
 	FR->n = F0;
@@ -6276,33 +6133,7 @@ CLJC_FRAME clj_value clojure_core_async_do_alt_a2(clj_value self, const clj_valu
 	}
 	clj_value a27[3] = {t78, t81, t96};
 	(void)a27;
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 20);
-		Fv[0] = o39 ? t39 : CLJ_NIL;
-		Fv[1] = t40;
-		Fv[2] = o44 ? t44 : CLJ_NIL;
-		Fv[3] = o46 ? t46 : CLJ_NIL;
-		Fv[4] = o47 ? t47 : CLJ_NIL;
-		Fv[5] = o49 ? t49 : CLJ_NIL;
-		Fv[6] = t50;
-		Fv[7] = t54;
-		Fv[8] = o75 ? t75 : CLJ_NIL;
-		Fv[9] = o77 ? t77 : CLJ_NIL;
-		Fv[10] = t78;
-		Fv[11] = t81;
-		Fv[12] = t96;
-		Fv[13] = l2;
-		Fv[14] = l3;
-		Fv[15] = l4;
-		Fv[16] = l5;
-		Fv[17] = l6;
-		Fv[18] = l7;
-		Fv[19] = l8;
-		FR->n = F0 + 20;
-	}
 	t76 = clj_c_invoke(t77, a27, 3);
-	FR->n = F0;
 	clj_release(t96);
 	clj_release(t81);
 	clj_release(t78);
@@ -6344,30 +6175,7 @@ CLJC_FRAME clj_value clojure_core_async_do_alt_a2(clj_value self, const clj_valu
 	}
 	clj_value a25[1] = {t100};
 	(void)a25;
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 17);
-		Fv[0] = o39 ? t39 : CLJ_NIL;
-		Fv[1] = t40;
-		Fv[2] = o44 ? t44 : CLJ_NIL;
-		Fv[3] = o46 ? t46 : CLJ_NIL;
-		Fv[4] = o47 ? t47 : CLJ_NIL;
-		Fv[5] = o49 ? t49 : CLJ_NIL;
-		Fv[6] = t50;
-		Fv[7] = t54;
-		Fv[8] = o75 ? t75 : CLJ_NIL;
-		Fv[9] = t100;
-		Fv[10] = l2;
-		Fv[11] = l3;
-		Fv[12] = l4;
-		Fv[13] = l5;
-		Fv[14] = l6;
-		Fv[15] = l7;
-		Fv[16] = l8;
-		FR->n = F0 + 17;
-	}
 	t74 = clj_c_invoke(t75, a25, 1);
-	FR->n = F0;
 	clj_release(t100);
 	if (o75) clj_release(t75);
 	CLJC_SITE(&S[15]);
@@ -6384,29 +6192,7 @@ CLJC_FRAME clj_value clojure_core_async_do_alt_a2(clj_value self, const clj_valu
 	}
 	clj_value a15[3] = {t50, t54, t74};
 	(void)a15;
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 16);
-		Fv[0] = o39 ? t39 : CLJ_NIL;
-		Fv[1] = t40;
-		Fv[2] = o44 ? t44 : CLJ_NIL;
-		Fv[3] = o46 ? t46 : CLJ_NIL;
-		Fv[4] = o47 ? t47 : CLJ_NIL;
-		Fv[5] = o49 ? t49 : CLJ_NIL;
-		Fv[6] = t50;
-		Fv[7] = t54;
-		Fv[8] = t74;
-		Fv[9] = l2;
-		Fv[10] = l3;
-		Fv[11] = l4;
-		Fv[12] = l5;
-		Fv[13] = l6;
-		Fv[14] = l7;
-		Fv[15] = l8;
-		FR->n = F0 + 16;
-	}
 	t48 = clj_c_invoke(t49, a15, 3);
-	FR->n = F0;
 	clj_release(t74);
 	clj_release(t54);
 	clj_release(t50);
@@ -6440,26 +6226,7 @@ CLJC_FRAME clj_value clojure_core_async_do_alt_a2(clj_value self, const clj_valu
 	}
 	clj_value a13[2] = {t47, t101};
 	(void)a13;
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 13);
-		Fv[0] = o39 ? t39 : CLJ_NIL;
-		Fv[1] = t40;
-		Fv[2] = o44 ? t44 : CLJ_NIL;
-		Fv[3] = o46 ? t46 : CLJ_NIL;
-		Fv[4] = o47 ? t47 : CLJ_NIL;
-		Fv[5] = t101;
-		Fv[6] = l2;
-		Fv[7] = l3;
-		Fv[8] = l4;
-		Fv[9] = l5;
-		Fv[10] = l6;
-		Fv[11] = l7;
-		Fv[12] = l8;
-		FR->n = F0 + 13;
-	}
 	t45 = clj_c_invoke(t46, a13, 2);
-	FR->n = F0;
 	clj_release(t101);
 	if (o47) clj_release(t47);
 	if (o46) clj_release(t46);
@@ -6472,24 +6239,7 @@ CLJC_FRAME clj_value clojure_core_async_do_alt_a2(clj_value self, const clj_valu
 	}
 	clj_value a12[1] = {t45};
 	(void)a12;
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 11);
-		Fv[0] = o39 ? t39 : CLJ_NIL;
-		Fv[1] = t40;
-		Fv[2] = o44 ? t44 : CLJ_NIL;
-		Fv[3] = t45;
-		Fv[4] = l2;
-		Fv[5] = l3;
-		Fv[6] = l4;
-		Fv[7] = l5;
-		Fv[8] = l6;
-		Fv[9] = l7;
-		Fv[10] = l8;
-		FR->n = F0 + 11;
-	}
 	t43 = clj_c_invoke(t44, a12, 1);
-	FR->n = F0;
 	clj_release(t45);
 	if (o44) clj_release(t44);
 	CLJC_SITE(&S[15]);
@@ -6857,24 +6607,7 @@ CLJC_FRAME clj_value clojure_core_async_do_alt_a2(clj_value self, const clj_valu
 	}
 	clj_value a10[3] = {t40, t43, t102};
 	(void)a10;
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 11);
-		Fv[0] = o39 ? t39 : CLJ_NIL;
-		Fv[1] = t40;
-		Fv[2] = t43;
-		Fv[3] = t102;
-		Fv[4] = l2;
-		Fv[5] = l3;
-		Fv[6] = l4;
-		Fv[7] = l5;
-		Fv[8] = l6;
-		Fv[9] = l7;
-		Fv[10] = l8;
-		FR->n = F0 + 11;
-	}
 	t38 = clj_c_invoke(t39, a10, 3);
-	FR->n = F0;
 	clj_release(t102);
 	clj_release(t43);
 	clj_release(t40);
@@ -7549,13 +7282,6 @@ CLJC_FRAME clj_value clojure_core_async_scope_cancel_children_BANG__a2(clj_value
 	}
 	clj_value a1[1] = {t2};
 	(void)a1;
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
-		Fv[0] = o1 ? t1 : CLJ_NIL;
-		Fv[1] = t2;
-		FR->n = F0 + 2;
-	}
 #ifdef CLJC_LOCAL_clojure_core_vals_a1
 	t0 = CLJC_CALL_clojure_core_vals_a1(CLJ_NIL, NULL, a1, 1);
 #elif defined(CLJC_DIRECT_clojure_core_vals_a1)
@@ -7564,7 +7290,6 @@ CLJC_FRAME clj_value clojure_core_async_scope_cancel_children_BANG__a2(clj_value
 #else
 	t0 = clj_c_invoke(t1, a1, 1);
 #endif
-	FR->n = F0;
 	clj_release(t2);
 	if (o1) clj_release(t1);
 	CLJC_SITE(&S[25]);
@@ -7954,10 +7679,9 @@ CLJC_FRAME clj_value clojure_core_async_scope_child_failed_BANG__a2(clj_value se
 	(void)a8;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o20 ? t20 : CLJ_NIL;
-		Fv[1] = l2;
-		FR->n = F0 + 2;
+		FR->n = F0 + 1;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_scope_cancel_children_BANG__a2
 	t19 = CLJC_CALL_clojure_core_async_scope_cancel_children_BANG__a2(CLJ_NIL, NULL, a8, 2);
@@ -8002,11 +7726,10 @@ CLJC_FRAME clj_value clojure_core_async_scope_child_failed_BANG__a2(clj_value se
 	(void)a9;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
 		Fv[0] = o24 ? t24 : CLJ_NIL;
 		Fv[1] = t25;
-		Fv[2] = l2;
-		FR->n = F0 + 3;
+		FR->n = F0 + 2;
 	}
 	t23 = clj_c_invoke(t24, a9, 2);
 	FR->n = F0;
@@ -8468,11 +8191,10 @@ L10: ;
 	const clj_value *a7 = NULL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
 		Fv[0] = o20 ? t20 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		FR->n = F0 + 3;
+		Fv[1] = l1;
+		FR->n = F0 + 2;
 	}
 	t19 = clj_c_invoke(t20, a7, 0);
 	FR->n = F0;
@@ -8499,11 +8221,10 @@ L10: ;
 	(void)a9;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
 		Fv[0] = o23 ? t23 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		FR->n = F0 + 3;
+		Fv[1] = l1;
+		FR->n = F0 + 2;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_scope_child_failed_BANG__a2
 	t22 = CLJC_CALL_clojure_core_async_scope_child_failed_BANG__a2(CLJ_NIL, NULL, a9, 2);
@@ -8538,11 +8259,10 @@ L12: ;
 	const clj_value *a10 = NULL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
 		Fv[0] = o27 ? t27 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		FR->n = F0 + 3;
+		Fv[1] = l1;
+		FR->n = F0 + 2;
 	}
 	t26 = clj_c_invoke(t27, a10, 0);
 	FR->n = F0;
@@ -8589,11 +8309,9 @@ L6: ;
 	const clj_value *a11 = NULL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o31 ? t31 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		FR->n = F0 + 3;
+		FR->n = F0 + 1;
 	}
 	t30 = clj_c_invoke(t31, a11, 0);
 	FR->n = F0;
@@ -8620,11 +8338,9 @@ L6: ;
 	(void)a13;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o34 ? t34 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		FR->n = F0 + 3;
+		FR->n = F0 + 1;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_scope_child_done_BANG__a2
 	t33 = CLJC_CALL_clojure_core_async_scope_child_done_BANG__a2(CLJ_NIL, NULL, a13, 2);
@@ -8659,11 +8375,9 @@ L18: ;
 	const clj_value *a14 = NULL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o38 ? t38 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		FR->n = F0 + 3;
+		FR->n = F0 + 1;
 	}
 	t37 = clj_c_invoke(t38, a14, 0);
 	FR->n = F0;
@@ -8936,10 +8650,9 @@ CLJC_FRAME clj_value clojure_core_async_scope_spawn_a3(clj_value self, const clj
 	(void)a5;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = t19;
-		Fv[1] = l4;
-		FR->n = F0 + 2;
+		FR->n = F0 + 1;
 	}
 	t17 = clj_c_invoke(t18, a5, 1);
 	FR->n = F0;
@@ -9110,11 +8823,10 @@ CLJC_FRAME clj_value clojure_core_async_spawn_STAR__a2(clj_value self, const clj
 	(void)a0;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
 		Fv[0] = o6 ? t6 : CLJ_NIL;
-		Fv[1] = l2;
-		Fv[2] = l3;
-		FR->n = F0 + 3;
+		Fv[1] = l3;
+		FR->n = F0 + 2;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_scope_spawn_a3
 	t5 = CLJC_CALL_clojure_core_async_scope_spawn_a3(CLJ_NIL, NULL, a0, 3);
@@ -9142,15 +8854,7 @@ CLJC_FRAME clj_value clojure_core_async_spawn_STAR__a2(clj_value self, const clj
 	clj_value t12 = l1;
 	clj_value a1[1] = {t12};
 	(void)a1;
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
-		Fv[0] = l2;
-		Fv[1] = l3;
-		FR->n = F0 + 2;
-	}
 	t10 = clj_c_invoke(t11, a1, 1);
-	FR->n = F0;
 	(void)t12;
 	(void)t11;
 	CLJC_SITE(&S[32]);
@@ -11998,13 +11702,11 @@ L8: ;
 	const clj_value *a9 = NULL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o22 ? t22 : CLJ_NIL;
 		Fv[1] = l1;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		FR->n = F0 + 5;
+		Fv[2] = l4;
+		FR->n = F0 + 3;
 	}
 	t21 = clj_c_invoke(t22, a9, 0);
 	FR->n = F0;
@@ -12111,14 +11813,12 @@ L8: ;
 	(void)a15;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
 		Fv[0] = o39 ? t39 : CLJ_NIL;
 		Fv[1] = t41;
 		Fv[2] = l1;
-		Fv[3] = l2;
-		Fv[4] = l3;
-		Fv[5] = l4;
-		FR->n = F0 + 6;
+		Fv[3] = l4;
+		FR->n = F0 + 4;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_scope_cancel_children_BANG__a2
 	t38 = CLJC_CALL_clojure_core_async_scope_cancel_children_BANG__a2(CLJ_NIL, NULL, a15, 2);
@@ -12157,13 +11857,11 @@ L8: ;
 	(void)a17;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o45 ? t45 : CLJ_NIL;
 		Fv[1] = l1;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		FR->n = F0 + 5;
+		Fv[2] = l4;
+		FR->n = F0 + 3;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_scope_join_BANG__a1
 	t44 = CLJC_CALL_clojure_core_async_scope_join_BANG__a1(CLJ_NIL, NULL, a17, 1);
@@ -12212,14 +11910,12 @@ L12: ;
 	(void)a18;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
 		Fv[0] = o48 ? t48 : CLJ_NIL;
 		Fv[1] = t49;
 		Fv[2] = l1;
-		Fv[3] = l2;
-		Fv[4] = l3;
-		Fv[5] = l4;
-		FR->n = F0 + 6;
+		Fv[3] = l4;
+		FR->n = F0 + 4;
 	}
 	t47 = clj_c_invoke(t48, a18, 1);
 	FR->n = F0;
@@ -12270,14 +11966,12 @@ L14: ;
 	(void)a21;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
 		Fv[0] = o56 ? t56 : CLJ_NIL;
 		Fv[1] = t57;
 		Fv[2] = l1;
-		Fv[3] = l2;
-		Fv[4] = l3;
-		Fv[5] = l4;
-		FR->n = F0 + 6;
+		Fv[3] = l4;
+		FR->n = F0 + 4;
 	}
 	t55 = clj_c_invoke(t56, a21, 1);
 	FR->n = F0;
@@ -12291,13 +11985,11 @@ L14: ;
 	(void)a20;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = t55;
 		Fv[1] = l1;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		FR->n = F0 + 5;
+		Fv[2] = l4;
+		FR->n = F0 + 3;
 	}
 	t53 = clj_c_kw_get(KC_19_get(), t54, a20[0], CLJ_NIL);
 	FR->n = F0;
@@ -12388,16 +12080,11 @@ L10: ;
 	const clj_value *a25 = NULL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 8);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o77 ? t77 : CLJ_NIL;
 		Fv[1] = l1;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		Fv[5] = l5;
-		Fv[6] = l6;
-		Fv[7] = l7;
-		FR->n = F0 + 8;
+		Fv[2] = l4;
+		FR->n = F0 + 3;
 	}
 	t76 = clj_c_invoke(t77, a25, 0);
 	FR->n = F0;
@@ -12437,16 +12124,11 @@ L4: ;
 	const clj_value *a26 = NULL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 8);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o80 ? t80 : CLJ_NIL;
 		Fv[1] = l1;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		Fv[5] = l5;
-		Fv[6] = l6;
-		Fv[7] = l7;
-		FR->n = F0 + 8;
+		Fv[2] = l4;
+		FR->n = F0 + 3;
 	}
 	t79 = clj_c_invoke(t80, a26, 0);
 	FR->n = F0;
@@ -14999,10 +14681,9 @@ L3: ;
 	(void)a2;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o11 ? t11 : CLJ_NIL;
-		Fv[1] = l0;
-		FR->n = F0 + 2;
+		FR->n = F0 + 1;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t10 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a2, 1);
@@ -15402,13 +15083,9 @@ static CLJC_FRAME clj_value clojure_core_async_pipeline_STAR___1_a1(clj_value se
 	(void)a3;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o15 ? t15 : CLJ_NIL;
-		Fv[1] = l1;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		FR->n = F0 + 5;
+		FR->n = F0 + 1;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t14 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a3, 1);
@@ -15448,13 +15125,11 @@ static CLJC_FRAME clj_value clojure_core_async_pipeline_STAR___1_a1(clj_value se
 	(void)a4;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o19 ? t19 : CLJ_NIL;
-		Fv[1] = l1;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		FR->n = F0 + 5;
+		Fv[1] = l2;
+		Fv[2] = l3;
+		FR->n = F0 + 3;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_chan_a3
 	t18 = CLJC_CALL_clojure_core_async_chan_a3(CLJ_NIL, NULL, a4, 3);
@@ -15488,14 +15163,12 @@ static CLJC_FRAME clj_value clojure_core_async_pipeline_STAR___1_a1(clj_value se
 	(void)a5;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
 		Fv[0] = o24 ? t24 : CLJ_NIL;
-		Fv[1] = l1;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		Fv[5] = l5;
-		FR->n = F0 + 6;
+		Fv[1] = l2;
+		Fv[2] = l3;
+		Fv[3] = l5;
+		FR->n = F0 + 4;
 	}
 	t23 = clj_c_invoke(t24, a5, 2);
 	FR->n = F0;
@@ -15524,14 +15197,11 @@ static CLJC_FRAME clj_value clojure_core_async_pipeline_STAR___1_a1(clj_value se
 	(void)a6;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o28 ? t28 : CLJ_NIL;
-		Fv[1] = l1;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		Fv[5] = l5;
-		FR->n = F0 + 6;
+		Fv[1] = l3;
+		Fv[2] = l5;
+		FR->n = F0 + 3;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t27 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a6, 1);
@@ -15566,14 +15236,11 @@ static CLJC_FRAME clj_value clojure_core_async_pipeline_STAR___1_a1(clj_value se
 	(void)a7;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o31 ? t31 : CLJ_NIL;
-		Fv[1] = l1;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		Fv[5] = l5;
-		FR->n = F0 + 6;
+		Fv[1] = l3;
+		Fv[2] = l5;
+		FR->n = F0 + 3;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_put_BANG__a2
 	t30 = CLJC_CALL_clojure_core_async_put_BANG__a2(CLJ_NIL, NULL, a7, 2);
@@ -15723,13 +15390,9 @@ static CLJC_FRAME clj_value clojure_core_async_pipeline_STAR___2_a1(clj_value se
 	(void)a3;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o15 ? t15 : CLJ_NIL;
-		Fv[1] = l1;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		FR->n = F0 + 5;
+		FR->n = F0 + 1;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t14 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a3, 1);
@@ -15767,13 +15430,11 @@ static CLJC_FRAME clj_value clojure_core_async_pipeline_STAR___2_a1(clj_value se
 	(void)a4;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o19 ? t19 : CLJ_NIL;
-		Fv[1] = l1;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		FR->n = F0 + 5;
+		Fv[1] = l2;
+		Fv[2] = l3;
+		FR->n = F0 + 3;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_chan_a1
 	t18 = CLJC_CALL_clojure_core_async_chan_a1(CLJ_NIL, NULL, a4, 1);
@@ -15800,13 +15461,11 @@ static CLJC_FRAME clj_value clojure_core_async_pipeline_STAR___2_a1(clj_value se
 	(void)a5;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
-		Fv[0] = l1;
-		Fv[1] = l2;
-		Fv[2] = l3;
-		Fv[3] = l4;
-		Fv[4] = l5;
-		FR->n = F0 + 5;
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
+		Fv[0] = l2;
+		Fv[1] = l3;
+		Fv[2] = l5;
+		FR->n = F0 + 3;
 	}
 	t21 = clj_c_invoke(t22, a5, 2);
 	FR->n = F0;
@@ -15836,14 +15495,11 @@ static CLJC_FRAME clj_value clojure_core_async_pipeline_STAR___2_a1(clj_value se
 	(void)a6;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o26 ? t26 : CLJ_NIL;
-		Fv[1] = l1;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		Fv[5] = l5;
-		FR->n = F0 + 6;
+		Fv[1] = l3;
+		Fv[2] = l5;
+		FR->n = F0 + 3;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_put_BANG__a2
 	t25 = CLJC_CALL_clojure_core_async_put_BANG__a2(CLJ_NIL, NULL, a6, 2);
@@ -16184,11 +15840,10 @@ L3: ;
 	(void)a2;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
 		Fv[0] = o8 ? t8 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		FR->n = F0 + 3;
+		Fv[1] = l1;
+		FR->n = F0 + 2;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t7 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a2, 1);
@@ -16315,11 +15970,10 @@ L3: ;
 	(void)a6;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
 		Fv[0] = o20 ? t20 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		FR->n = F0 + 3;
+		Fv[1] = l1;
+		FR->n = F0 + 2;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async__GT__BANG__a2
 	t19 = CLJC_CALL_clojure_core_async__GT__BANG__a2(CLJ_NIL, NULL, a6, 2);
@@ -16469,13 +16123,12 @@ L3: ;
 	(void)a2;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
 		Fv[0] = o11 ? t11 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		Fv[3] = l2;
-		Fv[4] = l3;
-		FR->n = F0 + 5;
+		Fv[1] = l1;
+		Fv[2] = l2;
+		Fv[3] = l3;
+		FR->n = F0 + 4;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t10 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a2, 1);
@@ -16558,13 +16211,12 @@ L4: ;
 	(void)a4;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
 		Fv[0] = o17 ? t17 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		Fv[3] = l2;
-		Fv[4] = l3;
-		FR->n = F0 + 5;
+		Fv[1] = l1;
+		Fv[2] = l2;
+		Fv[3] = l3;
+		FR->n = F0 + 4;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async__LT__BANG__a1
 	t16 = CLJC_CALL_clojure_core_async__LT__BANG__a1(CLJ_NIL, NULL, a4, 1);
@@ -16632,13 +16284,12 @@ L4: ;
 	(void)a7;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
 		Fv[0] = o26 ? t26 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		Fv[3] = l2;
-		Fv[4] = l3;
-		FR->n = F0 + 5;
+		Fv[1] = l1;
+		Fv[2] = l2;
+		Fv[3] = l3;
+		FR->n = F0 + 4;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async__GT__BANG__a2
 	t25 = CLJC_CALL_clojure_core_async__GT__BANG__a2(CLJ_NIL, NULL, a7, 2);
@@ -16833,17 +16484,7 @@ CLJC_FRAME clj_value clojure_core_async_pipeline_STAR__a7_o33(clj_value self, co
 	clj_value t12 = K[211];
 	clj_value a1[2] = {t11, t12};
 	(void)a1;
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
-		Fv[0] = o6 ? t6 : CLJ_NIL;
-		Fv[1] = t11;
-		Fv[2] = l0;
-		Fv[3] = l5;
-		FR->n = F0 + 4;
-	}
 	t5 = clj_c_invoke(t6, a1, 2);
-	FR->n = F0;
 	(void)t12;
 	clj_release(t11);
 	if (o6) clj_release(t6);
@@ -16892,12 +16533,11 @@ CLJC_FRAME clj_value clojure_core_async_pipeline_STAR__a7_o33(clj_value self, co
 	(void)a4;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o21 ? t21 : CLJ_NIL;
 		Fv[1] = l0;
-		Fv[2] = l5;
-		Fv[3] = l7;
-		FR->n = F0 + 4;
+		Fv[2] = l7;
+		FR->n = F0 + 3;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_chan_a1
 	t20 = CLJC_CALL_clojure_core_async_chan_a1(CLJ_NIL, NULL, a4, 1);
@@ -16931,12 +16571,11 @@ CLJC_FRAME clj_value clojure_core_async_pipeline_STAR__a7_o33(clj_value self, co
 	(void)a5;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o24 ? t24 : CLJ_NIL;
 		Fv[1] = l0;
-		Fv[2] = l5;
-		Fv[3] = l7;
-		FR->n = F0 + 4;
+		Fv[2] = l7;
+		FR->n = F0 + 3;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_chan_a1
 	t23 = CLJC_CALL_clojure_core_async_chan_a1(CLJ_NIL, NULL, a5, 1);
@@ -17058,18 +16697,16 @@ L3: ;
 	(void)a11;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 10);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 8);
 		Fv[0] = o49 ? t49 : CLJ_NIL;
 		Fv[1] = t50;
-		Fv[2] = l0;
-		Fv[3] = l5;
-		Fv[4] = l7;
-		Fv[5] = l13;
-		Fv[6] = l14;
-		Fv[7] = l15;
-		Fv[8] = l16;
-		Fv[9] = l17;
-		FR->n = F0 + 10;
+		Fv[2] = l7;
+		Fv[3] = l13;
+		Fv[4] = l14;
+		Fv[5] = l15;
+		Fv[6] = l16;
+		Fv[7] = l17;
+		FR->n = F0 + 8;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_thread_call_a1
 	t48 = CLJC_CALL_clojure_core_async_thread_call_a1(CLJ_NIL, NULL, a11, 1);
@@ -17138,17 +16775,15 @@ L3: ;
 	(void)a15;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 9);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 7);
 		Fv[0] = o61 ? t61 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l5;
-		Fv[3] = l7;
-		Fv[4] = l13;
-		Fv[5] = l14;
-		Fv[6] = l15;
-		Fv[7] = l16;
-		Fv[8] = l17;
-		FR->n = F0 + 9;
+		Fv[1] = l7;
+		Fv[2] = l13;
+		Fv[3] = l14;
+		Fv[4] = l15;
+		Fv[5] = l16;
+		Fv[6] = l17;
+		FR->n = F0 + 7;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_go_STAR__a1
 	t60 = CLJC_CALL_clojure_core_async_go_STAR__a1(CLJ_NIL, NULL, a15, 1);
@@ -17179,17 +16814,15 @@ L3: ;
 	(void)a16;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 9);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 7);
 		Fv[0] = o64 ? t64 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l5;
-		Fv[3] = l7;
-		Fv[4] = l13;
-		Fv[5] = l14;
-		Fv[6] = l15;
-		Fv[7] = l16;
-		Fv[8] = l17;
-		FR->n = F0 + 9;
+		Fv[1] = l7;
+		Fv[2] = l13;
+		Fv[3] = l14;
+		Fv[4] = l15;
+		Fv[5] = l16;
+		Fv[6] = l17;
+		FR->n = F0 + 7;
 	}
 	t63 = clj_c_invoke(t64, a16, 1);
 	FR->n = F0;
@@ -17321,18 +16954,16 @@ L3: ;
 	(void)a22;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 10);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 8);
 		Fv[0] = o83 ? t83 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l5;
-		Fv[3] = l7;
-		Fv[4] = l13;
-		Fv[5] = l14;
-		Fv[6] = l15;
-		Fv[7] = l16;
-		Fv[8] = l17;
-		Fv[9] = l18;
-		FR->n = F0 + 10;
+		Fv[1] = l7;
+		Fv[2] = l13;
+		Fv[3] = l14;
+		Fv[4] = l15;
+		Fv[5] = l16;
+		Fv[6] = l17;
+		Fv[7] = l18;
+		FR->n = F0 + 8;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_go_STAR__a1
 	t82 = CLJC_CALL_clojure_core_async_go_STAR__a1(CLJ_NIL, NULL, a22, 1);
@@ -17363,18 +16994,16 @@ L3: ;
 	(void)a23;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 10);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 8);
 		Fv[0] = o86 ? t86 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l5;
-		Fv[3] = l7;
-		Fv[4] = l13;
-		Fv[5] = l14;
-		Fv[6] = l15;
-		Fv[7] = l16;
-		Fv[8] = l17;
-		Fv[9] = l18;
-		FR->n = F0 + 10;
+		Fv[1] = l7;
+		Fv[2] = l13;
+		Fv[3] = l14;
+		Fv[4] = l15;
+		Fv[5] = l16;
+		Fv[6] = l17;
+		Fv[7] = l18;
+		FR->n = F0 + 8;
 	}
 	t85 = clj_c_invoke(t86, a23, 1);
 	FR->n = F0;
@@ -17416,19 +17045,17 @@ L3: ;
 	(void)a25;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 11);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 9);
 		Fv[0] = o93 ? t93 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l5;
-		Fv[3] = l7;
-		Fv[4] = l13;
-		Fv[5] = l14;
-		Fv[6] = l15;
-		Fv[7] = l16;
-		Fv[8] = l17;
-		Fv[9] = l18;
-		Fv[10] = l19;
-		FR->n = F0 + 11;
+		Fv[1] = l7;
+		Fv[2] = l13;
+		Fv[3] = l14;
+		Fv[4] = l15;
+		Fv[5] = l16;
+		Fv[6] = l17;
+		Fv[7] = l18;
+		Fv[8] = l19;
+		FR->n = F0 + 9;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_go_STAR__a1
 	t92 = CLJC_CALL_clojure_core_async_go_STAR__a1(CLJ_NIL, NULL, a25, 1);
@@ -17459,19 +17086,17 @@ L3: ;
 	(void)a26;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 11);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 9);
 		Fv[0] = o96 ? t96 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l5;
-		Fv[3] = l7;
-		Fv[4] = l13;
-		Fv[5] = l14;
-		Fv[6] = l15;
-		Fv[7] = l16;
-		Fv[8] = l17;
-		Fv[9] = l18;
-		Fv[10] = l19;
-		FR->n = F0 + 11;
+		Fv[1] = l7;
+		Fv[2] = l13;
+		Fv[3] = l14;
+		Fv[4] = l15;
+		Fv[5] = l16;
+		Fv[6] = l17;
+		Fv[7] = l18;
+		Fv[8] = l19;
+		FR->n = F0 + 9;
 	}
 	t95 = clj_c_invoke(t96, a26, 1);
 	FR->n = F0;
@@ -17591,10 +17216,9 @@ CLJC_FRAME clj_value clojure_core_async_pipeline_a4_o1(clj_value self, const clj
 	l0 = CLJ_NIL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o1 ? t1 : CLJ_NIL;
-		Fv[1] = l0;
-		FR->n = F0 + 2;
+		FR->n = F0 + 1;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_pipeline_a5_o1
 	t0 = CLJC_CALL_clojure_core_async_pipeline_a5_o1(CLJ_NIL, NULL, a0, 5);
@@ -17683,10 +17307,9 @@ CLJC_FRAME clj_value clojure_core_async_pipeline_a5_o1(clj_value self, const clj
 	clj_retain(t7);
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o1 ? t1 : CLJ_NIL;
-		Fv[1] = l0;
-		FR->n = F0 + 2;
+		FR->n = F0 + 1;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_pipeline_a6_o33
 	t0 = CLJC_CALL_clojure_core_async_pipeline_a6_o33(CLJ_NIL, NULL, a0, 6);
@@ -17783,11 +17406,9 @@ CLJC_FRAME clj_value clojure_core_async_pipeline_a6_o33(clj_value self, const cl
 	l5 = CLJ_NIL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o1 ? t1 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l5;
-		FR->n = F0 + 3;
+		FR->n = F0 + 1;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_pipeline_STAR__a7_o33
 	t0 = CLJC_CALL_clojure_core_async_pipeline_STAR__a7_o33(CLJ_NIL, NULL, a0, 7);
@@ -17914,10 +17535,9 @@ CLJC_FRAME clj_value clojure_core_async_pipeline_blocking_a4_o1(clj_value self, 
 	l0 = CLJ_NIL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o1 ? t1 : CLJ_NIL;
-		Fv[1] = l0;
-		FR->n = F0 + 2;
+		FR->n = F0 + 1;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_pipeline_blocking_a5_o1
 	t0 = CLJC_CALL_clojure_core_async_pipeline_blocking_a5_o1(CLJ_NIL, NULL, a0, 5);
@@ -18006,10 +17626,9 @@ CLJC_FRAME clj_value clojure_core_async_pipeline_blocking_a5_o1(clj_value self, 
 	clj_retain(t7);
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o1 ? t1 : CLJ_NIL;
-		Fv[1] = l0;
-		FR->n = F0 + 2;
+		FR->n = F0 + 1;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_pipeline_blocking_a6_o33
 	t0 = CLJC_CALL_clojure_core_async_pipeline_blocking_a6_o33(CLJ_NIL, NULL, a0, 6);
@@ -18106,11 +17725,9 @@ CLJC_FRAME clj_value clojure_core_async_pipeline_blocking_a6_o33(clj_value self,
 	l5 = CLJ_NIL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o1 ? t1 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l5;
-		FR->n = F0 + 3;
+		FR->n = F0 + 1;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_pipeline_STAR__a7_o33
 	t0 = CLJC_CALL_clojure_core_async_pipeline_STAR__a7_o33(CLJ_NIL, NULL, a0, 7);
@@ -18237,10 +17854,9 @@ CLJC_FRAME clj_value clojure_core_async_pipeline_async_a4_o1(clj_value self, con
 	l0 = CLJ_NIL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o1 ? t1 : CLJ_NIL;
-		Fv[1] = l0;
-		FR->n = F0 + 2;
+		FR->n = F0 + 1;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_pipeline_async_a5_o1
 	t0 = CLJC_CALL_clojure_core_async_pipeline_async_a5_o1(CLJ_NIL, NULL, a0, 5);
@@ -18330,10 +17946,9 @@ CLJC_FRAME clj_value clojure_core_async_pipeline_async_a5_o1(clj_value self, con
 	clj_retain(t7);
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o1 ? t1 : CLJ_NIL;
-		Fv[1] = l0;
-		FR->n = F0 + 2;
+		FR->n = F0 + 1;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_pipeline_STAR__a7_o33
 	t0 = CLJC_CALL_clojure_core_async_pipeline_STAR__a7_o33(CLJ_NIL, NULL, a0, 7);
@@ -18561,10 +18176,9 @@ L3: ;
 	(void)a2;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o8 ? t8 : CLJ_NIL;
-		Fv[1] = l0;
-		FR->n = F0 + 2;
+		FR->n = F0 + 1;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t7 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a2, 1);
@@ -18597,10 +18211,9 @@ L3: ;
 	(void)a3;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o11 ? t11 : CLJ_NIL;
-		Fv[1] = l0;
-		FR->n = F0 + 2;
+		FR->n = F0 + 1;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t10 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a3, 1);
@@ -19078,12 +18691,10 @@ L3: ;
 	(void)a3;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
 		Fv[0] = o14 ? t14 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		Fv[3] = l2;
-		FR->n = F0 + 4;
+		Fv[1] = l2;
+		FR->n = F0 + 2;
 	}
 	t13 = clj_c_invoke(t14, a3, 1);
 	FR->n = F0;
@@ -19109,12 +18720,10 @@ L3: ;
 	(void)a4;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
 		Fv[0] = o19 ? t19 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		Fv[3] = l2;
-		FR->n = F0 + 4;
+		Fv[1] = l2;
+		FR->n = F0 + 2;
 	}
 	t18 = clj_c_invoke(t19, a4, 1);
 	FR->n = F0;
@@ -19982,12 +19591,11 @@ L3: ;
 	(void)a1;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o7 ? t7 : CLJ_NIL;
 		Fv[1] = t10;
 		Fv[2] = l0;
-		Fv[3] = l1;
-		FR->n = F0 + 4;
+		FR->n = F0 + 3;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async__GT__BANG__a2
 	t6 = CLJC_CALL_clojure_core_async__GT__BANG__a2(CLJ_NIL, NULL, a1, 2);
@@ -20063,11 +19671,10 @@ L3: ;
 	(void)a3;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
 		Fv[0] = o21 ? t21 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		FR->n = F0 + 3;
+		Fv[1] = l1;
+		FR->n = F0 + 2;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t20 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a3, 1);
@@ -20634,14 +20241,13 @@ L3: ;
 	const clj_value *a11 = NULL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
 		Fv[0] = o52 ? t52 : CLJ_NIL;
 		Fv[1] = l1;
-		Fv[2] = l2;
-		Fv[3] = l4;
-		Fv[4] = l5;
-		Fv[5] = l6;
-		FR->n = F0 + 6;
+		Fv[2] = l4;
+		Fv[3] = l5;
+		Fv[4] = l6;
+		FR->n = F0 + 5;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_chan_a0
 	t51 = CLJC_CALL_clojure_core_async_chan_a0(CLJ_NIL, NULL, a11, 0);
@@ -20674,15 +20280,14 @@ L3: ;
 	(void)a12;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 7);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
 		Fv[0] = o54 ? t54 : CLJ_NIL;
 		Fv[1] = l1;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		Fv[5] = l5;
-		Fv[6] = l6;
-		FR->n = F0 + 7;
+		Fv[2] = l3;
+		Fv[3] = l4;
+		Fv[4] = l5;
+		Fv[5] = l6;
+		FR->n = F0 + 6;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t53 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a12, 1);
@@ -21129,12 +20734,11 @@ L3: ;
 	(void)a1;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o7 ? t7 : CLJ_NIL;
 		Fv[1] = t10;
 		Fv[2] = l0;
-		Fv[3] = l1;
-		FR->n = F0 + 4;
+		FR->n = F0 + 3;
 	}
 	t6 = clj_c_invoke(t7, a1, 2);
 	FR->n = F0;
@@ -21203,11 +20807,10 @@ L3: ;
 	(void)a3;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
 		Fv[0] = o21 ? t21 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		FR->n = F0 + 3;
+		Fv[1] = l1;
+		FR->n = F0 + 2;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t20 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a3, 1);
@@ -21730,14 +21333,13 @@ L3: ;
 	const clj_value *a11 = NULL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
 		Fv[0] = o52 ? t52 : CLJ_NIL;
 		Fv[1] = l1;
-		Fv[2] = l2;
-		Fv[3] = l4;
-		Fv[4] = l5;
-		Fv[5] = l6;
-		FR->n = F0 + 6;
+		Fv[2] = l4;
+		Fv[3] = l5;
+		Fv[4] = l6;
+		FR->n = F0 + 5;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_chan_a0
 	t51 = CLJC_CALL_clojure_core_async_chan_a0(CLJ_NIL, NULL, a11, 0);
@@ -21770,15 +21372,14 @@ L3: ;
 	(void)a12;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 7);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
 		Fv[0] = o54 ? t54 : CLJ_NIL;
 		Fv[1] = l1;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		Fv[5] = l5;
-		Fv[6] = l6;
-		FR->n = F0 + 7;
+		Fv[2] = l3;
+		Fv[3] = l4;
+		Fv[4] = l5;
+		Fv[5] = l6;
+		FR->n = F0 + 6;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t53 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a12, 1);
@@ -22721,17 +22322,14 @@ L4: ;
 	(void)a7;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 9);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
 		Fv[0] = o28 ? t28 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		Fv[3] = l2;
-		Fv[4] = l3;
-		Fv[5] = l4;
-		Fv[6] = l5;
-		Fv[7] = l6;
-		Fv[8] = l7;
-		FR->n = F0 + 9;
+		Fv[1] = l1;
+		Fv[2] = l3;
+		Fv[3] = l5;
+		Fv[4] = l6;
+		Fv[5] = l7;
+		FR->n = F0 + 6;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t27 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a7, 1);
@@ -23073,17 +22671,16 @@ L5: ;
 	(void)a18;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 9);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 8);
 		Fv[0] = o70 ? t70 : CLJ_NIL;
 		Fv[1] = l0;
 		Fv[2] = l1;
 		Fv[3] = l2;
 		Fv[4] = l3;
 		Fv[5] = l4;
-		Fv[6] = l5;
-		Fv[7] = l6;
-		Fv[8] = l7;
-		FR->n = F0 + 9;
+		Fv[6] = l6;
+		Fv[7] = l7;
+		FR->n = F0 + 8;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async__LT__BANG__a1
 	t69 = CLJC_CALL_clojure_core_async__LT__BANG__a1(CLJ_NIL, NULL, a18, 1);
@@ -23262,19 +22859,7 @@ CLJC_FRAME clj_value clojure_core_async_mult_a1(clj_value self, const clj_value 
 	clj_value t16 = clj_c_closure(CLJ_NIL, clojure_core_async_mult__3, c6, 1, 0x2, 1, 1);
 	clj_value a1[5] = {t5, t13, t14, t15, t16};
 	(void)a1;
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
-		Fv[0] = o4 ? t4 : CLJ_NIL;
-		Fv[1] = t5;
-		Fv[2] = t13;
-		Fv[3] = t14;
-		Fv[4] = t15;
-		Fv[5] = t16;
-		FR->n = F0 + 6;
-	}
 	t3 = clj_c_new(t4, a1, 5);
-	FR->n = F0;
 	clj_release(t16);
 	clj_release(t15);
 	clj_release(t14);
@@ -23518,10 +23103,9 @@ CLJC_FRAME clj_value clojure_core_async_tap_a2_o2(clj_value self, const clj_valu
 	l1 = CLJ_NIL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o1 ? t1 : CLJ_NIL;
-		Fv[1] = l1;
-		FR->n = F0 + 2;
+		FR->n = F0 + 1;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_tap_a3_o2
 	t0 = CLJC_CALL_clojure_core_async_tap_a3_o2(CLJ_NIL, NULL, a0, 3);
@@ -24821,15 +24405,6 @@ static CLJC_FRAME clj_value clojure_core_async_mix__4_a0(clj_value self, const c
 	}
 	clj_value a15[1] = {t50};
 	(void)a15;
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
-		Fv[0] = t15;
-		Fv[1] = t36;
-		Fv[2] = o49 ? t49 : CLJ_NIL;
-		Fv[3] = t50;
-		FR->n = F0 + 4;
-	}
 #ifdef CLJC_LOCAL_clojure_core_vec_a1
 	t48 = CLJC_CALL_clojure_core_vec_a1(CLJ_NIL, NULL, a15, 1);
 #elif defined(CLJC_DIRECT_clojure_core_vec_a1)
@@ -24838,7 +24413,6 @@ static CLJC_FRAME clj_value clojure_core_async_mix__4_a0(clj_value self, const c
 #else
 	t48 = clj_c_invoke(t49, a15, 1);
 #endif
-	FR->n = F0;
 	clj_release(t50);
 	if (o49) clj_release(t49);
 	CLJC_SITE(&S[96]);
@@ -25361,17 +24935,7 @@ static CLJC_FRAME clj_value clojure_core_async_mix__10_a2(clj_value self, const 
 	}
 	clj_value a2[4] = {t10, t13, t14, t15};
 	(void)a2;
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
-		Fv[0] = o7 ? t7 : CLJ_NIL;
-		Fv[1] = o9 ? t9 : CLJ_NIL;
-		Fv[2] = t13;
-		Fv[3] = t15;
-		FR->n = F0 + 4;
-	}
 	t8 = clj_c_invoke(t9, a2, 4);
-	FR->n = F0;
 	clj_release(t15);
 	(void)t14;
 	clj_release(t13);
@@ -25385,15 +24949,7 @@ static CLJC_FRAME clj_value clojure_core_async_mix__10_a2(clj_value self, const 
 	clj_value t18 = K[301];
 	clj_value a1[2] = {t8, t18};
 	(void)a1;
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
-		Fv[0] = o7 ? t7 : CLJ_NIL;
-		Fv[1] = t8;
-		FR->n = F0 + 2;
-	}
 	t6 = clj_c_invoke(t7, a1, 2);
-	FR->n = F0;
 	(void)t18;
 	clj_release(t8);
 	if (o7) clj_release(t7);
@@ -25738,29 +25294,19 @@ L3: ;
 	(void)a11;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 21);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 11);
 		Fv[0] = o42 ? t42 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		Fv[3] = l2;
-		Fv[4] = l3;
-		Fv[5] = l4;
-		Fv[6] = l5;
-		Fv[7] = l6;
-		Fv[8] = l7;
-		Fv[9] = l8;
-		Fv[10] = l9;
-		Fv[11] = l10;
-		Fv[12] = l11;
-		Fv[13] = l12;
-		Fv[14] = l13;
-		Fv[15] = l14;
-		Fv[16] = l15;
-		Fv[17] = l16;
-		Fv[18] = l17;
-		Fv[19] = l18;
-		Fv[20] = l19;
-		FR->n = F0 + 21;
+		Fv[1] = l10;
+		Fv[2] = l11;
+		Fv[3] = l12;
+		Fv[4] = l13;
+		Fv[5] = l14;
+		Fv[6] = l15;
+		Fv[7] = l16;
+		Fv[8] = l17;
+		Fv[9] = l18;
+		Fv[10] = l19;
+		FR->n = F0 + 11;
 	}
 	t41 = clj_c_invoke(t42, a11, 1);
 	FR->n = F0;
@@ -25922,28 +25468,11 @@ L3: ;
 	const clj_value *a18 = NULL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 20);
-		Fv[0] = l0;
-		Fv[1] = l1;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		Fv[5] = l5;
-		Fv[6] = l6;
-		Fv[7] = l7;
-		Fv[8] = l8;
-		Fv[9] = l9;
-		Fv[10] = l10;
-		Fv[11] = l11;
-		Fv[12] = l12;
-		Fv[13] = l13;
-		Fv[14] = l14;
-		Fv[15] = l15;
-		Fv[16] = l16;
-		Fv[17] = l17;
-		Fv[18] = l18;
-		Fv[19] = l19;
-		FR->n = F0 + 20;
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
+		Fv[0] = l17;
+		Fv[1] = l18;
+		Fv[2] = l19;
+		FR->n = F0 + 3;
 	}
 	t72 = clj_c_invoke(t73, a18, 0);
 	FR->n = F0;
@@ -25972,28 +25501,16 @@ L3: ;
 	(void)a19;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 20);
-		Fv[0] = l0;
-		Fv[1] = l1;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		Fv[5] = l5;
-		Fv[6] = l6;
-		Fv[7] = l7;
-		Fv[8] = l8;
-		Fv[9] = l9;
-		Fv[10] = l10;
-		Fv[11] = l11;
-		Fv[12] = l12;
-		Fv[13] = l13;
-		Fv[14] = l14;
-		Fv[15] = l15;
-		Fv[16] = l16;
-		Fv[17] = l17;
-		Fv[18] = l18;
-		Fv[19] = l19;
-		FR->n = F0 + 20;
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 8);
+		Fv[0] = l10;
+		Fv[1] = l11;
+		Fv[2] = l12;
+		Fv[3] = l15;
+		Fv[4] = l16;
+		Fv[5] = l17;
+		Fv[6] = l18;
+		Fv[7] = l19;
+		FR->n = F0 + 8;
 	}
 	t75 = clj_c_invoke(t76, a19, 1);
 	FR->n = F0;
@@ -26047,28 +25564,14 @@ L3: ;
 	(void)a22;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 20);
-		Fv[0] = l0;
-		Fv[1] = l1;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		Fv[4] = l4;
-		Fv[5] = l5;
-		Fv[6] = l6;
-		Fv[7] = l7;
-		Fv[8] = l8;
-		Fv[9] = l9;
-		Fv[10] = l10;
-		Fv[11] = l11;
-		Fv[12] = l12;
-		Fv[13] = l13;
-		Fv[14] = l14;
-		Fv[15] = l15;
-		Fv[16] = l16;
-		Fv[17] = l17;
-		Fv[18] = l18;
-		Fv[19] = l19;
-		FR->n = F0 + 20;
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
+		Fv[0] = l10;
+		Fv[1] = l12;
+		Fv[2] = l15;
+		Fv[3] = l16;
+		Fv[4] = l17;
+		Fv[5] = l19;
+		FR->n = F0 + 6;
 	}
 	t87 = clj_c_invoke(t88, a22, 1);
 	FR->n = F0;
@@ -26125,29 +25628,13 @@ L3: ;
 	(void)a23;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 21);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
 		Fv[0] = o95 ? t95 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		Fv[3] = l2;
-		Fv[4] = l3;
-		Fv[5] = l4;
-		Fv[6] = l5;
-		Fv[7] = l6;
-		Fv[8] = l7;
-		Fv[9] = l8;
-		Fv[10] = l9;
-		Fv[11] = l10;
-		Fv[12] = l11;
-		Fv[13] = l12;
-		Fv[14] = l13;
-		Fv[15] = l14;
-		Fv[16] = l15;
-		Fv[17] = l16;
-		Fv[18] = l17;
-		Fv[19] = l18;
-		Fv[20] = l19;
-		FR->n = F0 + 21;
+		Fv[1] = l10;
+		Fv[2] = l15;
+		Fv[3] = l17;
+		Fv[4] = l19;
+		FR->n = F0 + 5;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async__GT__BANG__a2
 	t94 = CLJC_CALL_clojure_core_async__GT__BANG__a2(CLJ_NIL, NULL, a23, 2);
@@ -26341,10 +25828,9 @@ CLJC_FRAME clj_value clojure_core_async_mix_a1(clj_value self, const clj_value *
 	(void)a2;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o8 ? t8 : CLJ_NIL;
-		Fv[1] = l3;
-		FR->n = F0 + 2;
+		FR->n = F0 + 1;
 	}
 	t7 = clj_c_invoke(t8, a2, 1);
 	FR->n = F0;
@@ -26382,11 +25868,10 @@ CLJC_FRAME clj_value clojure_core_async_mix_a1(clj_value self, const clj_value *
 	(void)a4;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
 		Fv[0] = o11 ? t11 : CLJ_NIL;
 		Fv[1] = o13 ? t13 : CLJ_NIL;
-		Fv[2] = l3;
-		FR->n = F0 + 3;
+		FR->n = F0 + 2;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_sliding_buffer_a1
 	t12 = CLJC_CALL_clojure_core_async_sliding_buffer_a1(CLJ_NIL, NULL, a4, 1);
@@ -26408,11 +25893,10 @@ CLJC_FRAME clj_value clojure_core_async_mix_a1(clj_value self, const clj_value *
 	(void)a3;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
 		Fv[0] = o11 ? t11 : CLJ_NIL;
 		Fv[1] = t12;
-		Fv[2] = l3;
-		FR->n = F0 + 3;
+		FR->n = F0 + 2;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_chan_a1
 	t10 = CLJC_CALL_clojure_core_async_chan_a1(CLJ_NIL, NULL, a3, 1);
@@ -26482,13 +25966,12 @@ CLJC_FRAME clj_value clojure_core_async_mix_a1(clj_value self, const clj_value *
 	(void)a8;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
 		Fv[0] = o19 ? t19 : CLJ_NIL;
 		Fv[1] = o21 ? t21 : CLJ_NIL;
 		Fv[2] = o24 ? t24 : CLJ_NIL;
 		Fv[3] = o26 ? t26 : CLJ_NIL;
-		Fv[4] = l3;
-		FR->n = F0 + 5;
+		FR->n = F0 + 4;
 	}
 	t20 = clj_c_invoke(t21, a8, 6);
 	FR->n = F0;
@@ -26518,22 +26001,7 @@ CLJC_FRAME clj_value clojure_core_async_mix_a1(clj_value self, const clj_value *
 	clj_value t33 = clj_c_closure(CLJ_NIL, clojure_core_async_mix__10, c14, 3, 0x4, 2, 2);
 	clj_value a7[7] = {t20, t28, t29, t30, t31, t32, t33};
 	(void)a7;
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 9);
-		Fv[0] = o19 ? t19 : CLJ_NIL;
-		Fv[1] = t20;
-		Fv[2] = t28;
-		Fv[3] = t29;
-		Fv[4] = t30;
-		Fv[5] = t31;
-		Fv[6] = t32;
-		Fv[7] = t33;
-		Fv[8] = l3;
-		FR->n = F0 + 9;
-	}
 	t18 = clj_c_new(t19, a7, 7);
-	FR->n = F0;
 	clj_release(t33);
 	clj_release(t32);
 	clj_release(t31);
@@ -26577,12 +26045,11 @@ CLJC_FRAME clj_value clojure_core_async_mix_a1(clj_value self, const clj_value *
 	(void)a16;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o39 ? t39 : CLJ_NIL;
-		Fv[1] = l3;
-		Fv[2] = l9;
-		Fv[3] = l10;
-		FR->n = F0 + 4;
+		Fv[1] = l9;
+		Fv[2] = l10;
+		FR->n = F0 + 3;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_go_STAR__a1
 	t38 = CLJC_CALL_clojure_core_async_go_STAR__a1(CLJ_NIL, NULL, a16, 1);
@@ -26613,12 +26080,11 @@ CLJC_FRAME clj_value clojure_core_async_mix_a1(clj_value self, const clj_value *
 	(void)a17;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o42 ? t42 : CLJ_NIL;
-		Fv[1] = l3;
-		Fv[2] = l9;
-		Fv[3] = l10;
-		FR->n = F0 + 4;
+		Fv[1] = l9;
+		Fv[2] = l10;
+		FR->n = F0 + 3;
 	}
 	t41 = clj_c_invoke(t42, a17, 1);
 	FR->n = F0;
@@ -27948,11 +27414,10 @@ static CLJC_FRAME clj_value clojure_core_async_pub__5_a3(clj_value self, const c
 	(void)a2;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
 		Fv[0] = o10 ? t10 : CLJ_NIL;
-		Fv[1] = l3;
-		Fv[2] = l4;
-		FR->n = F0 + 3;
+		Fv[1] = l4;
+		FR->n = F0 + 2;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_untap_a2
 	t9 = CLJC_CALL_clojure_core_async_untap_a2(CLJ_NIL, NULL, a2, 2);
@@ -28282,15 +27747,14 @@ L4: ;
 	(void)a7;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 7);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
 		Fv[0] = o19 ? t19 : CLJ_NIL;
 		Fv[1] = o21 ? t21 : CLJ_NIL;
-		Fv[2] = l0;
-		Fv[3] = l1;
-		Fv[4] = l2;
-		Fv[5] = l3;
-		Fv[6] = l4;
-		FR->n = F0 + 7;
+		Fv[2] = l1;
+		Fv[3] = l2;
+		Fv[4] = l3;
+		Fv[5] = l4;
+		FR->n = F0 + 6;
 	}
 	{
 		const clj_type *pt = clj_dispatch_type_inline(a7[0]);
@@ -28310,15 +27774,14 @@ L4: ;
 	(void)a6;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 7);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
 		Fv[0] = o19 ? t19 : CLJ_NIL;
 		Fv[1] = t20;
-		Fv[2] = l0;
-		Fv[3] = l1;
-		Fv[4] = l2;
-		Fv[5] = l3;
-		Fv[6] = l4;
-		FR->n = F0 + 7;
+		Fv[2] = l1;
+		Fv[3] = l2;
+		Fv[4] = l3;
+		Fv[5] = l4;
+		FR->n = F0 + 6;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t18 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a6, 1);
@@ -28721,19 +28184,7 @@ CLJC_FRAME clj_value clojure_core_async_pub_a3(clj_value self, const clj_value *
 	clj_value t17 = clj_c_closure(CLJ_NIL, clojure_core_async_pub__6, c7, 1, 0x6, 1, 2);
 	clj_value a2[5] = {t6, t14, t15, t16, t17};
 	(void)a2;
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
-		Fv[0] = o5 ? t5 : CLJ_NIL;
-		Fv[1] = t6;
-		Fv[2] = t14;
-		Fv[3] = t15;
-		Fv[4] = t16;
-		Fv[5] = t17;
-		FR->n = F0 + 6;
-	}
 	t4 = clj_c_new(t5, a2, 5);
-	FR->n = F0;
 	clj_release(t17);
 	clj_release(t16);
 	clj_release(t15);
@@ -29901,16 +29352,15 @@ L8: ;
 	(void)a11;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 8);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 7);
 		Fv[0] = o43 ? t43 : CLJ_NIL;
 		Fv[1] = l0;
 		Fv[2] = l1;
 		Fv[3] = l2;
-		Fv[4] = l3;
-		Fv[5] = l4;
-		Fv[6] = l5;
-		Fv[7] = l6;
-		FR->n = F0 + 8;
+		Fv[4] = l4;
+		Fv[5] = l5;
+		Fv[6] = l6;
+		FR->n = F0 + 7;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t42 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a11, 1);
@@ -30830,12 +30280,11 @@ L3: ;
 	(void)a9;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o31 ? t31 : CLJ_NIL;
 		Fv[1] = l0;
-		Fv[2] = l1;
-		Fv[3] = l2;
-		FR->n = F0 + 4;
+		Fv[2] = l2;
+		FR->n = F0 + 3;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async__GT__BANG__a2
 	t30 = CLJC_CALL_clojure_core_async__GT__BANG__a2(CLJ_NIL, NULL, a9, 2);
@@ -30889,12 +30338,11 @@ L3: ;
 	(void)a10;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o37 ? t37 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		Fv[3] = l2;
-		FR->n = F0 + 4;
+		Fv[1] = l1;
+		Fv[2] = l2;
+		FR->n = F0 + 3;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t36 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a10, 1);
@@ -31798,10 +31246,9 @@ L3: ;
 	(void)a2;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o8 ? t8 : CLJ_NIL;
-		Fv[1] = l0;
-		FR->n = F0 + 2;
+		FR->n = F0 + 1;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t7 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a2, 1);
@@ -32180,10 +31627,9 @@ L3: ;
 	(void)a2;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o8 ? t8 : CLJ_NIL;
-		Fv[1] = l0;
-		FR->n = F0 + 2;
+		FR->n = F0 + 1;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t7 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a2, 1);
@@ -32562,10 +32008,9 @@ L3: ;
 	(void)a2;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o8 ? t8 : CLJ_NIL;
-		Fv[1] = l0;
-		FR->n = F0 + 2;
+		FR->n = F0 + 1;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t7 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a2, 1);
@@ -32682,10 +32127,9 @@ L3: ;
 	(void)a5;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o23 ? t23 : CLJ_NIL;
-		Fv[1] = l0;
-		FR->n = F0 + 2;
+		FR->n = F0 + 1;
 	}
 	t22 = clj_c_invoke(t23, a5, 1);
 	FR->n = F0;
@@ -33178,10 +32622,9 @@ L3: ;
 	(void)a2;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
 		Fv[0] = o8 ? t8 : CLJ_NIL;
-		Fv[1] = l0;
-		FR->n = F0 + 2;
+		FR->n = F0 + 1;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t7 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a2, 1);
@@ -33756,12 +33199,11 @@ L3: ;
 	(void)a2;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o8 ? t8 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		Fv[3] = l2;
-		FR->n = F0 + 4;
+		Fv[1] = l1;
+		Fv[2] = l2;
+		FR->n = F0 + 3;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t7 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a2, 1);
@@ -33856,12 +33298,11 @@ L4: ;
 	(void)a6;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o20 ? t20 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		Fv[3] = l2;
-		FR->n = F0 + 4;
+		Fv[1] = l1;
+		Fv[2] = l2;
+		FR->n = F0 + 3;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async__GT__BANG__a2
 	t19 = CLJC_CALL_clojure_core_async__GT__BANG__a2(CLJ_NIL, NULL, a6, 2);
@@ -33924,12 +33365,11 @@ L4: ;
 	(void)a7;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o27 ? t27 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		Fv[3] = l2;
-		FR->n = F0 + 4;
+		Fv[1] = l1;
+		Fv[2] = l2;
+		FR->n = F0 + 3;
 	}
 	t26 = clj_c_invoke(t27, a7, 1);
 	FR->n = F0;
@@ -34720,11 +34160,10 @@ L3: ;
 	(void)a4;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
 		Fv[0] = o17 ? t17 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		FR->n = F0 + 3;
+		Fv[1] = l1;
+		FR->n = F0 + 2;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async__GT__BANG__a2
 	t16 = CLJC_CALL_clojure_core_async__GT__BANG__a2(CLJ_NIL, NULL, a4, 2);
@@ -34781,11 +34220,10 @@ L3: ;
 	(void)a5;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
 		Fv[0] = o23 ? t23 : CLJ_NIL;
 		Fv[1] = l0;
-		Fv[2] = l1;
-		FR->n = F0 + 3;
+		FR->n = F0 + 2;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t22 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a5, 1);
@@ -35236,12 +34674,10 @@ L3: ;
 	(void)a6;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
 		Fv[0] = o21 ? t21 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		Fv[3] = l2;
-		FR->n = F0 + 4;
+		Fv[1] = l2;
+		FR->n = F0 + 2;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async__GT__BANG__a2
 	t20 = CLJC_CALL_clojure_core_async__GT__BANG__a2(CLJ_NIL, NULL, a6, 2);
@@ -35333,12 +34769,11 @@ L3: ;
 	(void)a9;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o33 ? t33 : CLJ_NIL;
 		Fv[1] = l0;
-		Fv[2] = l1;
-		Fv[3] = l2;
-		FR->n = F0 + 4;
+		Fv[2] = l2;
+		FR->n = F0 + 3;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async__GT__BANG__a2
 	t32 = CLJC_CALL_clojure_core_async__GT__BANG__a2(CLJ_NIL, NULL, a9, 2);
@@ -35379,12 +34814,10 @@ L3: ;
 	(void)a10;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
 		Fv[0] = o37 ? t37 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		Fv[3] = l2;
-		FR->n = F0 + 4;
+		Fv[1] = l2;
+		FR->n = F0 + 2;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t36 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a10, 1);
@@ -35887,14 +35320,13 @@ L3: ;
 	(void)a7;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
 		Fv[0] = o31 ? t31 : CLJ_NIL;
 		Fv[1] = l0;
-		Fv[2] = l1;
-		Fv[3] = l2;
-		Fv[4] = l3;
-		Fv[5] = l4;
-		FR->n = F0 + 6;
+		Fv[2] = l2;
+		Fv[3] = l3;
+		Fv[4] = l4;
+		FR->n = F0 + 5;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async__GT__BANG__a2
 	t30 = CLJC_CALL_clojure_core_async__GT__BANG__a2(CLJ_NIL, NULL, a7, 2);
@@ -35999,14 +35431,12 @@ L3: ;
 	(void)a11;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
 		Fv[0] = o45 ? t45 : CLJ_NIL;
 		Fv[1] = l0;
-		Fv[2] = l1;
-		Fv[3] = l2;
-		Fv[4] = l3;
-		Fv[5] = l4;
-		FR->n = F0 + 6;
+		Fv[2] = l3;
+		Fv[3] = l4;
+		FR->n = F0 + 4;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async__GT__BANG__a2
 	t44 = CLJC_CALL_clojure_core_async__GT__BANG__a2(CLJ_NIL, NULL, a11, 2);
@@ -36047,14 +35477,11 @@ L3: ;
 	(void)a12;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
 		Fv[0] = o49 ? t49 : CLJ_NIL;
-		Fv[1] = l0;
-		Fv[2] = l1;
-		Fv[3] = l2;
-		Fv[4] = l3;
-		Fv[5] = l4;
-		FR->n = F0 + 6;
+		Fv[1] = l3;
+		Fv[2] = l4;
+		FR->n = F0 + 3;
 	}
 #ifdef CLJC_LOCAL_clojure_core_async_close_BANG__a1
 	t48 = CLJC_CALL_clojure_core_async_close_BANG__a1(CLJ_NIL, NULL, a12, 1);

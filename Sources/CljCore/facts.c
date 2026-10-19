@@ -69,7 +69,7 @@ struct clj_facts {
 	uint32_t         conflicts, widenings;
 	uint32_t         conflict_node; // the test whose refinement first hit BOTTOM, for diagnosing a wrong signature
 	clj_fact        *nodes;
-	uint8_t         *park; // per node, PARK_SEEN once walked, PARK_MAY when its subtree may park
+	uint8_t         *park; // per node: PARK_* of its subtree, CALL_* of the call it makes, arguments apart
 	clj_facts_frame *frames;
 	uint8_t         *escape;
 	clj_facts_loop  *loops;
@@ -102,7 +102,8 @@ static void *xgrow(void *p, size_t n, size_t size) {
 	return q;
 }
 
-enum { PARK_SEEN = 1, PARK_MAY = 2 };
+enum { PARK_SEEN = 1, PARK_MAY = 2, CALL_SEEN = 4, CALL_MAY = 8 };
+
 
 // ---- the lattice
 
@@ -1454,6 +1455,11 @@ static const clj_summary *specialized_of(pass *p, clj_value var, uint32_t n, con
 	return any ? clj_summary_of_var_at(p->f->sums, var, n, domains) : NULL;
 }
 
+// The effects a call adds itself, after its arguments: what the compiler asks of a site (clj_facts_may_park).
+static void call_effects(pass *p, const clj_node *site, uint32_t own) {
+	if (p->record) p->f->park[site->id] |= CALL_SEEN | ((own & (CLJ_EFFECT_PARK | CLJ_EFFECT_OPAQUE)) ? CALL_MAY : 0);
+}
+
 static clj_fact infer_call(pass *p, const clj_node *site, const clj_node *const *args, uint32_t n, env *e, const fact_sig *s, clj_value var) {
 	clj_fact  inline_have[ARGS_INLINE];
 	clj_fact *have = n <= ARGS_INLINE ? inline_have : xalloc(n, sizeof(clj_fact));
@@ -1484,7 +1490,9 @@ static clj_fact infer_call(pass *p, const clj_node *site, const clj_node *const 
 	else record_site(p, site, var, n, have);
 	const char *name = clj_is_var(var) && is_core_var(var) ? CLJ_STR(clj_symbol_name(clj_var_name(var))).bytes : NULL;
 	const clj_summary *sum = summary_of(p, var, n);
-	uint32_t           named = name ? named_effects(p, name, args, n) : NOT_NAMED;
+	uint32_t           before = p->effects;
+	if (p->record) p->effects = 0;
+	uint32_t named = name ? named_effects(p, name, args, n) : NOT_NAMED;
 	if (named != NOT_NAMED) {
 		p->effects |= named;
 	} else if (!sum) {
@@ -1494,6 +1502,8 @@ static clj_fact infer_call(pass *p, const clj_node *site, const clj_node *const 
 		p->effects |= eff;
 	}
 	apply_summary(p, e, sum, args, n, have, var, named == NOT_NAMED);
+	call_effects(p, site, p->effects);
+	p->effects |= before;
 	clj_fact r = s ? sig_result(s, have, n < 4 ? n : 4) : (name ? construct_result(p, name, args, n) : clj_fact_top());
 	if (name && (strcmp(name, "field*") == 0 || strcmp(name, "mutable-field*") == 0)) r = field_fact(have, args, n);
 	else if (name && n == 3 && strcmp(name, "set-field!*") == 0) {
@@ -1821,8 +1831,12 @@ static clj_fact infer_direct_call(pass *p, const clj_node *n, env *e) {
 	clj_fact *have = n->u.direct.n <= ARGS_INLINE ? inline_have : xalloc(n->u.direct.n, sizeof(clj_fact));
 	for (uint32_t i = 0; i < n->u.direct.n; i++) have[i] = infer(p, n->u.direct.args[i], e, USE_ESCAPE);
 	const clj_summary *sum = p->f->sums ? clj_summary_of_arity(p->f->sums, n->u.direct.fn, n->u.direct.arity) : NULL;
+	uint32_t           before = p->effects;
+	if (p->record) p->effects = 0;
 	if (!sum) p->effects |= CLJ_EFFECT_ANY;
 	apply_summary(p, e, sum, n->u.direct.args, n->u.direct.n, have, CLJ_NIL, true);
+	call_effects(p, n, p->effects);
+	p->effects |= before;
 	if (have != inline_have) free(have);
 	return result_with_summary(p, clj_fact_top(), sum);
 }
@@ -2153,7 +2167,12 @@ size_t clj_facts_bytes(const clj_facts *f) {
 uint32_t        clj_facts_nnodes(const clj_facts *f) { return f->nnodes; }
 const clj_fact *clj_facts_node(const clj_facts *f, uint32_t id) { return id < f->nnodes ? &f->nodes[id] : NULL; }
 
-bool clj_facts_may_park(const clj_facts *f, uint32_t id) { return id >= f->nnodes || f->park[id] != PARK_SEEN; }
+bool clj_facts_may_park(const clj_facts *f, uint32_t id) {
+	if (id >= f->nnodes) return true;
+	uint8_t k = f->park[id];
+	if (k & CALL_SEEN) return (k & CALL_MAY) != 0;
+	return !(k & PARK_SEEN) || (k & PARK_MAY);
+}
 uint32_t        clj_facts_nframes(const clj_facts *f) { return f->nframes; }
 
 const clj_facts_frame *clj_facts_frame_at(const clj_facts *f, uint32_t i) { return i < f->nframes ? &f->frames[i] : NULL; }

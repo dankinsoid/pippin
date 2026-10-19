@@ -1141,6 +1141,12 @@ static void emit_set(fnctx *f, uint32_t slot, const char *value) {
 	if (slot < 64) f->bound |= (uint64_t)1 << slot;
 }
 
+// A slot left nil where emission is: what follows names it no more until a rebind. Clearing on one branch alone
+// only leaves a reference out (emit_if merges the two).
+static void slot_gone(fnctx *f, uint32_t slot) {
+	if (slot < 64) f->bound &= ~((uint64_t)1 << slot);
+}
+
 // A split's fast branch types more slots than the plan saw: those hold no reference.
 static void emit_drops(fnctx *f, const clj_node *n, uint32_t at) {
 	for (uint64_t m = cljc_reuse_drops(f->reuse, n, at); m; m &= m - 1) {
@@ -1148,6 +1154,7 @@ static void emit_drops(fnctx *f, const clj_node *n, uint32_t at) {
 		if (!promoted(f, s) || borrowed_slot(f, s)) clj_ice("emit/drop-slot", n, "a drop of slot %u, which the frame does not own as a C variable", s);
 		if (slot_kind(f, s) != UK_NONE) continue;
 		sb_printf(&f->out, "\tclj_c_drop(&l%u);\n", s);
+		slot_gone(f, s);
 		f->u->slots.drops++;
 	}
 }
@@ -1653,7 +1660,10 @@ static temp emit_local(fnctx *f, const clj_node *n, bool borrowed) {
 			return t;
 		}
 		temp t = new_temp(f, OWN_YES);
-		if (taken) sb_printf(&f->out, "\tclj_value %s = l%u;\n\tl%u = CLJ_NIL;\n", t.name, i, i);
+		if (taken) {
+			sb_printf(&f->out, "\tclj_value %s = l%u;\n\tl%u = CLJ_NIL;\n", t.name, i, i);
+			slot_gone(f, i);
+		}
 		else sb_printf(&f->out, "\tclj_value %s = clj_retain(l%u);\n", t.name, i);
 		live_push(f, t);
 		return t;
@@ -1720,10 +1730,13 @@ static temp emit_if(fnctx *f, const clj_node *n) {
 	release_temp(f, &test);
 	temp r = new_temp(f, OWN_YES);
 	sb_printf(&f->out, "\tclj_value %s;\n\tif (%s) {\n", r.name, b.name);
+	uint64_t bound = f->bound;
 	emit_drops(f, n, 0);
 	temp then = emit(f, n->u.if_.then);
 	sb_printf(&f->out, "\t%s = %s;\n\t} else {\n", r.name, then.name);
 	live_forget(f, &then);
+	uint64_t then_bound = f->bound;
+	f->bound = bound;
 	emit_drops(f, n, 1);
 	if (n->u.if_.else_) {
 		temp e = emit(f, n->u.if_.else_);
@@ -1732,6 +1745,7 @@ static temp emit_if(fnctx *f, const clj_node *n) {
 	} else {
 		sb_printf(&f->out, "\t%s = CLJ_NIL;\n", r.name);
 	}
+	f->bound |= then_bound;
 	sb_puts(&f->out, "\t}\n");
 	live_push(f, r);
 	return r;
@@ -2668,6 +2682,7 @@ static void emit_owned_call(fnctx *f, const clj_node *n, const direct_entry *d, 
 		if (h && (n->u.invoke.args[i]->kind != CLJ_NODE_LOCAL || n->u.invoke.args[i]->u.local.index != h->slot)) clj_ice("emit/hand-slot", n, "a hand-over of slot %u at an argument that does not read it", h->slot);
 		if (h) {
 			sb_printf(&f->out, "\tCLJC_TAKE_CHECK(l%u, %s);\n\tl%u = CLJ_NIL;\n", h->slot, t->name, h->slot);
+			slot_gone(f, h->slot);
 			f->u->slots.owned_handed++;
 		} else if (t->own == OWN_NO) sb_printf(&f->out, "\tclj_retain(%s);\n", t->name);
 		else if (t->own == OWN_DYN) sb_printf(&f->out, "\tif (!%s) clj_retain(%s);\n", t->flag, t->name);
@@ -2891,8 +2906,11 @@ static temp emit_try(fnctx *f, const clj_node *n) {
 	sb_printf(&f->out, "\tclj_value %s;\n", v.name);
 	int body_fail = new_label(f), body_join = new_label(f);
 	push_handler(f, body_fail);
-	temp body = emit(f, n->u.try_.body);
-	handler h = pop_handler(f);
+	uint64_t bound = f->bound;
+	temp     body = emit(f, n->u.try_.body);
+	handler  h = pop_handler(f);
+	// A handler is entered from anywhere in the body, before its takes too.
+	f->bound |= bound;
 	sb_printf(&f->out, "\t%s = %s;\n", v.name, body.name);
 	live_forget(f, &body);
 	if (h.used) sb_printf(&f->out, "\tgoto L%d;\nL%d: ;\n\t%s = CLJ_THROWN;\nL%d: ;\n", body_join, body_fail, v.name, body_join);
@@ -3162,6 +3180,7 @@ static temp emit_consume(fnctx *f, const clj_node *n, uint32_t slot) {
 	fn_line(f, n->u.intrinsic.args[0]);
 	temp a = new_temp(f, OWN_YES);
 	sb_printf(&f->out, "\tclj_value %s = l%u;\n\tl%u = CLJ_NIL;\n", a.name, slot, slot);
+	slot_gone(f, slot);
 	live_push(f, a);
 	temp r = new_temp(f, OWN_YES);
 	sb_printf(&f->out, "\tclj_value %s;\n\tif (CLJC_GUARD(V[%zu], B[%zu])) {\n\t%s = %s(%s);\n\t} else {\n", r.name, vi, oi, r.name, owned, a.name);
@@ -3253,6 +3272,7 @@ static temp emit_intrinsic(fnctx *f, const clj_node *n) {
 		if (a0->kind != CLJ_NODE_LOCAL || a0->u.local.index != pair->slot) clj_ice("emit/take-slot", n, "a take of slot %u at an operand that does not read it", pair->slot);
 		// the later operands have read the slot; it dies here, so the collection is the call's to update in place
 		sb_printf(&f->out, "\tCLJC_TAKE_CHECK(l%u, %s);\n\tl%u = CLJ_NIL;\n", pair->slot, args[0].name, pair->slot);
+		slot_gone(f, pair->slot);
 		args[0].own = OWN_YES;
 		live_push(f, args[0]);
 		f->u->slots.reuse_takes++;
@@ -4295,14 +4315,18 @@ static temp emit_inlined_call(fnctx *f, const clj_node *n) {
 	}
 	temp r = new_temp(f, OWN_YES);
 	sb_printf(&f->out, "\tclj_value %s;\n\tif (%s) {\n", r.name, b.name);
+	uint64_t bound = f->bound;
 	emit_drops(f, n, 0);
 	temp then = emit(f, n->u.if_.then);
 	sb_printf(&f->out, "\t%s = %s;\n\t} else {\n", r.name, then.name);
 	live_forget(f, &then);
+	uint64_t then_bound = f->bound;
+	f->bound = bound;
 	emit_drops(f, n, 1);
 	temp e = emit(f, call);
 	sb_printf(&f->out, "\t%s = %s;\n\t}\n", r.name, e.name);
 	live_forget(f, &e);
+	f->bound |= then_bound;
 	live_push(f, r);
 	if (!lowered) f->u->slots.inlined++;
 	return r;
