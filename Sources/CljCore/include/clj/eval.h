@@ -43,8 +43,8 @@ static inline clj_exec *clj_exec_of(clj_value v) { return (clj_exec *)clj_to_ptr
 
 // Values an evaluation in a frame holds while code that may park runs (eval.c, eval_all).
 typedef struct clj_argbuf {
-	const clj_value         *v;
-	uint64_t                 owned; // v[i] is owned where bit i is set
+	const clj_value         *vals;
+	uint64_t                 owned; // vals[i] is owned where bit i is set
 	const clj_frame         *frame; // a frame no ring entry records (a fused program's), read with the buffer
 	const struct clj_argbuf *prev;
 } clj_argbuf;

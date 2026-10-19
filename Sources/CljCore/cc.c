@@ -932,7 +932,7 @@ static void read_frame(private_walk *p, const clj_frame *at, uint32_t *budget) {
 	for (const clj_argbuf *b = fr->args; b && *budget; --*budget) {
 		const clj_argbuf *buf = clj_coro_parked_bytes(p->c, b, sizeof *buf);
 		if (!buf) return;
-		read_owned(p, buf->v, buf->owned, 64);
+		read_owned(p, buf->vals, buf->owned, 64);
 		if (buf->frame) read_frame(p, buf->frame, budget);
 		b = buf->prev;
 	}

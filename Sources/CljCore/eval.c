@@ -373,7 +373,7 @@ typedef struct {
 } argrec;
 
 static inline void argrec_put(clj_frame *f, argrec *r, const clj_value *v, uint64_t owned, const clj_frame *inner) {
-	r->b.v = v;
+	r->b.vals = v;
 	r->b.owned = owned;
 	r->b.frame = inner;
 	r->b.prev = f->args;
