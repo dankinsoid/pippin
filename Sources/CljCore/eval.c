@@ -396,7 +396,21 @@ static inline bool may_park_node(const clj_node *n) {
 	case CLJ_NODE_CAPTURED:
 	case CLJ_NODE_OUTER:
 	case CLJ_NODE_CONST:
-	case CLJ_NODE_VAR: return false;
+	case CLJ_NODE_VAR:
+	case CLJ_NODE_FN: return false;
+	// a builtin over reads: intrinsic_apply holds nothing through it either
+	case CLJ_NODE_INTRINSIC:
+		for (uint32_t i = 0; i < n->u.intrinsic.n; i++) {
+			switch (n->u.intrinsic.args[i]->kind) {
+			case CLJ_NODE_LOCAL:
+			case CLJ_NODE_CAPTURED:
+			case CLJ_NODE_OUTER:
+			case CLJ_NODE_CONST:
+			case CLJ_NODE_VAR: continue;
+			default: return true;
+			}
+		}
+		return false;
 	default: return true;
 	}
 }
@@ -961,12 +975,13 @@ static clj_value intrinsic_apply(const clj_node *n, clj_value *args, uint64_t *o
 	if (__builtin_expect(intrinsic_guard(n), 1)) {
 		// A collection this site owns (a last-use local, a nested conj) goes to the consuming core as is: at rc 1
 		// it is updated in place, and the bit leaves the mask since the core took the reference.
+		// The builtin runs no program code but a lazy seq's realization, which a compiled site does not name either
+		// (its facts call it pure): the buffer is held through a rebound var's fn alone.
 		if (__builtin_expect(clj_intrinsic_consumes(op), 0) && (*owned & 1)) {
 			*owned &= ~(uint64_t)1;
-			argrec_hold(f, rb, &on, args, *owned);
+			if (on) rb->owned = *owned;
 			result = clj_intrinsic_call_consuming(op, args);
 		} else {
-			argrec_hold(f, rb, &on, args, *owned);
 			result = clj_intrinsic_call(op, args);
 		}
 	} else {
