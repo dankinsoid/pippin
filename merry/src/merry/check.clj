@@ -52,17 +52,27 @@
       (and (t/con? e :keyword) (enum? a)) nil
       :else (t/unify e a))))
 
+(defn- any-t? [ty] (t/con? (t/prune ty) :any))
+
+(defn- unify-all
+  "Several values meet in one type. An Any among them takes the rest, in any order; Any is never invented."
+  [target tys]
+  (when (some any-t? tys) (t/unify target (t/tcon :any)))
+  (doseq [ty tys] (unify-arg target ty)))
+
 (defn- join
   "Branch results: a literal nil branch makes (or nil T), as in docs/merry.md «Запись объединения»."
   [branches]
   (let [non-nil (remove #(nil? (second %)) branches)
-        ty (reduce (fn [acc [tb _]]
-                     (cond
-                       (t/maybe? acc) (do (unify-arg acc tb) acc)
-                       (t/maybe? tb) (do (unify-arg tb acc) tb)
-                       :else (do (t/unify acc tb) acc)))
-                   (ffirst non-nil)
-                   (rest non-nil))]
+        ty (if (some (comp any-t? first) non-nil)
+             (doto (t/tcon :any) (unify-all (map first non-nil)))
+             (reduce (fn [acc [tb _]]
+                       (cond
+                         (t/maybe? acc) (do (unify-arg acc tb) acc)
+                         (t/maybe? tb) (do (unify-arg tb acc) tb)
+                         :else (do (t/unify acc tb) acc)))
+                     (ffirst non-nil)
+                     (rest non-nil)))]
     (cond
       (empty? non-nil) (t/tcon :nil)
       (< (count non-nil) (count branches)) (t/tmaybe ty)
@@ -245,7 +255,13 @@
         callee (if (symbol? head) head "the function")]
     (when (or (< n (count (:params f))) (and (> n (count (:params f))) (nil? (:rest f))))
       (err form (str callee " expects " (arity-str f) " arguments, got " n)))
-    (let [args' (vec (map-indexed (fn [i a] (infer-arg ctx (or (get (:params f) i) (:rest f)) a)) args))]
+    (let [params (mapv #(or (get (:params f) %) (:rest f)) (range n))
+          ;; arguments at a bare type variable meet after all are inferred, so their order does not decide Any
+          bare (mapv #(let [p (t/prune %)] (when (t/tv? p) (:id p))) params)
+          res (mapv (fn [p a id] (if id (infer ctx a) [nil (infer-arg ctx p a)])) params args bare)
+          _ (doseq [[_ is] (group-by bare (filter bare (range n)))]
+              (unify-all (params (first is)) (map #(first (res %)) is)))
+          args' (mapv second res)]
       (when (symbol? head)
         (swap! (:calls ctx) conj {:callee head
                                   :line (line-of form)
@@ -261,8 +277,9 @@
       [(t/tvariant (t/trow {(first form) (t/ttuple (map first res))} (t/rvar)))
        (into [(first form)] (map second res))])
     (let [el (t/tvar)
-          elab (mapv (fn [x] (let [[tx x'] (infer ctx x)] (t/unify el tx) x')) form)]
-      [(t/tapp :vector el) elab])))
+          res (mapv #(infer ctx %) form)]
+      (unify-all el (map first res))
+      [(t/tapp :vector el) (mapv second res)])))
 
 ;;; match: the scrutinee's type comes from the patterns (docs/merry.md «Вывод типа проверяемого значения»)
 
