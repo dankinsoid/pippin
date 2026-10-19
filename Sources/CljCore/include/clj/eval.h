@@ -52,7 +52,7 @@ typedef struct clj_argbuf {
 // Slot ownership: a fixed param and the self slot borrow from the caller's argument array, which the +0
 // convention keeps alive for the whole call; let/loop/recur/catch store owned values. `owned` has one bit
 // per slot for the first 64; a frame with 64 slots or more retains every param at entry and treats every slot
-// as owned (all bits set, its count in the word before the slots: eval.c, big_slots), so a slot index >= 64 is
+// as owned (all bits set, its count in the word before the slots: eval.c, slots_alloc), so a slot index >= 64 is
 // owned by definition.
 struct clj_frame {
 	clj_value        *slots;

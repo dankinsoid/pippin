@@ -435,28 +435,49 @@ static inline bool may_park_node(const clj_node *n) {
 	}
 }
 
-// Evaluates nodes into out; on failure releases what was already evaluated. With `owned` the reads that can
-// be borrowed are, and the mask says which results the caller must release (n > 64: every one); NULL evaluates
-// everything owned, for values that are stored. rb, when given, is off on entry and after a failure.
-// @ai-generated(guided)
-// Inlined: the borrow/owned branch folds away per call site.
-OPT_INLINE bool eval_all(const clj_node *const *nodes, uint32_t n, clj_frame *f, clj_value *out, uint64_t *owned, clj_argbuf *rb, bool *on) {
+// eval_all in a frame a collection may read: the buffer goes on before an argument that may park.
+// Out of line: the bare thread's path stays the loop below alone.
+static __attribute__((noinline)) bool eval_all_tracked(const clj_node *const *nodes, uint32_t n, clj_frame *f, clj_value *out,
+                                                       uint64_t *owned, clj_argbuf *rb, bool *on) {
 	uint64_t mask = 0;
-	bool     borrow = owned && n <= 64;
-	bool     track = rb && n <= 64 && f->args != ARGS_OFF;
+	bool     borrow = owned != NULL;
 	for (uint32_t i = 0; i < n; i++) {
-		if (track && mask && !*on && may_park_node(nodes[i])) argrec_put(f, rb, on, out, mask, NULL);
+		if (mask && !*on && may_park_node(nodes[i])) argrec_put(f, rb, on, out, mask, NULL);
 		bool      own = true;
 		clj_value v = borrow ? eval_borrowed(nodes[i], f, &own) : eval_child(nodes[i], f);
 		if (v == CLJ_THROWN) {
-			if (rb) argrec_end(f, rb, on);
+			argrec_end(f, rb, on);
 			if (borrow) release_owned(out, i, mask);
 			else release_all(out, i);
 			return false;
 		}
-		if (own && (borrow || track)) mask |= (uint64_t)1 << i;
+		if (own) mask |= (uint64_t)1 << i;
 		out[i] = v;
-		if (track && *on) rb->owned = mask;
+		if (*on) rb->owned = mask;
+	}
+	if (owned) *owned = mask;
+	return true;
+}
+
+// Evaluates nodes into out; on failure releases what was already evaluated. With `owned` the reads that can
+// be borrowed are, and the mask says which results the caller must release (n > 64: every one); NULL evaluates
+// everything owned, for values that are stored. rb is off on entry and after a failure.
+// @ai-generated(guided)
+// Inlined: the borrow/owned branch folds away per call site, and a frame no collection reads pays one test.
+OPT_INLINE bool eval_all(const clj_node *const *nodes, uint32_t n, clj_frame *f, clj_value *out, uint64_t *owned, clj_argbuf *rb, bool *on) {
+	if (f->args != ARGS_OFF && n <= 64) return eval_all_tracked(nodes, n, f, out, owned, rb, on);
+	uint64_t mask = 0;
+	bool     borrow = owned && n <= 64;
+	for (uint32_t i = 0; i < n; i++) {
+		bool      own = true;
+		clj_value v = borrow ? eval_borrowed(nodes[i], f, &own) : eval_child(nodes[i], f);
+		if (v == CLJ_THROWN) {
+			if (borrow) release_owned(out, i, mask);
+			else release_all(out, i);
+			return false;
+		}
+		if (borrow && own) mask |= (uint64_t)1 << i;
+		out[i] = v;
 	}
 	if (owned) *owned = borrow ? mask : UINT64_MAX;
 	return true;
