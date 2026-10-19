@@ -369,10 +369,16 @@ static void slots_release(const clj_frame *f, uint32_t n) { release_owned(f->slo
 // A frame no collection reads (a bare thread's own execution, a top-level form's): its buffers are never put on.
 #define ARGS_OFF ((const clj_argbuf *)(uintptr_t)1)
 
+// Forced only when optimized, as eval_borrowed: at -O0 every forced copy keeps its own sanitizer-padded locals.
+#ifdef __OPTIMIZE__
+#define OPT_INLINE static inline __attribute__((always_inline))
+#else
+#define OPT_INLINE static inline
+#endif
+
 // On its frame from an owned value before an argument that may park, and through a call (design §7, «Фаза 3»).
 // Whether it is on is a separate local, kept in a register: the buffer's address escapes, the flag's never does.
-static inline __attribute__((always_inline)) void argrec_put(clj_frame *f, clj_argbuf *b, bool *on, const clj_value *v, uint64_t owned,
-                                                             const clj_frame *inner) {
+OPT_INLINE void argrec_put(clj_frame *f, clj_argbuf *b, bool *on, const clj_value *v, uint64_t owned, const clj_frame *inner) {
 	if (f->args == ARGS_OFF) return;
 	b->vals = v;
 	b->owned = owned;
@@ -382,13 +388,13 @@ static inline __attribute__((always_inline)) void argrec_put(clj_frame *f, clj_a
 	*on = true;
 }
 
-static inline __attribute__((always_inline)) void argrec_end(clj_frame *f, clj_argbuf *b, bool *on) {
+OPT_INLINE void argrec_end(clj_frame *f, clj_argbuf *b, bool *on) {
 	if (*on) f->args = b->prev;
 	*on = false;
 }
 
 // Through a call that may park, while v holds what owned says.
-static inline __attribute__((always_inline)) void argrec_hold(clj_frame *f, clj_argbuf *b, bool *on, const clj_value *v, uint64_t owned) {
+OPT_INLINE void argrec_hold(clj_frame *f, clj_argbuf *b, bool *on, const clj_value *v, uint64_t owned) {
 	if (*on) b->owned = owned;
 	else if (owned) argrec_put(f, b, on, v, owned, NULL);
 }
@@ -431,11 +437,10 @@ static inline bool may_park_node(const clj_node *n) {
 
 // Evaluates nodes into out; on failure releases what was already evaluated. With `owned` the reads that can
 // be borrowed are, and the mask says which results the caller must release (n > 64: every one); NULL evaluates
-// everything owned, for values that are stored. r, when given, is off on entry and after a failure.
+// everything owned, for values that are stored. rb, when given, is off on entry and after a failure.
 // @ai-generated(guided)
-// Always inlined: the borrow/owned branch folds away per call site.
-static inline __attribute__((always_inline)) bool eval_all(const clj_node *const *nodes, uint32_t n, clj_frame *f, clj_value *out, uint64_t *owned,
-                                                            clj_argbuf *rb, bool *on) {
+// Inlined: the borrow/owned branch folds away per call site.
+OPT_INLINE bool eval_all(const clj_node *const *nodes, uint32_t n, clj_frame *f, clj_value *out, uint64_t *owned, clj_argbuf *rb, bool *on) {
 	uint64_t mask = 0;
 	bool     borrow = owned && n <= 64;
 	bool     track = rb && n <= 64 && f->args != ARGS_OFF;
@@ -854,12 +859,12 @@ static clj_value eval_invoke(const clj_node *n, clj_frame *f) {
 	uint64_t            owned;
 	const clj_fn_arity *arity = NULL;
 	const clj_fn       *fnp = clj_is_fn(fn) ? clj_fn_of(fn) : NULL;
+	clj_argbuf          rb;
+	bool                ron = false;
 	if (__builtin_expect(fnp && fnp->kind == CLJ_FN_CLOSURE && nargs <= CLJ_FN_MAX_FIXED, 1)) arity = fnp->u.node->u.fn.fixed[nargs];
 	if (__builtin_expect(arity != NULL, 1) && arity->nslots <= SMALL_SLOTS) {
 		IC_COUNT(site, hits);
 		clj_value slots[SMALL_SLOTS];
-		clj_argbuf    rb;
-		bool ron = false;
 		if (eval_all(n->u.invoke.args, nargs, f, slots, &owned, &rb, &ron)) {
 			// the callee's frame from here, which its ring entry records
 			argrec_end(f, &rb, &ron);
@@ -870,8 +875,6 @@ static clj_value eval_invoke(const clj_node *n, clj_frame *f) {
 	} else {
 		clj_value  small[SMALL_ARGS];
 		clj_value *args = buf_alloc(small, nargs);
-		clj_argbuf     rb;
-		bool ron = false;
 		if (eval_all(n->u.invoke.args, nargs, f, args, &owned, &rb, &ron)) {
 			if (!(fnp && fnp->leaf)) argrec_hold(f, &rb, &ron, args, owned);
 			if (fnp && fnp->kind == CLJ_FN_NATIVE) {
