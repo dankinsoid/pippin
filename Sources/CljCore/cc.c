@@ -1,6 +1,7 @@
 // @ai-generated(solo)
 // Trial deletion over the candidates RC leaves: design §7, «Сборщик циклов: как он устроен».
 #include <pthread.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -547,6 +548,7 @@ void clj_cc_local_candidate(clj_header *h) {
 enum {
 	N_ROOT = 1, N_LOST = 2, N_BLACK = 4, N_WHITE = 8, N_BUFFERED = 16, N_HELD = 32, N_CUT = 64, N_CYCLIC = 128,
 	N_HOT = 256, N_TAINT = 512, N_MARK = 1024, N_REACHED = 2048,
+	N_OLD = 4096, // a parked coroutine past the stale-park report's threshold in a park not yet reported
 };
 #define NONE UINT32_MAX
 
@@ -557,6 +559,7 @@ typedef struct {
 	uint32_t    ours;     // references the collector holds
 	uint32_t    edge_lo, edge_n;
 	uint32_t    queued, woken; // a parked coroutine: the channel queues holding its waiter, and those found
+	uint32_t    park;          // an N_OLD coroutine's park
 	uint16_t    flags;
 	uint8_t     attempt; // a retry's attempt + 1, 0 when no retry names it
 	uint8_t     coro;    // CLJ_CORO_CC_* of a coroutine node
@@ -584,6 +587,7 @@ typedef struct {
 	checked_set *ck; // a local collection's marks; NULL: none read, none set
 	bool         mark;
 	int64_t      skipped;
+	uint64_t     report_ns, now; // the stale-park report's threshold, 0 off, and this collection's clock
 } graph;
 
 static uint32_t slot_of(const graph *g, const clj_header *h) {
@@ -1002,7 +1006,12 @@ static void visit_coro_locked(clj_coro *c, int verdict, uint32_t internal, uint3
 	nd->internal += internal;
 	nd->queued = queued;
 	clj_coro_type.each_child(c, visit_child, g);
-	if (verdict == CLJ_CORO_CC_PARKED) visit_frames(g, c);
+	if (verdict != CLJ_CORO_CC_PARKED) return;
+	visit_frames(g, c);
+	if (g->report_ns && c->cc_park == c->parks && c->cc_park_ns && g->now >= c->cc_park_ns + g->report_ns && c->cc_reported != c->parks + 1) {
+		nd->flags |= N_OLD;
+		nd->park = c->parks;
+	}
 }
 
 // Its own frame, the one scripts/tsan.supp names: the slots are read while their writers store without a lock.
@@ -1072,24 +1081,29 @@ static void blacken_mark(graph *g, uint32_t j) {
 	work_push(g, j);
 }
 
-static void blacken(graph *g) {
-	// The wake pairs as adjacency both ways: a live channel can wake the coroutine, a live coroutine read the channel.
-	uint32_t *wlo = NULL, *wadj = NULL;
-	if (g->nwakes) {
-		wlo = calloc(g->n + 1, sizeof *wlo);
-		wadj = malloc(g->nwakes * sizeof *wadj);
-		uint32_t *fill = malloc((g->n + 1) * sizeof *fill);
-		if (!wlo || !wadj || !fill) clj_fatal("out of memory");
-		for (size_t k = 0; k < g->nwakes; k++) wlo[g->wakes[k] + 1]++;
-		for (uint32_t i = 0; i < g->n; i++) wlo[i + 1] += wlo[i];
-		memcpy(fill, wlo, (g->n + 1) * sizeof *fill);
-		for (size_t k = 0; k < g->nwakes; k += 2) {
-			uint32_t a = g->wakes[k], b = g->wakes[k + 1];
-			wadj[fill[a]++] = b;
-			wadj[fill[b]++] = a;
-		}
-		free(fill);
+// The wake pairs as adjacency both ways: a live channel can wake the coroutine, a live coroutine read the channel.
+static void wake_adjacency(const graph *g, uint32_t **lo, uint32_t **adj) {
+	*lo = *adj = NULL;
+	if (!g->nwakes) return;
+	uint32_t *wlo = calloc(g->n + 1, sizeof *wlo), *wadj = malloc(g->nwakes * sizeof *wadj);
+	uint32_t *fill = malloc((g->n + 1) * sizeof *fill);
+	if (!wlo || !wadj || !fill) clj_fatal("out of memory");
+	for (size_t k = 0; k < g->nwakes; k++) wlo[g->wakes[k] + 1]++;
+	for (uint32_t i = 0; i < g->n; i++) wlo[i + 1] += wlo[i];
+	memcpy(fill, wlo, (g->n + 1) * sizeof *fill);
+	for (size_t k = 0; k < g->nwakes; k += 2) {
+		uint32_t a = g->wakes[k], b = g->wakes[k + 1];
+		wadj[fill[a]++] = b;
+		wadj[fill[b]++] = a;
 	}
+	free(fill);
+	*lo = wlo;
+	*adj = wadj;
+}
+
+static void blacken(graph *g) {
+	uint32_t *wlo, *wadj;
+	wake_adjacency(g, &wlo, &wadj);
 	g->nw = 0;
 	for (uint32_t i = 0; i < g->n; i++) {
 		node *nd = &g->nodes[i];
@@ -1301,6 +1315,74 @@ static void mark_acyclic(graph *g) {
 	stat_add(CLJ_CC_STAT_MARKED, marked);
 }
 
+// ---- the stale-park report (design §7, «Фаза 3», «Отчёт о брошенном парке»; NOTES "Coroutines")
+
+// UINT64_MAX until CLJ_PARK_REPORT_S is read; 0 off.
+static _Atomic uint64_t park_report_ns = UINT64_MAX;
+
+static uint64_t park_report_threshold(void) {
+	uint64_t ns = atomic_load_explicit(&park_report_ns, memory_order_relaxed);
+	if (__builtin_expect(ns != UINT64_MAX, 1)) return ns;
+	const char *e = getenv("CLJ_PARK_REPORT_S");
+	uint64_t    want = e && *e ? strtoull(e, NULL, 10) * 1000000000ull : 0, expected = UINT64_MAX;
+	atomic_compare_exchange_strong_explicit(&park_report_ns, &expected, want, memory_order_relaxed, memory_order_relaxed);
+	return atomic_load_explicit(&park_report_ns, memory_order_relaxed);
+}
+
+uint64_t clj_debug_cc_park_report_ms(uint64_t ms) {
+	uint64_t old = park_report_threshold();
+	atomic_store_explicit(&park_report_ns, ms * 1000000ull, memory_order_relaxed);
+	return old / 1000000ull;
+}
+
+// Blackness that does not pass through the coroutine stops short of each of its wait channels: only a cancel ends
+// the park, whether a holder of its handle keeps it or a reference the collector cannot read.
+static void park_report(graph *g) {
+	uint32_t *wlo = NULL, *wadj = NULL;
+	uint8_t  *mark = NULL;
+	for (uint32_t k = 0; k < g->n; k++) {
+		const node *nk = &g->nodes[k];
+		if ((nk->flags & (N_OLD | N_BLACK | N_LOST)) != (N_OLD | N_BLACK) || !nk->queued || nk->woken != nk->queued) continue;
+		if (!mark) {
+			wake_adjacency(g, &wlo, &wadj);
+			mark = malloc(g->n);
+			if (!mark) clj_fatal("out of memory");
+		}
+		memset(mark, 0, g->n);
+		g->nw = 0;
+		for (uint32_t i = 0; i < g->n; i++) {
+			const node *nd = &g->nodes[i];
+			if (i == k || !((nd->flags & N_LOST) || nd->count > nd->internal + nd->ours)) continue;
+			mark[i] = 1;
+			work_push(g, i);
+		}
+		while (g->nw) {
+			uint32_t v = g->work[--g->nw];
+			for (uint32_t e = 0; e < g->nodes[v].edge_n; e++) {
+				uint32_t w = g->edges[g->nodes[v].edge_lo + e];
+				if (w == k || mark[w]) continue;
+				mark[w] = 1;
+				work_push(g, w);
+			}
+			for (uint32_t e = wlo ? wlo[v] : 0; wlo && e < wlo[v + 1]; e++) {
+				uint32_t w = wadj[e];
+				if (w == k || mark[w]) continue;
+				mark[w] = 1;
+				work_push(g, w);
+			}
+		}
+		bool reached = false;
+		for (size_t p = 0; p < g->nwakes && !reached; p += 2) reached = g->wakes[p + 1] == k && mark[g->wakes[p]];
+		if (reached || !clj_coro_cc_report_once((clj_coro *)nk->h, nk->park)) continue;
+		stat_add(CLJ_CC_STAT_PARK_REPORTS, 1);
+		fprintf(stderr, "pippin: coroutine %llu parked over %llu s on channels only it reaches: nothing but a cancel ends the park\n",
+		        (unsigned long long)((const clj_coro *)nk->h)->id, (unsigned long long)(g->report_ns / 1000000000ull));
+	}
+	free(mark);
+	free(wlo);
+	free(wadj);
+}
+
 #if CLJ_DEBUG
 // An overcount frees what is held (design §7, «Фаза 3», «Почему верно»); only a lost node's edges may be stale.
 static void audit_overcount(const graph *g) {
@@ -1317,6 +1399,7 @@ static void audit_overcount(const graph *g) {
 #endif
 
 static int64_t run(graph *g, clj_header **roots, size_t n) {
+	if (g->shared && !g->deep && (g->report_ns = park_report_threshold())) g->now = clj_sched_now();
 	for (size_t r = 0; r < n; r++) {
 		uint32_t i = find(g, roots[r]);
 		if (i == NONE) add_node(g, roots[r], g->shared ? 1 : 0, N_ROOT);
@@ -1329,6 +1412,7 @@ static int64_t run(graph *g, clj_header **roots, size_t n) {
 	audit_overcount(g);
 #endif
 	blacken(g);
+	if (g->report_ns) park_report(g);
 	if (!g->shared) mark_acyclic(g);
 	int64_t freed = free_whites(g);
 	release_survivors(g);

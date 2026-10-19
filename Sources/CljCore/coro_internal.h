@@ -145,6 +145,8 @@ struct clj_coro {
 	bool             cc_collected;   // cancelled as garbage (design §7, «Фаза 3»): never judged again
 	uint32_t         cc_park;        // the park the sweep last saw, and the passes to its next filing
 	uint16_t         cc_wait, cc_left;
+	uint64_t         cc_park_ns;     // when the sweep first saw that park (clj_sched_now)
+	uint32_t         cc_reported;    // 1 + the park the stale-park report named (cc.c, park_report), 0 none
 #if CLJ_DEBUG
 	uint32_t         debug_owner;     // the tag its unshared objects carry (object.h, CLJ_OWNER_SHIFT)
 #endif
@@ -371,6 +373,8 @@ enum { CLJ_CORO_CC_LIVE, CLJ_CORO_CC_PARKED, CLJ_CORO_CC_DONE };
 bool clj_coro_cc_locked(clj_coro *c, void (*inside)(clj_coro *c, int verdict, uint32_t internal, uint32_t queued, void *ctx), void *ctx);
 // A white parked coroutine is cancelled once; true when this call did it.
 bool clj_coro_cc_cancel(clj_coro *c);
+// The stale-park report names one park once: true when park is still c's and this call is the first to name it.
+bool clj_coro_cc_report_once(clj_coro *c, uint32_t park);
 // Files every parked coroutine as a cycle candidate (clj_cc_collect).
 void clj_coro_cc_file_parked(void);
 

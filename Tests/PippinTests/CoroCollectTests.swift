@@ -17,6 +17,12 @@ private func cancelledByCollection() -> Int64 {
 	return s[CLJ_CC_STAT_COROUTINES]
 }
 
+private func parkReports() -> Int64 {
+	var s = [Int64](repeating: 0, count: CLJ_CC_STAT_COUNT)
+	clj_debug_cc_stats(&s)
+	return s[CLJ_CC_STAT_PARK_REPORTS]
+}
+
 // The body must have parked before a collection can judge it: collect until the count moves or the wait ends.
 private func collected(atLeast n: Int64, since before: Int64, ms: Int = 5000) -> Bool {
 	for _ in 0..<(ms / 10) {
@@ -42,7 +48,7 @@ extension CoreTests {
 			clj_init()
 			try cljTimingSupport()
 			_ = try cljEvalScoped("""
-			(ns coro-collect-tests (:require [clojure.core.async :refer [chan <! >! >!! timeout go go-loop alts! mult mix admix onto-chan! suspend! close!]]))
+			(ns coro-collect-tests (:require [clojure.core.async :refer [chan <! >! >!! timeout go go-loop alts! mult mix admix onto-chan! suspend! close! cancel!]]))
 			(refer 'test-support)
 			(defprotocol Res (-close [r]))
 			(deftype Held [closed] Res (-close [_] (reset! closed true)))
@@ -51,6 +57,7 @@ extension CoreTests {
 			(def from-swift (atom nil))
 			(def alts-done (atom nil))
 			(def suspended nil)
+			(def stale-park nil)
 			""")
 			for k in ["v", "loop", "chan", "timeout", "suspended", "deadline", "future", "alts", "let"] { _ = kw(k) }
 			for (_, k) in CoroCollectTests.gapShapes { _ = kw(k) }
@@ -180,6 +187,25 @@ extension CoreTests {
 				#expect(eventually { (try? eval("@from-swift")) == kw("v") })
 			}
 			#expect(cancelledByCollection() == before)
+			base.check()
+		}
+
+		// Its handle keeps the park, so no collection ends it, and its channel only it reaches: the stale-park report
+		// names it once; the same park on a channel Swift holds is not named.
+		@Test func aParkOnChannelsOnlyItReachesIsReported() throws {
+			let old = clj_debug_cc_park_report_ms(100)
+			defer { _ = clj_debug_cc_park_report_ms(old) }
+			let base = CoroBaseline()
+			let before = parkReports()
+			do {
+				let held = try eval("(let [c (chan)] (go (<! c)) c)")
+				_ = try eval("(def stale-park (let [c (chan)] (go (<! c))))")
+				#expect(eventually { clj_cc_collect(); return parkReports() > before })
+				_ = clj_cc_collect()
+				#expect(parkReports() == before + 1)
+				_ = try eval("(cancel! stale-park) (def stale-park nil)")
+				_ = Value(owning: clj_chan_put(held.raw, kw("v").raw))
+			}
 			base.check()
 		}
 

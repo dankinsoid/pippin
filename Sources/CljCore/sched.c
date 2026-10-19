@@ -894,6 +894,14 @@ bool clj_coro_cc_cancel(clj_coro *c) {
 	return take;
 }
 
+bool clj_coro_cc_report_once(clj_coro *c, uint32_t park) {
+	pthread_mutex_lock(&c->lock);
+	bool first = c->parks == park && c->cc_reported != park + 1 && atomic_load_explicit(&c->state, memory_order_acquire) == CLJ_CORO_PARKED;
+	if (first) c->cc_reported = park + 1;
+	pthread_mutex_unlock(&c->lock);
+	return first;
+}
+
 void clj_coro_uncancel_scope(clj_coro *c) {
 	pthread_mutex_lock(&c->lock);
 	if (atomic_load_explicit(&c->cancel, memory_order_relaxed) == CLJ_CANCEL_SCOPE && c->shadow) {

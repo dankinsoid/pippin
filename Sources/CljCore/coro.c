@@ -689,10 +689,11 @@ static clj_coro **live_snapshot(size_t *n) {
 // The cycle collector's backstop (design §7, «Фаза 3»): a park two passes saw is filed as a candidate, then again
 // after 2, 4 … 256 passes while it lasts, for a collection that met it running or touched, or an outside reference
 // that went without a candidate. Under c->lock.
-static void cc_sweep_file(clj_coro *c) {
+static void cc_sweep_file(clj_coro *c, uint64_t now) {
 	enum { CC_WAIT_MAX = 256 };
 	if (c->cc_park != c->parks) {
 		c->cc_park = c->parks;
+		c->cc_park_ns = now;
 		c->cc_wait = c->cc_left = 1;
 		return;
 	}
@@ -706,6 +707,7 @@ static void cc_sweep_file(clj_coro *c) {
 static size_t sweep(bool all) {
 	size_t     n, done = 0;
 	clj_coro **cs = live_snapshot(&n);
+	uint64_t   now = clj_sched_now();
 	for (size_t i = 0; i < n; i++) {
 		clj_coro *c = cs[i];
 		pthread_mutex_lock(&c->lock);
@@ -714,7 +716,7 @@ static size_t sweep(bool all) {
 			if (all || c->cold_at == c->parks) done += clj_coro_evacuate_locked(c);
 			else c->cold_at = c->parks;
 		}
-		if (parked && !all && !c->cc_collected) cc_sweep_file(c);
+		if (parked && !all && !c->cc_collected) cc_sweep_file(c, now);
 		pthread_mutex_unlock(&c->lock);
 		clj_release(clj_from_ptr(c));
 	}

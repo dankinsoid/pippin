@@ -34,9 +34,12 @@ enum {
 	CLJ_CC_STAT_STORE_CYCLES,    // checks that closed a cycle
 	CLJ_CC_STAT_STORE_FLAGGED,   // objects they flagged on a cycle, and the cyclic components local collections flagged
 	CLJ_CC_STAT_STORE_DEFERRED,  // checks past their budget, the owner filed for the next local collection
+	CLJ_CC_STAT_PARK_REPORTS,    // parks reported as on channels only their coroutine reaches (CLJ_PARK_REPORT_S)
 	CLJ_CC_STAT_COUNT
 };
 void clj_debug_cc_stats(int64_t out[CLJ_CC_STAT_COUNT]);
+// The stale-park report's threshold in ms, 0 off (CLJ_PARK_REPORT_S sets it in seconds); returns the one before.
+uint64_t clj_debug_cc_park_report_ms(uint64_t ms);
 // Candidates waiting: the calling execution's local buffer, and the shared one.
 int64_t clj_debug_cc_pending_local(void);
 int64_t clj_debug_cc_pending_shared(void);
