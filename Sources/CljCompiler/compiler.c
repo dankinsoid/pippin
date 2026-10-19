@@ -500,7 +500,13 @@ typedef struct fnctx {
 	// Owned C-variable slots that may hold a value where emission is: bound earlier, or anywhere in an enclosing loop.
 	// A slot keeps its value past its let until a rebind, its drop or the frame's exit.
 	uint64_t             bound;
+	uint64_t             vars_owned; // the frame's owned C-variable slots, fixed at its declaration (a fused body swaps promoted)
+	uint32_t             arr;        // fr's array length, named with fr where it may hold an owned slot (arr_owned)
+	bool                 arr_owned;
 } fnctx;
+
+static bool emit_frefs_push(fnctx *f, const clj_node *call, const temp *args, uint32_t nargs, uint64_t taken);
+static void emit_frefs_pop(fnctx *f, bool pushed);
 
 // The call site marker of trace.c, after every call that can throw; a top-level form has no frame to name.
 static void emit_site(fnctx *f) {
@@ -2519,12 +2525,16 @@ static itemp emit_prim(fnctx *f, const clj_node *n, const prim_site *pc, const c
 	for (uint32_t i = 0; i < nargs; i++) args[i] = emit_raw(f, n->u.invoke.args[i]);
 	char self[64] = "CLJ_NIL";
 	if ((pc->d->self_used >> nargs) & 1) snprintf(self, sizeof self, "clj_var_root_relaxed(V[%zu])", vi);
-	sb_printf(&f->out, "\t%s w%d;\n\tbool ok%d = true;\n#ifdef CLJC_LOCAL_%s\n\tw%d = CLJC_CALL_%s(%s, NULL", wtype(pc->ret), k, k, pc->target, k, pc->target, self);
+	sb_printf(&f->out, "\t%s w%d;\n\tbool ok%d = true;\n", wtype(pc->ret), k, k);
+	bool pushed = emit_frefs_push(f, n, NULL, 0, 0);
+	sb_printf(&f->out, "#ifdef CLJC_LOCAL_%s\n\tw%d = CLJC_CALL_%s(%s, NULL", pc->target, k, pc->target, self);
 	for (uint32_t i = 0; i < nargs; i++) sb_printf(&f->out, ", %s", args[i].name);
 	sb_printf(&f->out, ");\n#else\n\tif (!CLJC_FN_%s) CLJC_FN_%s = (CLJC_WFN_%s)clj_compiled_worker(\"%s\");\n\tif (CLJC_FN_%s) w%d = CLJC_FN_%s(%s, NULL", pc->target, pc->target,
 	          pc->target, pc->target, pc->target, k, pc->target, self);
 	for (uint32_t i = 0; i < nargs; i++) sb_printf(&f->out, ", %s", args[i].name);
-	sb_printf(&f->out, ");\n\telse ok%d = false;\n#endif\n\tif (ok%d) {\n", k, k);
+	sb_printf(&f->out, ");\n\telse ok%d = false;\n#endif\n", k);
+	emit_frefs_pop(f, pushed);
+	sb_printf(&f->out, "\tif (ok%d) {\n", k);
 	emit_site(f);
 	sb_printf(&f->out, "\tif (w%d.thrown) {\n", k);
 	emit_unwind(f);
@@ -2533,7 +2543,10 @@ static itemp emit_prim(fnctx *f, const clj_node *n, const prim_site *pc, const c
 	else sb_printf(&f->out, "\t%s = %s(w%d.v);\n", rname, box_fn(pc->ret), k);
 	sb_printf(&f->out, "\t} else {\n\tclj_value fb%d[%u] = {", k, nargs);
 	for (uint32_t i = 0; i < nargs; i++) sb_printf(&f->out, "%s%s(%s)", i ? ", " : "", box_fn(args[i].kind), args[i].name);
-	sb_printf(&f->out, "};\n\tclj_value fr%d = clj_c_prim_fallback(V[%zu], fb%d, %u);\n", k, vi, k, nargs);
+	sb_printf(&f->out, "};\n\tclj_value fr%d;\n", k);
+	pushed = emit_frefs_push(f, n, NULL, 0, 0);
+	sb_printf(&f->out, "\tfr%d = clj_c_prim_fallback(V[%zu], fb%d, %u);\n", k, vi, k, nargs);
+	emit_frefs_pop(f, pushed);
 	emit_site(f);
 	sb_printf(&f->out, "\tif (fr%d == CLJ_THROWN) {\n", k);
 	emit_unwind(f);
@@ -2576,7 +2589,11 @@ static temp emit_lazy_seq(fnctx *f, const clj_node *n) {
 	int    k = f->naux++;
 	sb_printf(&f->out, "\tclj_value %s;\n\tif (CLJC_LAZY_SEQ_INLINE(V[%zu])) {\n\t%s = clj_lazy_seq_code(%s_a0, %s, %u);\n\t} else {\n", r.name, vi, r.name, base,
 	          caps, fn->u.fn.ncaptures);
-	sb_printf(&f->out, "\tclj_value th%d = %s;\n\t%s = clj_c_intrinsic_fallback(V[%zu], &th%d, 1);\n\tclj_release(th%d);\n\t}\n", k, expr, r.name, vi, k, k);
+	// a rebound lazy-seq* is a program's fn
+	bool pushed = emit_frefs_push(f, n, NULL, 0, 0);
+	sb_printf(&f->out, "\tclj_value th%d = %s;\n\t%s = clj_c_intrinsic_fallback(V[%zu], &th%d, 1);\n\tclj_release(th%d);\n", k, expr, r.name, vi, k, k);
+	emit_frefs_pop(f, pushed);
+	sb_puts(&f->out, "\t}\n");
 	check_thrown(f, r.name);
 	live_push(f, r);
 	return r;
@@ -2633,13 +2650,20 @@ static bool taken_by_call(const temp *t, const temp *args, uint32_t nargs, uint6
 	return false;
 }
 
-// What the frame's unwind would release, but the arguments the call takes over: its owned temps and the owned
-// C-variable slots in scope. A collection that finds the coroutine parked inside the call reads them as its edges;
-// a reference left out only reads as held from outside. Nothing between push and pop may jump.
-static bool emit_frefs_push(fnctx *f, const clj_node *call, const temp *args, uint32_t nargs, uint64_t taken) {
+// An owned array a site names beside the frame's references, read where it is: a fused site's state.
+typedef struct {
+	const char *name;
+	uint32_t    n;
+} fref_array;
+
+// What the frame's unwind would release, but the arguments the call takes over: its owned temps, the owned
+// C-variable slots in scope and its array's owned slots (fr, read where it is). A collection that finds the coroutine
+// parked inside the call reads them as its edges; a reference left out only reads as held from outside. Nothing
+// between push and pop may jump.
+static bool emit_frefs_push_with(fnctx *f, const clj_node *call, const temp *args, uint32_t nargs, uint64_t taken, const fref_array *extra) {
 	if (!f->frefs || (f->facts && !clj_facts_may_park(f->facts, call->id))) return false;
 	sb       list = {0};
-	uint32_t k = 0;
+	uint32_t k = 0, refs = 0;
 	for (int i = 0; i < f->nlive; i++) {
 		const temp *t = &f->live[i];
 		if (taken_by_call(t, args, nargs, taken)) continue;
@@ -2647,16 +2671,31 @@ static bool emit_frefs_push(fnctx *f, const clj_node *call, const temp *args, ui
 		else if (t->own == OWN_DYN) sb_printf(&list, "\t\tFv[%u] = %s ? %s : CLJ_NIL;\n", k++, t->flag, t->name);
 	}
 	for (uint32_t i = 0; i < 64; i++) {
-		if (((f->bound >> i) & 1) && owned_var_slot(f, i)) sb_printf(&list, "\t\tFv[%u] = l%u;\n", k++, i);
+		if (((f->bound & f->vars_owned) >> i) & 1) sb_printf(&list, "\t\tFv[%u] = l%u;\n", k++, i);
+	}
+	refs = k;
+	if (f->arr_owned) {
+		sb_printf(&list, "\t\tFv[%u] = CLJ_FREF_CFRAME;\n\t\tFv[%u] = (clj_value)&fr;\n\t\tFv[%u] = clj_fixnum(%u);\n", k, k + 1, k + 2, f->arr);
+		k += 3;
+		refs++;
+	}
+	if (extra && extra->n) {
+		sb_printf(&list, "\t\tFv[%u] = CLJ_FREF_ARRAY;\n\t\tFv[%u] = (clj_value)%s;\n\t\tFv[%u] = clj_fixnum(%u);\n", k, k + 1, extra->name, k + 2, extra->n);
+		k += 3;
+		refs++;
 	}
 	if (k) {
 		sb_printf(&f->out, "\tif (!FR) FR = clj_c_frefs(&F0);\n\t{\n\t\tclj_value *Fv = clj_c_frefs_at(FR, F0, %u);\n%s\t\tFR->n = F0 + %u;\n\t}\n", k,
 		          list.s, k);
 		f->u->slots.frefs_sites++;
-		f->u->slots.frefs_refs += k;
+		f->u->slots.frefs_refs += refs;
 	}
 	sb_free(&list);
 	return k != 0;
+}
+
+static bool emit_frefs_push(fnctx *f, const clj_node *call, const temp *args, uint32_t nargs, uint64_t taken) {
+	return emit_frefs_push_with(f, call, args, nargs, taken, NULL);
 }
 
 static void emit_frefs_pop(fnctx *f, bool pushed) {
@@ -3183,8 +3222,12 @@ static temp emit_consume(fnctx *f, const clj_node *n, uint32_t slot) {
 	slot_gone(f, slot);
 	live_push(f, a);
 	temp r = new_temp(f, OWN_YES);
-	sb_printf(&f->out, "\tclj_value %s;\n\tif (CLJC_GUARD(V[%zu], B[%zu])) {\n\t%s = %s(%s);\n\t} else {\n", r.name, vi, oi, r.name, owned, a.name);
+	sb_printf(&f->out, "\tclj_value %s;\n", r.name);
+	// the seq is the owned step's, a lazy one's realization may park
+	bool pushed = emit_frefs_push(f, n, &a, 1, 1);
+	sb_printf(&f->out, "\tif (CLJC_GUARD(V[%zu], B[%zu])) {\n\t%s = %s(%s);\n\t} else {\n", vi, oi, r.name, owned, a.name);
 	sb_printf(&f->out, "\t%s = clj_c_intrinsic_fallback(V[%zu], &%s, 1);\n\tclj_release(%s);\n\t}\n", r.name, vi, a.name, a.name);
+	emit_frefs_pop(f, pushed);
 	live_forget(f, &a);
 	check_thrown(f, r.name);
 	live_push(f, r);
@@ -3209,7 +3252,9 @@ static temp emit_takeout(fnctx *f, const clj_node *n, const cljc_reuse_pair *pai
 	temp       *args = emit_args(f, n->u.intrinsic.args, n->u.intrinsic.n, array);
 	temp        r = new_temp(f, OWN_YES);
 	const char *nf = n->u.intrinsic.n == 3 ? args[2].name : "CLJ_NIL";
-	sb_printf(&f->out, "\tclj_value %s;\n\tif (CLJC_GUARD(V[%zu], B[%zu])) {\n", r.name, vi, oi);
+	sb_printf(&f->out, "\tclj_value %s;\n", r.name);
+	bool pushed = emit_frefs_push(f, n, args, n->u.intrinsic.n, 0);
+	sb_printf(&f->out, "\tif (CLJC_GUARD(V[%zu], B[%zu])) {\n", vi, oi);
 	if (n->u.intrinsic.args[1]->kind == CLJ_NODE_CONST && clj_is_keyword(n->u.intrinsic.args[1]->u.value.v)) {
 		uint32_t ic = f->u->nics++;
 		sb_printf(&f->u->protos, "CLJC_TLS_IC(clj_ckw_ic, KC_%u)\n", ic);
@@ -3220,6 +3265,7 @@ static temp emit_takeout(fnctx *f, const clj_node *n, const cljc_reuse_pair *pai
 		sb_printf(&f->out, "\t%s = clj_c_get_take(%s, %s, %s, CLJC_GUARD(V[%zu], B[%zu]), &tko%d);\n", r.name, args[0].name, args[1].name, nf, avi, aoi, p->flag);
 	}
 	sb_printf(&f->out, "\t} else {\n\t%s = clj_c_intrinsic_fallback(V[%zu], %s, %u);\n\t}\n", r.name, vi, array, n->u.intrinsic.n);
+	emit_frefs_pop(f, pushed);
 	for (uint32_t i = n->u.intrinsic.n; i-- > 0;) release_temp(f, &args[i]);
 	free(args);
 	check_thrown(f, r.name);
@@ -3280,6 +3326,12 @@ static temp emit_intrinsic(fnctx *f, const clj_node *n) {
 	temp  r = new_temp(f, OWN_YES);
 	bool  consuming = clj_intrinsic_consumes(op) && args[0].own != OWN_NO;
 	sb_printf(&f->out, "\tclj_value %s;\n", r.name);
+	// a lazy seq's realization or a rebound var's fn may park; a consumed collection is the callee's, and so is the
+	// slot a reuse token drops
+	uint64_t bound = f->bound;
+	if (pair && pair->kind == CLJC_REUSE_TOKEN && !consuming) slot_gone(f, pair->slot);
+	bool pushed = emit_frefs_push(f, n, args, n->u.intrinsic.n, consuming ? 1 : 0);
+	f->bound = bound;
 	if (flag >= 0) sb_printf(&f->out, "\tif (tko%d || CLJC_GUARD(V[%zu], B[%zu])) {\n", flag, vi, oi);
 	else sb_printf(&f->out, "\tif (CLJC_GUARD(V[%zu], B[%zu])) {\n", vi, oi);
 	if (consuming && args[0].own == OWN_YES) {
@@ -3321,6 +3373,7 @@ static temp emit_intrinsic(fnctx *f, const clj_node *n) {
 	sb_printf(&f->out, "\t} else {\n\t%s = clj_c_intrinsic_fallback(V[%zu], %s, %u);\n", r.name, vi, array, n->u.intrinsic.n);
 	if (consuming && args[0].own == OWN_YES) sb_printf(&f->out, "\tclj_release(%s);\n", args[0].name);
 	sb_puts(&f->out, "\t}\n");
+	emit_frefs_pop(f, pushed);
 	if (consuming && args[0].own == OWN_YES) live_forget(f, &args[0]);
 	for (uint32_t i = n->u.intrinsic.n; i-- > 0;) {
 		if (i == 0 && consuming && args[0].own == OWN_YES) continue;
@@ -3562,11 +3615,26 @@ static void mono_intrinsic_n(fnctx *f, sb *s, const char *name, uint32_t arity, 
 
 static void mono_intrinsic(fnctx *f, sb *s, const char *name, const char *arg, const char *result) { mono_intrinsic_n(f, s, name, 1, &arg, result); }
 
+// A step's own reference across a call into a stage or the consumer that may park: held, named in the list (design
+// §7, «Фаза 3»); the step's FR and F0 are declared where park is.
+static void mono_push(sb *s, bool park, const char *held) {
+	if (park && held) sb_printf(s, "\tif (!FR) FR = clj_c_frefs(&F0);\n\t*clj_c_frefs_at(FR, F0, 1) = %s;\n\tFR->n = F0 + 1;\n", held);
+}
+
+static void mono_pop(sb *s, bool park, const char *held) {
+	if (park && held) sb_puts(s, "\tFR->n = F0;\n");
+}
+
+static void mono_frefs_decl(sb *s, bool park) {
+	if (park) sb_puts(s, "\tclj_frefs *FR = NULL;\n\tuint32_t F0 = 0;\n\t(void)FR;\n\t(void)F0;\n");
+}
+
 // The stage fn called on what a holds, call being the expression emit_mono_step made for it; t is its answer.
-static void mono_call(sb *s, const char *call, uint32_t i, uint32_t n, uint32_t stub) {
-	(void)i;
-	(void)n;
-	sb_printf(s, "\tt = %s;\n\tCLJC_SITE(&S[%u]);\n", call, stub);
+static void mono_call(sb *s, bool park, const char *held, const char *call, uint32_t stub) {
+	mono_push(s, park, held);
+	sb_printf(s, "\tt = %s;\n", call);
+	mono_pop(s, park, held);
+	sb_printf(s, "\tCLJC_SITE(&S[%u]);\n", stub);
 }
 
 #define MONO_THROW_V "\tif (%s == CLJ_THROWN) {\n\tclj_release(v);\n\treturn CLJ_FUSED_THROWN;\n\t}\n"
@@ -3590,6 +3658,7 @@ typedef struct {
 	char     step[300];
 	uint32_t stub;
 	bool     cont[MONO_STAGES_MAX]; // <step>k<i>, the stages below i, emitted
+	bool     park;                  // a stage fn or the consumer may park: the step names v across them
 } mono_emit;
 
 static void emit_mono_segment(fnctx *f, const mono_plan *p, mono_emit *e, uint32_t from, bool first, const char *name);
@@ -3618,11 +3687,12 @@ static void emit_mono_segment(fnctx *f, const mono_plan *p, mono_emit *e, uint32
 	sb s = {0};
 	sb_printf(&s, "static CLJC_FRAME int %s(void *ctx, const clj_value *xs, clj_fused_sink *sink) {\n\tclj_value *fz = ctx;\n\tclj_value v, t, u, w, a[4];\n", name);
 	sb_puts(&s, "\tint h = CLJ_FUSED_GO;\n\t(void)t;\n\t(void)u;\n\t(void)w;\n\t(void)a;\n");
+	mono_frefs_decl(&s, e->park);
 	bool multi = first && p->nsources > 1;
 	if (multi) {
 		// the multi-coll map: its fn over one item of each coll
 		for (uint32_t j = 0; j < p->nsources; j++) sb_printf(&s, "\ta[%u] = xs[%u];\n", j, j);
-		mono_call(&s, e->call[from], from, p->nsources, e->stub);
+		mono_call(&s, e->park, NULL, e->call[from], e->stub);
 		sb_puts(&s, "\tif (t == CLJ_THROWN) return CLJ_FUSED_THROWN;\n\tv = t;\n");
 	} else {
 		sb_puts(&s, "\tv = clj_retain(xs[0]);\n");
@@ -3635,14 +3705,14 @@ static void emit_mono_segment(fnctx *f, const mono_plan *p, mono_emit *e, uint32
 		switch (p->kind[i]) {
 		case MONO_MAP:
 			sb_puts(&s, "\ta[0] = v;\n");
-			mono_call(&s, e->call[i], i, 1, e->stub);
+			mono_call(&s, e->park, "v", e->call[i], e->stub);
 			sb_puts(&s, "\tclj_release(v);\n\tif (t == CLJ_THROWN) return CLJ_FUSED_THROWN;\n\tv = t;\n");
 			break;
 		case MONO_FILTER:
 		case MONO_REMOVE:
 		case MONO_TAKE_WHILE:
 			sb_puts(&s, "\ta[0] = v;\n");
-			mono_call(&s, e->call[i], i, 1, e->stub);
+			mono_call(&s, e->park, "v", e->call[i], e->stub);
 			sb_printf(&s, MONO_THROW_V, "t");
 			// filter drops a false one, remove a true one; take-while ends the walk at a false one (reduced)
 			sb_printf(&s, "\tif (%sclj_truthy(t)) {\n\tclj_release(t);\n\tclj_release(v);\n\treturn h%s;\n\t}\n\tclj_release(t);\n",
@@ -3650,7 +3720,7 @@ static void emit_mono_segment(fnctx *f, const mono_plan *p, mono_emit *e, uint32
 			break;
 		case MONO_KEEP:
 			sb_puts(&s, "\ta[0] = v;\n");
-			mono_call(&s, e->call[i], i, 1, e->stub);
+			mono_call(&s, e->park, "v", e->call[i], e->stub);
 			sb_puts(&s, "\tclj_release(v);\n\tif (t == CLJ_THROWN) return CLJ_FUSED_THROWN;\n");
 			mono_intrinsic(f, &s, "nil?", "t", "u");
 			sb_puts(&s, "\tif (u == CLJ_THROWN) {\n\tclj_release(t);\n\treturn CLJ_FUSED_THROWN;\n\t}\n");
@@ -3659,7 +3729,7 @@ static void emit_mono_segment(fnctx *f, const mono_plan *p, mono_emit *e, uint32
 		case MONO_DROP_WHILE:
 			// (if (and @dv (pred x)) result (do (vreset! dv nil) (rf result x)))
 			sb_printf(&s, "\tif (clj_truthy(%s)) {\n\ta[0] = v;\n", slot);
-			mono_call(&s, e->call[i], i, 1, e->stub);
+			mono_call(&s, e->park, "v", e->call[i], e->stub);
 			sb_printf(&s, MONO_THROW_V, "t");
 			sb_printf(&s, "\tif (clj_truthy(t)) {\n\tclj_release(t);\n\tclj_release(v);\n\treturn h;\n\t}\n\tclj_release(t);\n\t}\n\t%s = CLJ_NIL;\n", slot);
 			break;
@@ -3668,7 +3738,7 @@ static void emit_mono_segment(fnctx *f, const mono_plan *p, mono_emit *e, uint32
 			mono_intrinsic(f, &s, "inc", slot, "u");
 			sb_printf(&s, MONO_THROW_V, "u");
 			sb_printf(&s, "\tclj_release(%s);\n\t%s = u;\n\ta[0] = u;\n\ta[1] = v;\n", slot, slot);
-			mono_call(&s, e->call[i], i, 2, e->stub);
+			mono_call(&s, e->park, "v", e->call[i], e->stub);
 			sb_puts(&s, "\tclj_release(v);\n\tif (t == CLJ_THROWN) return CLJ_FUSED_THROWN;\n\tv = t;\n");
 			break;
 		case MONO_TAKE:
@@ -3718,7 +3788,7 @@ static void emit_mono_segment(fnctx *f, const mono_plan *p, mono_emit *e, uint32
 			char started[32];
 			snprintf(started, sizeof started, "fz[%u]", st + 1);
 			sb_printf(&s, "\tif (!clj_truthy(%s)) {\n\t%s = CLJ_TRUE;\n\tt = v;\n\t} else {\n\ta[0] = %s;\n\ta[1] = v;\n", started, started, slot);
-			mono_call(&s, e->call[i], i, 2, e->stub);
+			mono_call(&s, e->park, "v", e->call[i], e->stub);
 			sb_puts(&s, "\tclj_release(v);\n\tif (t == CLJ_THROWN) return CLJ_FUSED_THROWN;\n\t}\n");
 			sb_printf(&s, "\tclj_release(%s);\n\t%s = CLJ_NIL;\n", slot, slot);
 			sb_printf(&s, "\tif (clj_is_reduced(t)) {\n\tv = clj_retain(clj_reduced_value(t));\n\tclj_release(t);\n\th |= CLJ_FUSED_HALT;\n\t} else {\n\t%s = clj_retain(t);\n\tv = t;\n\t}\n", slot);
@@ -3741,7 +3811,11 @@ static void emit_mono_segment(fnctx *f, const mono_plan *p, mono_emit *e, uint32
 			// the stages below as the completion runs them: one copy for both
 			char call[400];
 			mono_cont(f, p, e, i, call, sizeof call);
-			sb_printf(&s, "\t{\n\tint r = %s;\n\tclj_release(v);\n\treturn h | r;\n\t}\n}\n\n", call);
+			sb_puts(&s, "\t{\n");
+			mono_push(&s, e->park, "v");
+			sb_printf(&s, "\tint r = %s;\n", call);
+			mono_pop(&s, e->park, "v");
+			sb_puts(&s, "\tclj_release(v);\n\treturn h | r;\n\t}\n}\n\n");
 			sb_put(&f->u->fns, s.s, s.len);
 			sb_free(&s);
 			return;
@@ -3754,16 +3828,24 @@ static void emit_mono_segment(fnctx *f, const mono_plan *p, mono_emit *e, uint32
 				snprintf(cont, sizeof cont, "%sk%u", e->step, i);
 			}
 			sb_puts(&s, "\ta[0] = v;\n");
-			mono_call(&s, e->call[i], i, 1, e->stub);
+			mono_call(&s, e->park, "v", e->call[i], e->stub);
 			sb_puts(&s, "\tclj_release(v);\n\tif (t == CLJ_THROWN) return CLJ_FUSED_THROWN;\n");
-			sb_printf(&s, "\t{\n\tint r = clj_fused_cat(ctx, t, %s, sink);\n\tclj_release(t);\n\treturn h | r;\n\t}\n}\n\n", cont);
+			sb_puts(&s, "\t{\n");
+			mono_push(&s, e->park, "t");
+			sb_printf(&s, "\tint r = clj_fused_cat(ctx, t, %s, sink);\n", cont);
+			mono_pop(&s, e->park, "t");
+			sb_puts(&s, "\tclj_release(t);\n\treturn h | r;\n\t}\n}\n\n");
 			sb_put(&f->u->fns, s.s, s.len);
 			sb_free(&s);
 			return;
 		}
 		}
 	}
-	sb_puts(&s, "\t{\n\tint r = sink->emit(sink, v);\n\tclj_release(v);\n\treturn h | r;\n\t}\n}\n\n");
+	sb_puts(&s, "\t{\n");
+	mono_push(&s, e->park, "v");
+	sb_puts(&s, "\tint r = sink->emit(sink, v);\n");
+	mono_pop(&s, e->park, "v");
+	sb_puts(&s, "\tclj_release(v);\n\treturn h | r;\n\t}\n}\n\n");
 	sb_put(&f->u->fns, s.s, s.len);
 	sb_free(&s);
 }
@@ -3777,6 +3859,7 @@ static void emit_mono_flush(fnctx *f, const mono_plan *p, mono_emit *e, const ch
 	sb s = {0};
 	sb_printf(&s, "static CLJC_FRAME int %s(void *ctx, clj_fused_sink *sink) {\n\tclj_value *fz = ctx;\n\tclj_value v, t, a[4];\n\tint r;\n", name);
 	sb_puts(&s, "\t(void)v;\n\t(void)t;\n\t(void)a;\n\t(void)r;\n");
+	mono_frefs_decl(&s, e->park);
 	for (uint32_t i = p->nstages; i-- > 0;) {
 		bool scan = p->kind[i] == MONO_SCAN && p->init[i] == UINT32_MAX;
 		if (p->kind[i] != MONO_PARTITION_ALL && !scan) continue;
@@ -3787,14 +3870,20 @@ static void emit_mono_flush(fnctx *f, const mono_plan *p, mono_emit *e, const ch
 			// (list (f)) over an empty coll: its only item, data even when reduced
 			sb_printf(&s, "\tif (!clj_truthy(fz[%u])) {\n\tfz[%u] = CLJ_TRUE;\n\tv = clj_c_invoke(fz[%u], NULL, 0);\n", p->nstages + p->state[i] + 1,
 			          p->nstages + p->state[i] + 1, i);
-			sb_printf(&s, "\tif (v == CLJ_THROWN) return CLJ_FUSED_THROWN;\n\tr = %s;\n", call);
+			sb_puts(&s, "\tif (v == CLJ_THROWN) return CLJ_FUSED_THROWN;\n");
+			mono_push(&s, e->park, "v");
+			sb_printf(&s, "\tr = %s;\n", call);
+			mono_pop(&s, e->park, "v");
 			sb_puts(&s, "\tclj_release(v);\n\tif (r == CLJ_FUSED_THROWN) return CLJ_FUSED_THROWN;\n\t}\n");
 			continue;
 		}
 		// (if (empty? @a) result (let [v @a] (vreset! a []) (unreduced (rf result v))))
 		mono_intrinsic(f, &s, "empty?", slot, "t");
 		sb_puts(&s, "\tif (t == CLJ_THROWN) return CLJ_FUSED_THROWN;\n");
-		sb_printf(&s, "\tif (!clj_truthy(t)) {\n\tv = %s;\n\t%s = clj_vector_empty();\n\tr = %s;\n", slot, slot, call);
+		sb_printf(&s, "\tif (!clj_truthy(t)) {\n\tv = %s;\n\t%s = clj_vector_empty();\n", slot, slot);
+		mono_push(&s, e->park, "v");
+		sb_printf(&s, "\tr = %s;\n", call);
+		mono_pop(&s, e->park, "v");
 		sb_puts(&s, "\tclj_release(v);\n\tif (r == CLJ_FUSED_THROWN) return CLJ_FUSED_THROWN;\n\t}\n");
 	}
 	sb_puts(&s, "\treturn CLJ_FUSED_GO;\n}\n\n");
@@ -3810,13 +3899,18 @@ static void emit_mono_begin(fnctx *f, const mono_plan *p, mono_emit *e, const ch
 	sb_printf(&f->u->protos, "static int %s(void *ctx, clj_fused_sink *sink);\n", name);
 	sb s = {0};
 	sb_printf(&s, "static CLJC_FRAME int %s(void *ctx, clj_fused_sink *sink) {\n\tclj_value *fz = ctx;\n\tclj_value v, t;\n\tint r;\n", name);
+	mono_frefs_decl(&s, e->park);
 	for (uint32_t i = 0; i < p->nstages; i++) {
 		if (p->kind[i] != MONO_SCAN || p->init[i] == UINT32_MAX) continue;
 		char call[400];
 		mono_cont(f, p, e, i, call, sizeof call);
 		uint32_t acc = p->nstages + p->state[i];
 		sb_printf(&s, "\tfz[%u] = CLJ_TRUE;\n\tt = fz[%u];\n", acc + 1, acc + 2);
-		sb_printf(&s, "\tif (clj_is_reduced(t)) {\n\tv = clj_retain(clj_reduced_value(t));\n\tr = %s;\n\tclj_release(v);\n", call);
+		sb_puts(&s, "\tif (clj_is_reduced(t)) {\n\tv = clj_retain(clj_reduced_value(t));\n");
+		mono_push(&s, e->park, "v");
+		sb_printf(&s, "\tr = %s;\n", call);
+		mono_pop(&s, e->park, "v");
+		sb_puts(&s, "\tclj_release(v);\n");
 		sb_puts(&s, "\treturn r == CLJ_FUSED_THROWN ? CLJ_FUSED_THROWN : CLJ_FUSED_HALT;\n\t}\n");
 		sb_printf(&s, "\tfz[%u] = clj_retain(t);\n\tv = t;\n\tr = %s;\n\tif (r != CLJ_FUSED_GO) return r;\n", acc, call);
 	}
@@ -3831,6 +3925,7 @@ static void emit_mono_begin(fnctx *f, const mono_plan *p, mono_emit *e, const ch
 static bool emit_mono_step(fnctx *f, const clj_node *n, const mono_plan *p, char *name, size_t cap, char *flush, size_t fcap, char *begin, size_t bcap) {
 	mono_emit e;
 	memset(e.cont, 0, sizeof e.cont);
+	e.park = !f->facts || clj_facts_may_park(f->facts, n->id);
 	for (uint32_t i = 0; i < p->nstages; i++) {
 		bool fn = p->argk[i] == MONO_ARG_FN && p->how[i] == MONO_CALL_FN;
 		const fn_base *fb = fn ? fn_base_of(f->c, n->u.fused.args[p->arg[i]]) : NULL;
@@ -3965,7 +4060,13 @@ static temp emit_fused(fnctx *f, const clj_node *n) {
 		sb_printf(&f->out, "};\n\t(void)ld%d;\n\tclj_value sc%d[%u] = {", k, k, plan.nsources);
 		for (uint32_t i = 0; i < plan.nsources; i++) sb_printf(&f->out, "%s%s[%u]", i ? ", " : "", array, plan.sources[i]);
 		sb_printf(&f->out, "};\n\tclj_fused_site st%d = {%s, %s, sk%d, %s};\n", k, step, flush, k, begin);
+		// the stages' state, which the step rewrites, is the site's own
+		char state[48];
+		snprintf(state, sizeof state, "(sk%d + %u)", k, plan.nstages);
+		fref_array st = {state, plan.nstate};
+		bool       pushed = emit_frefs_push_with(f, n, args, n->u.fused.nargs, 0, &st);
 		sb_printf(&f->out, "\t%s = clj_fused_run_step(%d, ld%d, %u, sc%d, %u, &st%d);\n", r.name, (int)plan.mode, k, nl, k, plan.nsources, k);
+		emit_frefs_pop(f, pushed);
 		for (uint32_t i = 0; i < plan.nstate; i++) sb_printf(&f->out, "\tclj_release(sk%d[%u]);\n", k, plan.nstages + i);
 		check_thrown(f, r.name);
 		f->u->slots.mono_fused++;
@@ -4224,7 +4325,9 @@ static temp emit_outlined_call(fnctx *f, const clj_node *n, const fn_base *fb, c
 	snprintf(array, sizeof array, "a%d", f->naux++);
 	temp *args = emit_args(f, call->u.invoke.args, nargs, array);
 	temp  r = new_temp(f, OWN_YES);
+	bool  pushed = emit_frefs_push(f, call, args, nargs, 0);
 	sb_printf(&f->out, "\tclj_value %s = %s ? %s(CLJ_NIL, NULL, %s, %u) : clj_c_invoke(%s, %s, %u);\n", r.name, b.name, target, array, nargs, fn.name, array, nargs);
+	emit_frefs_pop(f, pushed);
 	release_args(f, args, nargs);
 	release_temp(f, &fn);
 	check_thrown(f, r.name);
@@ -4432,7 +4535,10 @@ static temp emit_lowered(fnctx *f, const clj_node *n) {
 	for (uint32_t i = 0, j = 0; i < nargs; i++) sb_printf(&f->out, "%s%s", i ? ", " : "", i == at ? "CLJ_NIL" : ops[j++].name);
 	sb_printf(&f->out, "};\n\tclj_lowered lw%d = {%s, %s_mk, (void *)%s, %u, CLJ_NIL, %s, %s, %s};\n", k, step, step, caps, arity, owned, split, split_owned);
 	temp r = new_temp(f, OWN_YES);
+	// the literal runs inside the native
+	bool pushed = emit_frefs_push(f, n, ops, nops, 0);
 	sb_printf(&f->out, "\tclj_value %s = clj_lowered_call(%u, la%d, %u, &lw%d);\n", r.name, (unsigned)n->u.lowered.how, k, nargs, k);
+	emit_frefs_pop(f, pushed);
 	check_thrown(f, r.name);
 	for (uint32_t i = nops; i-- > 0;) release_temp(f, &ops[i]);
 	free(ops);
@@ -4591,15 +4697,34 @@ static void fn_recur_walk(const clj_node *n, void *ctx) {
 	}
 }
 
+// Whether fr's array may hold an owned slot: past 64 slots every one, else a slot no param keeps borrowed for the
+// whole call (a let's, a rest's, a direct fn's or an owned param, a param a recur rebinds).
+static bool array_may_own(const fnctx *f, const clj_fn_arity *a, uint32_t arr, bool direct, bool recurs) {
+	if (!arr) return false;
+	if (a && a->nslots > 64) return true;
+	for (uint32_t i = 0; i < arr && i < 64; i++) {
+		if (promoted(f, i)) continue;
+		bool param = a && (i < a->nparams || (int32_t)i == a->self_slot);
+		if (!param || direct || recurs || ((f->owned_params >> i) & 1)) return true;
+	}
+	return false;
+}
+
 // FR and F0 before the body: the first call that names the frame's references fixes F0, the list's length at entry.
-// A body a recur re-enters holds at its top what its last turn bound.
-static void emit_frefs_decl(fnctx *f, const clj_node *body, uint64_t bound) {
+// A body a recur re-enters holds at its top what its last turn bound. a is NULL for a top-level form.
+static void emit_frefs_decl(fnctx *f, const clj_fn_arity *a, const clj_node *body, uint64_t bound, uint32_t arr, bool direct) {
 	sb_puts(&f->out, "\tclj_frefs *FR = NULL;\n\tuint32_t F0 = 0;\n\t(void)FR;\n\t(void)F0;\n");
 	f->frefs = true;
 	f->bound = bound;
+	f->vars_owned = 0;
+	for (uint32_t i = 0; i < 64; i++) {
+		if (owned_var_slot(f, i)) f->vars_owned |= (uint64_t)1 << i;
+	}
 	bool recurs = false;
 	if (body) fn_recur_walk(body, &recurs);
 	if (recurs) bound_below(body, &f->bound);
+	f->arr = arr;
+	f->arr_owned = array_may_own(f, a, arr, direct, recurs);
 }
 
 // Small enough to inline at every direct call site and free of direct calls of its own, so that a trace through the
@@ -4708,6 +4833,7 @@ static bool emit_worker(fnctx *parent, const clj_node *n, const clj_fn_arity *a,
 	sb_puts(&f.out, "\t(void)fr;\n");
 	emit_promoted_decls(&f);
 	if (a->self_slot >= 0) emit_slot_arrival(&f, (uint32_t)a->self_slot, "self");
+	emit_frefs_decl(&f, a, a->body, 0, arr, false);
 	int fail = new_label(&f);
 	sb_printf(&f.out, "\tclj_ccall cc;\n\tCLJC_ENTER(&S[%u], &cc);\n", stub);
 	push_handler(&f, fail);
@@ -4823,7 +4949,7 @@ static void emit_closure_arity(fnctx *parent, const clj_node *n, const clj_fn_ar
 		sb_printf(&f.out, "\tclj_c_retain_params(&fr, %u);\n", a->nparams);
 		if (a->self_slot >= 0) sb_puts(&f.out, "\tclj_retain(self);\n");
 	}
-	emit_frefs_decl(&f, a->body, omask | (a->variadic && a->nparams < 64 ? (uint64_t)1 << a->nparams : 0));
+	emit_frefs_decl(&f, a, a->body, omask | (a->variadic && a->nparams < 64 ? (uint64_t)1 << a->nparams : 0), arr, false);
 	int fail = new_label(&f);
 	sb_printf(&f.out, "\tclj_ccall cc;\n\tCLJC_ENTER(&S[%u], &cc);\n", stub);
 	push_handler(&f, fail);
@@ -4958,7 +5084,7 @@ static void emit_direct_arity(fnctx *parent, const clj_node *n, const clj_fn_ari
 	direct_name_entry(n)->arr[a->nparams] = arr;
 	emit_promoted_decls(&f);
 	if (a->nslots > 64) sb_printf(&f.out, "\tclj_c_retain_params(&fr, %u);\n", a->nparams);
-	emit_frefs_decl(&f, a->body, 0);
+	emit_frefs_decl(&f, a, a->body, 0, arr, true);
 	int fail = new_label(&f);
 	sb_printf(&f.out, "\tclj_ccall cc;\n\tCLJC_ENTER(&S[%u], &cc);\n", stub);
 	push_handler(&f, fail);
@@ -5186,7 +5312,7 @@ static size_t emit_top_fn(cljc_compiler *c, unit *u, const clj_load_form *form, 
 	else sb_puts(&f.out, "\tclj_cframe fr = {NULL, NULL, 0, NULL};\n");
 	sb_puts(&f.out, "\t(void)fr;\n");
 	emit_promoted_decls(&f);
-	emit_frefs_decl(&f, NULL, 0);
+	emit_frefs_decl(&f, NULL, NULL, 0, arr, false);
 	sb_puts(&f.out, "\tclj_eval_top_enter();\n");
 	int fail = new_label(&f);
 	push_handler(&f, fail);

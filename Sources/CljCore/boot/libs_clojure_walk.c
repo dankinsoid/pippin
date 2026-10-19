@@ -1702,10 +1702,13 @@ CLJC_FRAME clj_value clojure_walk_keywordize_keys_a1(clj_value self, const clj_v
 	(void)a0;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
 		Fv[0] = o2 ? t2 : CLJ_NIL;
 		Fv[1] = t3;
-		FR->n = F0 + 2;
+		Fv[2] = CLJ_FREF_CFRAME;
+		Fv[3] = (clj_value)&fr;
+		Fv[4] = clj_fixnum(2);
+		FR->n = F0 + 5;
 	}
 #ifdef CLJC_LOCAL_clojure_walk_postwalk_a2
 	t1 = CLJC_CALL_clojure_walk_postwalk_a2(CLJ_NIL, NULL, a0, 2);
@@ -2145,10 +2148,13 @@ CLJC_FRAME clj_value clojure_walk_stringify_keys_a1(clj_value self, const clj_va
 	(void)a0;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
 		Fv[0] = o2 ? t2 : CLJ_NIL;
 		Fv[1] = t3;
-		FR->n = F0 + 2;
+		Fv[2] = CLJ_FREF_CFRAME;
+		Fv[3] = (clj_value)&fr;
+		Fv[4] = clj_fixnum(2);
+		FR->n = F0 + 5;
 	}
 #ifdef CLJC_LOCAL_clojure_walk_postwalk_a2
 	t1 = CLJC_CALL_clojure_walk_postwalk_a2(CLJ_NIL, NULL, a0, 2);

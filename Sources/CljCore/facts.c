@@ -1805,6 +1805,9 @@ static clj_fact infer_lowered(pass *p, const clj_node *n, env *e) {
 	}
 	// the entry twin's arity is a frame of its own over the same captures, as the literal's is from the else branch
 	if (n->u.lowered.split) infer_fn(p, n->u.lowered.split, e);
+	// the native runs the literal: its effects are the call's (clj_facts_may_park asks the node)
+	p->effects |= CLJ_EFFECT_ALLOC | CLJ_EFFECT_THROW | arg_effects(p, fn, 0);
+	if (n->u.lowered.split) p->effects |= arg_effects(p, n->u.lowered.split, 0);
 	return clj_fact_top();
 }
 

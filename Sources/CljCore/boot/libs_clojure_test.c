@@ -238,7 +238,6 @@ static clj_value clojure_test_test_vars__0_a0(clj_value self, const clj_value *c
 CLJC_TLS_IC(clj_ckw_ic, KC_49)
 static clj_value clojure_test_test_vars__0__1_a0(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 static clj_value clojure_test_test_vars__0__1(void *ctx, const clj_value *args, size_t n);
-CLJC_INLINE clj_value clojure_test_test_vars__0_a0_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs);
 static clj_value clojure_test_test_vars__0(void *ctx, const clj_value *args, size_t n);
 static clj_value clojure_test_test_vars(void *ctx, const clj_value *args, size_t n);
 static clj_value top_70(void);
@@ -31551,7 +31550,7 @@ static clj_value clojure_test_test_vars__0__1(void *ctx, const clj_value *args, 
 	return clj_c_arity_error(clj_from_ptr((void *)f), n);
 }
 
-CLJC_INLINE clj_value clojure_test_test_vars__0_a0_i(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
+static CLJC_FRAME clj_value clojure_test_test_vars__0_a0(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) {
 	(void)self; (void)captured; (void)args; (void)nargs;
 	clj_value s[2];
 	clj_cframe fr = {s, captured, 0, NULL};
@@ -31644,10 +31643,13 @@ L3: ;
 	(void)a4;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
 		Fv[0] = t16;
 		Fv[1] = l0;
-		FR->n = F0 + 2;
+		Fv[2] = CLJ_FREF_CFRAME;
+		Fv[3] = (clj_value)&fr;
+		Fv[4] = clj_fixnum(2);
+		FR->n = F0 + 5;
 	}
 	t14 = clj_c_invoke(t15, a4, 1);
 	FR->n = F0;
@@ -31701,8 +31703,6 @@ L1: ;
 	clj_c_release_slots(&fr, 2);
 	return CLJ_THROWN;
 }
-
-static CLJC_FRAME clj_value clojure_test_test_vars__0_a0(clj_value self, const clj_value *captured, const clj_value *args, size_t nargs) { return clojure_test_test_vars__0_a0_i(self, captured, args, nargs); }
 
 static clj_value clojure_test_test_vars__0(void *ctx, const clj_value *args, size_t n) {
 	const clj_fn *f = ctx;
@@ -31787,10 +31787,13 @@ CLJC_FRAME clj_value clojure_test_test_vars_a1(clj_value self, const clj_value *
 	(void)a1;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
 		Fv[0] = o1 ? t1 : CLJ_NIL;
 		Fv[1] = t2;
-		FR->n = F0 + 2;
+		Fv[2] = CLJ_FREF_CFRAME;
+		Fv[3] = (clj_value)&fr;
+		Fv[4] = clj_fixnum(8);
+		FR->n = F0 + 5;
 	}
 #ifdef CLJC_LOCAL_clojure_core_group_by_a2
 	t0 = CLJC_CALL_clojure_core_group_by_a2(CLJ_NIL, NULL, a1, 2);
@@ -32136,12 +32139,15 @@ L3: ;
 	(void)a16;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 7);
 		Fv[0] = t58;
 		Fv[1] = l1;
 		Fv[2] = l6;
 		Fv[3] = l8;
-		FR->n = F0 + 4;
+		Fv[4] = CLJ_FREF_CFRAME;
+		Fv[5] = (clj_value)&fr;
+		Fv[6] = clj_fixnum(8);
+		FR->n = F0 + 7;
 	}
 	t56 = clj_c_invoke(t57, a16, 1);
 	FR->n = F0;
@@ -33510,9 +33516,12 @@ CLJC_FRAME clj_value clojure_test_run_all_tests_a1(clj_value self, const clj_val
 	(void)a0;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
 		Fv[0] = o1 ? t1 : CLJ_NIL;
-		FR->n = F0 + 1;
+		Fv[1] = CLJ_FREF_CFRAME;
+		Fv[2] = (clj_value)&fr;
+		Fv[3] = clj_fixnum(2);
+		FR->n = F0 + 4;
 	}
 	t0 = clj_c_invoke(t1, a0, 1);
 	FR->n = F0;
@@ -33577,13 +33586,16 @@ CLJC_FRAME clj_value clojure_test_run_all_tests_a1(clj_value self, const clj_val
 	const clj_value *a5 = NULL;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 8);
 		Fv[0] = o8 ? t8 : CLJ_NIL;
 		Fv[1] = o9 ? t9 : CLJ_NIL;
 		Fv[2] = o11 ? t11 : CLJ_NIL;
 		Fv[3] = t12;
 		Fv[4] = o14 ? t14 : CLJ_NIL;
-		FR->n = F0 + 5;
+		Fv[5] = CLJ_FREF_CFRAME;
+		Fv[6] = (clj_value)&fr;
+		Fv[7] = clj_fixnum(2);
+		FR->n = F0 + 8;
 	}
 	t13 = clj_c_invoke(t14, a5, 0);
 	FR->n = F0;
@@ -33600,13 +33612,16 @@ CLJC_FRAME clj_value clojure_test_run_all_tests_a1(clj_value self, const clj_val
 	(void)a3;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 5);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 8);
 		Fv[0] = o8 ? t8 : CLJ_NIL;
 		Fv[1] = o9 ? t9 : CLJ_NIL;
 		Fv[2] = o11 ? t11 : CLJ_NIL;
 		Fv[3] = t12;
 		Fv[4] = t13;
-		FR->n = F0 + 5;
+		Fv[5] = CLJ_FREF_CFRAME;
+		Fv[6] = (clj_value)&fr;
+		Fv[7] = clj_fixnum(2);
+		FR->n = F0 + 8;
 	}
 #ifdef CLJC_LOCAL_clojure_core_filter_a2
 	t10 = CLJC_CALL_clojure_core_filter_a2(CLJ_NIL, NULL, a3, 2);
@@ -33630,11 +33645,14 @@ CLJC_FRAME clj_value clojure_test_run_all_tests_a1(clj_value self, const clj_val
 	(void)a2;
 	if (!FR) FR = clj_c_frefs(&F0);
 	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
+		clj_value *Fv = clj_c_frefs_at(FR, F0, 6);
 		Fv[0] = o8 ? t8 : CLJ_NIL;
 		Fv[1] = o9 ? t9 : CLJ_NIL;
 		Fv[2] = t10;
-		FR->n = F0 + 3;
+		Fv[3] = CLJ_FREF_CFRAME;
+		Fv[4] = (clj_value)&fr;
+		Fv[5] = clj_fixnum(2);
+		FR->n = F0 + 6;
 	}
 	t7 = clj_c_invoke(t8, a2, 2);
 	FR->n = F0;
