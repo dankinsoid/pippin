@@ -72,6 +72,22 @@ clj_value fx_stack_view(fx_stack *s, fx_walk *w) {
 	return top->meta + (clj_value)inner.depth;
 }
 
+// A list of nodes that point at their own type is the list's, not a stack.
+typedef struct fx_node {
+	clj_value       value;
+	struct fx_node *next;
+} fx_node;
+
+typedef struct {
+	fx_node *head;
+} fx_list;
+
+clj_value fx_list_view(void) {
+	fx_list l = {calloc(1, sizeof(fx_node))};
+	fx_park();
+	return l.head->value;
+}
+
 // A call's result no variable holds lives while a sibling operand parks.
 clj_value fx_temporary(void) {
 	return fx_pair(fx_make(), fx_parks_too()); // expect: fx_make's result is held by no variable while fx_parks_too

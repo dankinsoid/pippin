@@ -15,8 +15,8 @@ a reference a function holds across a call that may park and that nothing names:
 - named: registered by a CLJ_ROOTS/CLJ_ROOTS_SPAN in effect at the call (the whole variable, or the field path a
   struct's owned field sits at), or declared CLJ_BORROWED. A struct field is owned unless CLJ_BORROWED.
 - a heap stack: a struct field pointing at an array of structs that hold references. Each entry's owned field is
-  held while the field is, and CLJ_ROOTS_FIELD names one field of every entry; a local pointer into one, or an array
-  of such pointers, is a view.
+  held while the field is, and CLJ_ROOTS_FIELD names one field of every entry; a local pointer into one, an array
+  of such pointers, or a list of nodes that point at their own type, is a view.
 - a temporary: a call's owned result that is an operand of a call or an initializer is held by no variable while
   another operand runs; one that may park is a hazard, unless the initializer's field is CLJ_BORROWED or CLJ_NO_CYCLE.
 
@@ -159,6 +159,19 @@ class Types:
 		self.heap[key] = r
 		return r
 
+	def is_linked(self, decl):
+		"""A list node, which points at its own type: what it holds is the list's, not a stack's."""
+		usr = C.usr(decl)
+		for f in C.children(decl):
+			if f.kind != C.FIELD_DECL:
+				continue
+			_, t = self.typedef_chain(C.ctype(f))
+			if t.kind == C.TYPE_POINTER:
+				_, pb = self.typedef_chain(C.lib().clang_getPointeeType(t))
+				if pb.kind == C.TYPE_RECORD and C.usr(C.lib().clang_getTypeDeclaration(pb)) == usr:
+					return True
+		return False
+
 	def holder(self, t):
 		"""None, ("value",), ("array", h), ("struct", [(field, marks, h)]), ("vptr",) or ("objptr",)."""
 		key = C.type_spelling(t)
@@ -195,7 +208,7 @@ class Types:
 				decl = C.lib().clang_getTypeDeclaration(pb)
 				if self.is_heap_record(decl) and "NO_CYCLE" not in marks(C.definition(decl) if not C.is_null(C.definition(decl)) else decl):
 					h = ("objptr",)
-				elif not self.is_heap_record(decl):
+				elif not self.is_heap_record(decl) and not self.is_linked(decl):
 					inner = self.holder(p)
 					if inner and inner[0] == "struct" and owned_paths(inner):
 						h = ("sptr", inner)

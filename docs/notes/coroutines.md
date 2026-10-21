@@ -355,13 +355,14 @@
   `clj_park` propagated through the call graph and every function pointer not `CLJ_NO_PARK`; a local live across such
   a call is named, `CLJ_BORROWED`, `CLJ_NO_CYCLE` or (eval.c) `CLJ_RING`; ownership follows "arguments borrowed,
   results owned" with accessors inferred +0. A struct field pointing at an array of structs that hold references is
-  a heap stack, its entries' owned fields named field by field; a pointer into one is a view. A call's owned result
+  a heap stack, its entries' owned fields named field by field; a pointer into one, or a list of nodes pointing at their own
+  type, is a view. A call's owned result
   that is an operand of a call or an initializer is a temporary, a hazard while a sibling operand that may park
   runs, unless the initializer's field is `CLJ_BORROWED` or `CLJ_NO_CYCLE`. The marks are empty macros of `value.h`, so release builds pay nothing
   for them; what a named variable costs is a TSD read and a few stores per call of the function, not per element.
   Runtime marking: 212 `CLJ_ROOTS` sites (265 variables and paths), 22 spans, 3 field spans, 1 `CLJ_ROOTS_ARGS`, 178
   `CLJ_BORROWED`, 227 `CLJ_NO_CYCLE`, 45 `CLJ_OWNED`, 57 `CLJ_NO_PARK`, 18 `CLJ_RING`. 11 s on the 3-core arm64
-  runner, 4783 functions, 1910 of them may park. The fixtures in `scripts/rooting-fixtures/` must fail on each rule and nowhere else. Measured against main
+  runner, 4783 functions, 1907 of them may park. The fixtures in `scripts/rooting-fixtures/` must fail on each rule and nowhere else. Measured against main
   (corpus-bench runs 39593265012 and 39599907911): geomean interp 1.013, core+interp 1.027, dev 0.989, closed 0.994;
   `suite-data` 1.017 closed and 1.040 interpreted, the most a named hot path costs.
 - **The frame oracle** (design §7, «Оракул»; `cc_oracle.c`, debug builds, `CLJ_CC_ORACLE=0` turns it off). On each
