@@ -23,7 +23,7 @@ private struct SplitMix {
 }
 
 // One program: channels, data and closures over them, and go blocks that park in the runtime's callbacks.
-struct LeakProgram {
+private struct LeakProgram {
 	var rng: SplitMix
 	var chans: [String] = []
 
