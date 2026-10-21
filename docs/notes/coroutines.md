@@ -351,6 +351,13 @@
   insert's per-level copies on the shared path), a call's result inside another call or initializer before any
   variable holds it, a top-level form's argument buffers and buffers past 64 values. Each only leaks. Trigger: the
   frame oracle naming one, or the leak fuzzer's residue.
+  The oracle named one already: a compiled call the facts call pure (`first`, `doall`) that realizes a lazy seq
+  whose thunk parks writes no frame references, so the frame's owned temporaries and slots go unnamed
+  (`cc/frame-missed` on the lazy seq the dev-compiled `(first (lazy-seq (cons (<! c) nil)))` held, run 39589318892).
+  The interpreter's builtins hold their buffer when an owned argument carries `CLJ_FLAG_LAZY`; the compiled side
+  would ask `clj_facts_may_park` to answer yes for any call whose argument may be a seq, a push on most untyped
+  calls. The leak fuzzer keeps those shapes to the interpreter. Trigger: a compiled program leaking through one, or
+  a cheaper test than the argument's type (a runtime test of the flag the emitter can place before a pure call).
 - **The frame oracle** (design §7, «Оракул»; `cc_oracle.c`, debug builds, `CLJ_CC_ORACLE=0` turns it off). On each
   read of a parked coroutine, every unshared object of it that may lie on a cycle has exactly the references its
   frames' enumeration names plus the edges of its other unshared objects and its own fields; more is
