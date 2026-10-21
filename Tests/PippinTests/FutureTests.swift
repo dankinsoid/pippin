@@ -23,7 +23,7 @@ extension CoreTests {
 			try cljTimingSupport()
 			_ = try cljEvalScoped("(ns future-tests (:require [clojure.core.async :refer [chan <! >! <!! >!! close! timeout go alts! alts!! alt! alt!! thread cancel! promise-chan poll!]]))")
 			for k in ["a", "b", "blocked", "bound", "cancelled", "caught", "default", "done", "finally", "got", "k", "late", "none", "p", "ran", "root", "slept", "threw", "timed-out", "v", "x", "yes"] { _ = kw(k) }
-			_ = try cljEvalScoped("(in-ns 'future-tests) (refer 'test-support) (def ^:dynamic *d* :root) (defn thrower [] (throw (ex-info \"t\" {}))) (defn spawner [] (future (thrower))) (def parked (atom nil)) (def dt-fut nil)")
+			_ = try cljEvalScoped("(in-ns 'future-tests) (refer 'test-support) (def ^:dynamic *d* :root) (defn thrower [] (throw (ex-info \"t\" {}))) (defn spawner [] (future (thrower))) (def parked (atom nil)) (def dt-fut nil) (def sleeper nil)")
 			_ = try cljEvalScoped("""
 			(in-ns 'future-tests)
 			(def tap-seen (atom []))
@@ -146,6 +146,25 @@ extension CoreTests {
 				// The blocking thread's next job starts clean.
 				#expect(try eval("(<!! (thread :ran))") == kw("ran"))
 				_ = try eval("(<!! (timeout 250))")
+			}
+			base.check()
+		}
+
+		// A cancel wakes the sleeper at once; its timer, holding the waiter, kept every settle waiting out the sleep.
+		// @ai-generated(solo)
+		@Test(.disabled(if: schedulerSeed != nil, Comment(rawValue: outsideTheSeededModel)))
+		func aCancelledSleepDisarmsItsTimer() throws {
+			let base = CoroBaseline()
+			do {
+				let cases = [("(future (Thread/sleep 600000))", "(future-cancel sleeper)", "@sleeper"),
+				             ("(thread (Thread/sleep 600000))", "(cancel! sleeper)", "(<!! sleeper)")]
+				for (spawn, cancel, join) in cases {
+					_ = try eval("(def sleeper \(spawn))")
+					#expect(eventually { clj_debug_timers_held() == 1 }, "\(spawn)")
+					#expect(try eval(cancel) == true)
+					#expect(eventually { clj_debug_timers_held() == 0 }, "\(spawn)")
+					_ = try eval("(try \(join) (catch :cancelled e :cancelled)) (def sleeper nil)")
+				}
 			}
 			base.check()
 		}

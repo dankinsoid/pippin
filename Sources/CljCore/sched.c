@@ -1186,6 +1186,21 @@ bool clj_sched_timer_cancel(clj_timer *t) {
 	return found;
 }
 
+// By ctx, which the caller holds: a fired timer's freed address may already be another timer's.
+static bool timer_cancel_ctx(void (*fn)(void *ctx), void *ctx) {
+	pthread_mutex_lock(&timer_mu);
+	clj_timer **at = &timers;
+	while (*at && ((*at)->fn != fn || (*at)->ctx != ctx)) at = &(*at)->next;
+	clj_timer *t = *at;
+	if (t) {
+		*at = t->next;
+		timers_held--;
+	}
+	pthread_mutex_unlock(&timer_mu);
+	free(t);
+	return t != NULL;
+}
+
 // ---- the deadline as a cancellation by timer (eval.h clj_deadline_set_ms): one mechanism with cancel!
 
 typedef struct {
@@ -1293,6 +1308,8 @@ clj_value clj_sched_sleep_ms(int64_t ms) {
 	clj_waiter_retain(w);
 	clj_sched_timer(ms < 0 ? 0 : (uint64_t)ms * 1000000u, sleep_fire, w);
 	clj_park(w, clj_wake_timer());
+	// A cancel woke it: the timer would hold the waiter, and every settle, until the sleep's end.
+	if (timer_cancel_ctx(sleep_fire, w)) clj_waiter_release(w);
 	clj_waiter_release(w);
 	if (atomic_load_explicit(&c->shadow->cancelled, memory_order_relaxed)) return clj_throw_cancelled(clj_coro_cancel_is_deadline(c));
 	return CLJ_NIL;

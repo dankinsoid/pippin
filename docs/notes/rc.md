@@ -224,6 +224,15 @@
   frame's death (design §7, «Корень вара», why `set!` is not hooked), a ring past the deep walk's cap, and one whose
   replaced root was already in the shared buffer (that entry walks pruned by `REACH`). Trigger:
   a leak report naming one of these.
+- [ ] **A bare thread's candidates wait for that thread.** A host thread's implicit execution is collected only at
+  256 entries, by `clj_cc_collect` on it, on the main carrier when idle, or when the thread exits (`thread_exit`
+  hands the buffer to the background). A ring dropped by a callback on a cooperative-pool or GCD worker thread, or on
+  a thread of the host's own that calls in once, waits with up to 255 others, each holding whatever it reaches,
+  until that thread calls in again or exits; no other thread may collect it (the owner rule). The tests met it as a
+  baseline counting a former test thread's ring (docs/notes/gates.md, "Every `CoreTests` test runs on one thread").
+  The likely fix is a collection when a bare thread's outermost entry into the runtime returns, as at a coroutine's
+  finish, a design §7 decision whose cost on a host loop calling in many times is measured first. Trigger: an
+  embedding whose memory such rings hold, or a leak report naming one.
 - [~] **What the collector costs** (bench/RESULTS.md, "Cycle collector", arm64 CI). A cycle-free program: the median
   head/base ratio over the default bench's 128 rows was 0.995–1.052 in four `bench-ab` jobs, inside that runner's ±20 %
   floor, after three fixes the first cut needed (reach bits once per node copy, the owner's flags read once per store,

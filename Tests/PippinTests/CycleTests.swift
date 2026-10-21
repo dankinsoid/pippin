@@ -239,6 +239,13 @@ extension CoreTests {
 			""", cycles: 8 * 500)
 		}
 
+		// What a test leaves in its thread's buffer is the next test's settle's only on the same thread (docs/notes/gates.md).
+		// @ai-generated(solo)
+		@Test func everyTestRunsOnTheCoreTestsThread() throws {
+			guard #available(macOS 15.0, iOS 18.0, *) else { return }
+			#expect(Thread.current === CoreTestsThread.shared.thread)
+		}
+
 		// The pool thread's buffer outlives a `thread` body; the settle's collection never reaches it (docs/notes/gates.md).
 		// @ai-generated(solo)
 		@Test func aRingDroppedInAThreadBody() throws {

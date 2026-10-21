@@ -12,6 +12,14 @@ struct BootedTrait: SuiteTrait, TestTrait, TestScoping {
 	func provideScope(for test: Test, testCase: Test.Case?, performing function: @Sendable () async throws -> Void) async throws {
 		clj_init()
 		if test.isSuite { return try await function() }
+		if #available(macOS 15.0, iOS 18.0, *) {
+			try await withTaskExecutorPreference(CoreTestsThread.shared) { try await scope(for: test, function) }
+		} else {
+			try await scope(for: test, function)
+		}
+	}
+
+	private func scope(for test: Test, _ function: @Sendable () async throws -> Void) async throws {
 		runtimeSettled("before \(test.name)")
 		// A test's schedule depends on the seed and its own name only, so it replays alone (make test-seeded).
 		if let seed = schedulerSeed { clj_debug_sched_reseed(seed ^ stableHash("\(test.id)")) }
@@ -19,6 +27,41 @@ struct BootedTrait: SuiteTrait, TestTrait, TestScoping {
 		DispatchQueue.global().asyncAfter(deadline: .now() + hangSeconds, execute: watch)
 		defer { watch.cancel() }
 		try await function()
+	}
+}
+
+// Every CoreTests test runs here: only its own thread collects what a test left there (docs/notes/gates.md).
+// @ai-generated(solo)
+@available(macOS 15.0, iOS 18.0, *)
+final class CoreTestsThread: TaskExecutor, @unchecked Sendable {
+	static let shared = CoreTestsThread()
+	private let cond = NSCondition()
+	private var jobs: [UnownedJob] = []
+	private(set) var thread: Thread!
+
+	private init() {
+		let t = Thread { [unowned self] in self.run() }
+		t.name = "CoreTests"
+		thread = t
+		t.start()
+	}
+
+	func enqueue(_ job: consuming ExecutorJob) {
+		let unowned = UnownedJob(job)
+		cond.lock()
+		jobs.append(unowned)
+		cond.signal()
+		cond.unlock()
+	}
+
+	private func run() {
+		while true {
+			cond.lock()
+			while jobs.isEmpty { cond.wait() }
+			let job = jobs.removeFirst()
+			cond.unlock()
+			job.runSynchronously(on: asUnownedTaskExecutor())
+		}
 	}
 }
 

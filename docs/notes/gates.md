@@ -152,6 +152,30 @@
   39024822959). Which pool thread takes which job decides the moment, so 20-odd dispatched runs of the same code
   passed and three gate runs on main failed; `CycleTests.aRingDroppedInAThreadBody` fails without the
   collection (run 39026195639).
+- **Every `CoreTests` test runs on one thread** (`CoreTestsThread`, EvalSupport.swift: `BootedTrait` runs the test
+  under a task executor preference for it). A test thread's own buffer, too, is collected only by that thread
+  (design §7: a local collection runs in the owner), and swift-testing ran consecutive tests on whichever
+  cooperative-pool thread was free: a ring a test dropped after its last settle stayed in its thread's buffer, every
+  later baseline on another thread counted it live, and it went when that thread exited idle (`thread_exit` hands the
+  buffer to the background collector), inside whatever test ran then. That was `FutureTests.futureCancel` 5 under
+  its baseline again after the pool-thread fix (run 39637597541, `test-compiled`): the ring
+  `w → z → u → v → p → w` (two arrays, three vectors) of `StoreCheckTests.theAgeRuleCounterexamples`' last
+  expectation, which no check follows. A loop of the suites up to `FutureTests`, three processes side by side on the
+  arm64 runner, with every execution's buffer reported at each baseline and every collection not on the test's
+  execution reported inside a baseline's window (runs 39651293006, 39651298530; 240 processes), failed 3 times by
+  exactly that: each failed process showed `implicit/host/t<id> holds 5: vector array vector array vector` at every
+  baseline from `StoreCheckTests.inPlaceEdits` on, then `free shared@collector: 5 whites: vector:3 array:2` inside
+  `futureCancel`'s window and the diff `array: 2 -> 0; vector: 1005 -> 1002`. `futureCancel` is where the old thread
+  most often exited: its check waited ten seconds for a timer (below), the suite's one long idle stretch. The runtime is right here: no thread
+  may collect another's unshared objects, and a bare thread's are not lost, only late (NOTES "RC"). On one thread
+  the next test's settle collects them; `CycleTests.everyTestRunsOnTheCoreTestsThread` fails without the preference.
+- **A cancelled `Thread/sleep` disarms its timer** (`clj_sched_sleep_ms`, sched.c). A cancel wakes the sleeper at
+  once, but the timer kept the waiter, and with it `clj_debug_timers_held`, until the sleep's end, so a settle waited
+  the sleep out. `futureCancel` cancels a `(Thread/sleep 10000)` and its check's settle, bounded at 10 s, waited about
+  as long, so on a loaded runner it ran out first: "the runtime never settled before the check: ... 1 timers" (one
+  of the 240 processes above). The timer is removed by its context, which the sleeper still holds, not by its
+  address, which a fired timer's free may have given to another; `FutureTests.aCancelledSleepDisarmsItsTimer` waits
+  for a 600 s sleep's timer to go after its cancel.
 - [ ] **Most in-test counts are not settled.** `BootedTrait` settles before a test, but a check at its end reads
   `clj_debug_live_objects()` at once, and a background collection in flight then (another test's candidates, a deep
   retry) holds or defers what the body just freed. Only the suites named above settle there. Trigger: the next
