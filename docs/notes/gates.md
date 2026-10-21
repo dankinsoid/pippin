@@ -168,14 +168,24 @@
   `futureCancel`'s window and the diff `array: 2 -> 0; vector: 1005 -> 1002`. `futureCancel` is where the old thread
   most often exited: its check waited ten seconds for a timer (below), the suite's one long idle stretch. The runtime is right here: no thread
   may collect another's unshared objects, and a bare thread's are not lost, only late (NOTES "RC"). On one thread
-  the next test's settle collects them; `CycleTests.everyTestRunsOnTheCoreTestsThread` fails without the preference.
+  the next test's settle collects them; `CycleTests.everyTestRunsOnTheCoreTestsThread` fails without the preference
+  (run 39659202089, both fixes reverted). The same loop over both fixes (runs 39657046719, 39657051859; 240 processes)
+  showed no buffer but the test thread's own at any baseline and no `futureCancel` failure.
 - **A cancelled `Thread/sleep` disarms its timer** (`clj_sched_sleep_ms`, sched.c). A cancel wakes the sleeper at
   once, but the timer kept the waiter, and with it `clj_debug_timers_held`, until the sleep's end, so a settle waited
   the sleep out. `futureCancel` cancels a `(Thread/sleep 10000)` and its check's settle, bounded at 10 s, waited about
   as long, so on a loaded runner it ran out first: "the runtime never settled before the check: ... 1 timers" (one
   of the 240 processes above). The timer is removed by its context, which the sleeper still holds, not by its
   address, which a fired timer's free may have given to another; `FutureTests.aCancelledSleepDisarmsItsTimer` waits
-  for a 600 s sleep's timer to go after its cancel.
+  for a 600 s sleep's timer to go after its cancel (it fails without the fix, run 39659202089), and `futureCancel`
+  takes 0.3 s instead of 10.
+- [ ] **`CycleTests.sharedCyclesFromManyThreads` once kept a ring** (run 39657046719, one of the 240 processes
+  above). Its third shape, eight futures each making 500 rings `x → [x]` that go through a channel and back, ended 2
+  over its baseline, `atom: 12 -> 13; vector: 980 -> 981`: the collections in its window freed 3999 of the 4000
+  rings, and after the check's settle no buffer held an entry, the shared, deep, retry and deferred lists were empty.
+  So one ring lost its candidate: no entry names it and no release will file it, a leak, not a late free. Trigger:
+  the next occurrence; then the diagnostic of that loop (every buffer at a baseline, every collection in a
+  baseline's window) with each filing and each refile of a shared root logged for the rings of that shape.
 - [ ] **Most in-test counts are not settled.** `BootedTrait` settles before a test, but a check at its end reads
   `clj_debug_live_objects()` at once, and a background collection in flight then (another test's candidates, a deep
   retry) holds or defers what the body just freed. Only the suites named above settle there. Trigger: the next
