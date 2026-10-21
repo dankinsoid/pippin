@@ -125,6 +125,8 @@ extension CoreTests {
 		// A divergence from JVM Clojure and cljs, which call keyfn for both sides of every comparison (design §3).
 		@Test func sortByCallsKeyfnOncePerItemInOrder() throws {
 			clj_init()
+			// Keywords intern for ever: before the baseline, whichever suite ran first in this process.
+			for k in ["a", "b", "c", "d", "k", "only"] { _ = Value(keyword: k) }
 			let before = clj_debug_live_objects()
 			do {
 				#expect(try eval("(pr-str (let [calls (atom [])] [(sort-by (fn [x] (swap! calls conj x) (- x)) [3 1 2 5 4]) @calls]))")
