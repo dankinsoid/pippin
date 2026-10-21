@@ -471,9 +471,6 @@ static inline clj_value *clj_c_frefs_at(clj_frefs *fl, uint32_t base, uint32_t k
 	return fl->v + base;
 }
 
-// A lazy seq may be v or under it: a call the facts call pure may then run its thunk, which may park.
-static inline bool clj_c_lazy(clj_value v) { return clj_is_ptr(v) && (clj_header_of(v)->flags & CLJ_FLAG_LAZY); }
-
 // One loop turn: true when the deadline throw is pending.
 // The ring captured at the loop's entry (clj_c_tick_ring, eval.c): a TLS read after a park inside the loop would go
 // through an address clang computed on the thread the loop started on.

@@ -885,13 +885,10 @@
   out), owned `next`/`rest`, take-out gets, lowered calls (the facts give the `LOWERED` node its literal's effects),
   fused sites with their stages' state (`CLJ_FREF_ARRAY`), the worker call and its fallback, an outlined copy's call,
   a rebound `lazy-seq*`; a monomorphized fused step whose site may park names its item across a stage's call and the
-  consumer's (`mono_push`). A call the facts call pure, whose only program code is a lazy seq's realization or a
-  deftype's core method, writes the same under `if (__builtin_expect(clj_c_lazy(a) || …, 0))` over the arguments whose
-  fact admits a value that may carry `CLJ_FLAG_LAZY` and the local fn it calls, and pops with `if (FR)`; builtins that
-  read no argument past its type, number or identity (`never_realizes`) test nothing, and a pure site's fused step
-  names a lazy item alone. `--stats` prints the sites and the references: core.clj 1007 that may park, 3288 behind
-  the test, 27194 references. Not named: a literal's construction, a `def`, an ObjC send (host code, where a park is
-  an error), a rebound builtin at a pure site. Trigger: a stale-park report through one of them (NOTES "Coroutines").
+  consumer's (`mono_push`). `--stats` prints the sites and the references: core.clj 1007 and 4107. Not named: a call
+  the facts call pure that realizes a parking lazy seq (`first`, `next`) or calls a deftype's parking core method
+  (NOTES "Coroutines", "A pure compiled call names nothing"), a literal's construction, a `def`, an ObjC
+  send (host code, where a park is an error). Trigger: a stale-park report through one of them (NOTES "Coroutines").
 - [~] **A lazy-seq thunk lets its captures go at its tail cons** (design §7 «Владеющие параметры»; `thunk.c`
   `cljc_thunk_let_go`, compiler.c `emit_let_go`, compiled_internal.h `clj_c_thunk_let_go`, seq.c
   `clj_lazy_seq_let_go`; `CLJ_NO_OPT=owned` turns it off, at emission and, for the boot units, at run time). *Not at

@@ -483,17 +483,7 @@ CLJC_INLINE clj_value clojure_string_text_a1_o1_i(clj_value self, const clj_valu
 	clj_value t16 = l0;
 	clj_value a3[1] = {t16};
 	(void)a3;
-	if (__builtin_expect(clj_c_lazy(t16), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
-		Fv[0] = o15 ? t15 : CLJ_NIL;
-		Fv[1] = l0;
-		FR->n = F0 + 2;
-	}
-	}
 	t14 = clj_c_invoke(t15, a3, 1);
-	if (FR) FR->n = F0;
 	(void)t16;
 	if (o15) clj_release(t15);
 	CLJC_SITE(&S[2]);
@@ -662,17 +652,7 @@ CLJC_FRAME clj_value clojure_string_replace_with_a5_o2(clj_value self, const clj
 	clj_value t18 = l1;
 	clj_value a3[1] = {t18};
 	(void)a3;
-	if (__builtin_expect(clj_c_lazy(t18), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
-		Fv[0] = o17 ? t17 : CLJ_NIL;
-		Fv[1] = l1;
-		FR->n = F0 + 2;
-	}
-	}
 	t16 = clj_c_invoke(t17, a3, 1);
-	if (FR) FR->n = F0;
 	(void)t18;
 	if (o17) clj_release(t17);
 	CLJC_SITE(&S[4]);
@@ -700,14 +680,6 @@ CLJC_FRAME clj_value clojure_string_replace_with_a5_o2(clj_value self, const clj
 	(void)a4;
 	CLJC_TAKE_CHECK(l1, t21);
 	l1 = CLJ_NIL;
-	if (__builtin_expect(clj_c_lazy(t21), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
-		Fv[0] = o20 ? t20 : CLJ_NIL;
-		FR->n = F0 + 1;
-	}
-	}
 #ifdef CLJC_LOCAL_clojure_string_text_a1_o1
 	t19 = CLJC_CALL_clojure_string_text_a1_o1(CLJ_NIL, NULL, a4, 1);
 #elif defined(CLJC_DIRECT_clojure_string_text_a1_o1)
@@ -727,7 +699,6 @@ CLJC_FRAME clj_value clojure_string_replace_with_a5_o2(clj_value self, const clj
 	t19 = clj_c_invoke(t20, a4, 1);
 	clj_release(t21);
 #endif
-	if (FR) FR->n = F0;
 	if (o20) clj_release(t20);
 	CLJC_SITE(&S[3]);
 	if (t19 == CLJ_THROWN) {
@@ -1641,17 +1612,7 @@ CLJC_FRAME clj_value clojure_string_capitalize_a1_o1(clj_value self, const clj_v
 	clj_value t18 = l0;
 	clj_value a3[1] = {t18};
 	(void)a3;
-	if (__builtin_expect(clj_c_lazy(t18), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
-		Fv[0] = o17 ? t17 : CLJ_NIL;
-		Fv[1] = l0;
-		FR->n = F0 + 2;
-	}
-	}
 	t16 = clj_c_invoke(t17, a3, 1);
-	if (FR) FR->n = F0;
 	(void)t18;
 	if (o17) clj_release(t17);
 	CLJC_SITE(&S[9]);
@@ -1679,14 +1640,6 @@ CLJC_FRAME clj_value clojure_string_capitalize_a1_o1(clj_value self, const clj_v
 	(void)a4;
 	CLJC_TAKE_CHECK(l0, t21);
 	l0 = CLJ_NIL;
-	if (__builtin_expect(clj_c_lazy(t21), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
-		Fv[0] = o20 ? t20 : CLJ_NIL;
-		FR->n = F0 + 1;
-	}
-	}
 #ifdef CLJC_LOCAL_clojure_string_text_a1_o1
 	t19 = CLJC_CALL_clojure_string_text_a1_o1(CLJ_NIL, NULL, a4, 1);
 #elif defined(CLJC_DIRECT_clojure_string_text_a1_o1)
@@ -1706,7 +1659,6 @@ CLJC_FRAME clj_value clojure_string_capitalize_a1_o1(clj_value self, const clj_v
 	t19 = clj_c_invoke(t20, a4, 1);
 	clj_release(t21);
 #endif
-	if (FR) FR->n = F0;
 	if (o20) clj_release(t20);
 	CLJC_SITE(&S[8]);
 	if (t19 == CLJ_THROWN) {
@@ -1890,22 +1842,12 @@ CLJC_FRAME clj_value clojure_string_capitalize_a1_o1(clj_value self, const clj_v
 	clj_value a8[2] = {t33, t40};
 	(void)a8;
 	clj_value t46;
-	if (__builtin_expect(clj_c_lazy(t33) || clj_c_lazy(t40), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
-		Fv[0] = t40;
-		Fv[1] = l1;
-		FR->n = F0 + 2;
-	}
-	}
 	if (CLJC_GUARD(V[10], B[5])) {
 	t46 = clj_str_owned(t33, t40);
 	} else {
 	t46 = clj_c_intrinsic_fallback(V[10], a8, 2);
 	clj_release(t33);
 	}
-	if (FR) FR->n = F0;
 	clj_release(t40);
 	CLJC_SITE(&S[8]);
 	if (t46 == CLJ_THROWN) {
@@ -2072,18 +2014,7 @@ CLJC_FRAME clj_value clojure_string_upper_case_a1_o1(clj_value self, const clj_v
 	clj_value t20 = l0;
 	clj_value a4[1] = {t20};
 	(void)a4;
-	if (__builtin_expect(clj_c_lazy(t20), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
-		Fv[0] = o1 ? t1 : CLJ_NIL;
-		Fv[1] = o19 ? t19 : CLJ_NIL;
-		Fv[2] = l0;
-		FR->n = F0 + 3;
-	}
-	}
 	t18 = clj_c_invoke(t19, a4, 1);
-	if (FR) FR->n = F0;
 	(void)t20;
 	if (o19) clj_release(t19);
 	CLJC_SITE(&S[11]);
@@ -2113,15 +2044,6 @@ CLJC_FRAME clj_value clojure_string_upper_case_a1_o1(clj_value self, const clj_v
 	(void)a5;
 	CLJC_TAKE_CHECK(l0, t23);
 	l0 = CLJ_NIL;
-	if (__builtin_expect(clj_c_lazy(t23), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
-		Fv[0] = o1 ? t1 : CLJ_NIL;
-		Fv[1] = o22 ? t22 : CLJ_NIL;
-		FR->n = F0 + 2;
-	}
-	}
 #ifdef CLJC_LOCAL_clojure_string_text_a1_o1
 	t21 = CLJC_CALL_clojure_string_text_a1_o1(CLJ_NIL, NULL, a5, 1);
 #elif defined(CLJC_DIRECT_clojure_string_text_a1_o1)
@@ -2141,7 +2063,6 @@ CLJC_FRAME clj_value clojure_string_upper_case_a1_o1(clj_value self, const clj_v
 	t21 = clj_c_invoke(t22, a5, 1);
 	clj_release(t23);
 #endif
-	if (FR) FR->n = F0;
 	if (o22) clj_release(t22);
 	CLJC_SITE(&S[10]);
 	if (t21 == CLJ_THROWN) {
@@ -2325,18 +2246,7 @@ CLJC_FRAME clj_value clojure_string_lower_case_a1_o1(clj_value self, const clj_v
 	clj_value t20 = l0;
 	clj_value a4[1] = {t20};
 	(void)a4;
-	if (__builtin_expect(clj_c_lazy(t20), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
-		Fv[0] = o1 ? t1 : CLJ_NIL;
-		Fv[1] = o19 ? t19 : CLJ_NIL;
-		Fv[2] = l0;
-		FR->n = F0 + 3;
-	}
-	}
 	t18 = clj_c_invoke(t19, a4, 1);
-	if (FR) FR->n = F0;
 	(void)t20;
 	if (o19) clj_release(t19);
 	CLJC_SITE(&S[13]);
@@ -2366,15 +2276,6 @@ CLJC_FRAME clj_value clojure_string_lower_case_a1_o1(clj_value self, const clj_v
 	(void)a5;
 	CLJC_TAKE_CHECK(l0, t23);
 	l0 = CLJ_NIL;
-	if (__builtin_expect(clj_c_lazy(t23), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
-		Fv[0] = o1 ? t1 : CLJ_NIL;
-		Fv[1] = o22 ? t22 : CLJ_NIL;
-		FR->n = F0 + 2;
-	}
-	}
 #ifdef CLJC_LOCAL_clojure_string_text_a1_o1
 	t21 = CLJC_CALL_clojure_string_text_a1_o1(CLJ_NIL, NULL, a5, 1);
 #elif defined(CLJC_DIRECT_clojure_string_text_a1_o1)
@@ -2394,7 +2295,6 @@ CLJC_FRAME clj_value clojure_string_lower_case_a1_o1(clj_value self, const clj_v
 	t21 = clj_c_invoke(t22, a5, 1);
 	clj_release(t23);
 #endif
-	if (FR) FR->n = F0;
 	if (o22) clj_release(t22);
 	CLJC_SITE(&S[12]);
 	if (t21 == CLJ_THROWN) {
@@ -3147,17 +3047,7 @@ CLJC_FRAME clj_value clojure_string_trim_newline_a1_o1(clj_value self, const clj
 	clj_value t18 = l0;
 	clj_value a3[1] = {t18};
 	(void)a3;
-	if (__builtin_expect(clj_c_lazy(t18), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
-		Fv[0] = o17 ? t17 : CLJ_NIL;
-		Fv[1] = l0;
-		FR->n = F0 + 2;
-	}
-	}
 	t16 = clj_c_invoke(t17, a3, 1);
-	if (FR) FR->n = F0;
 	(void)t18;
 	if (o17) clj_release(t17);
 	CLJC_SITE(&S[20]);
@@ -3185,14 +3075,6 @@ CLJC_FRAME clj_value clojure_string_trim_newline_a1_o1(clj_value self, const clj
 	(void)a4;
 	CLJC_TAKE_CHECK(l0, t21);
 	l0 = CLJ_NIL;
-	if (__builtin_expect(clj_c_lazy(t21), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
-		Fv[0] = o20 ? t20 : CLJ_NIL;
-		FR->n = F0 + 1;
-	}
-	}
 #ifdef CLJC_LOCAL_clojure_string_text_a1_o1
 	t19 = CLJC_CALL_clojure_string_text_a1_o1(CLJ_NIL, NULL, a4, 1);
 #elif defined(CLJC_DIRECT_clojure_string_text_a1_o1)
@@ -3212,7 +3094,6 @@ CLJC_FRAME clj_value clojure_string_trim_newline_a1_o1(clj_value self, const clj
 	t19 = clj_c_invoke(t20, a4, 1);
 	clj_release(t21);
 #endif
-	if (FR) FR->n = F0;
 	if (o20) clj_release(t20);
 	CLJC_SITE(&S[19]);
 	if (t19 == CLJ_THROWN) {
@@ -3613,17 +3494,7 @@ CLJC_INLINE clj_value clojure_string_escape_a2_i(clj_value self, const clj_value
 	clj_value t10 = l0;
 	clj_value a3[1] = {t10};
 	(void)a3;
-	if (__builtin_expect(clj_c_lazy(t10), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
-		Fv[0] = o6 ? t6 : CLJ_NIL;
-		Fv[1] = o9 ? t9 : CLJ_NIL;
-		FR->n = F0 + 2;
-	}
-	}
 	t8 = clj_c_invoke(t9, a3, 1);
-	if (FR) FR->n = F0;
 	(void)t10;
 	if (o9) clj_release(t9);
 	CLJC_SITE(&S[22]);
@@ -3634,21 +3505,11 @@ CLJC_INLINE clj_value clojure_string_escape_a2_i(clj_value self, const clj_value
 	clj_value a2[2] = {t7, t8};
 	(void)a2;
 	clj_value t11;
-	if (__builtin_expect(clj_c_lazy(t8), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
-		Fv[0] = o6 ? t6 : CLJ_NIL;
-		Fv[1] = t8;
-		FR->n = F0 + 2;
-	}
-	}
 	if (CLJC_GUARD(V[10], B[5])) {
 	t11 = clj_str2(t7, t8);
 	} else {
 	t11 = clj_c_intrinsic_fallback(V[10], a2, 2);
 	}
-	if (FR) FR->n = F0;
 	clj_release(t8);
 	(void)t7;
 	CLJC_SITE(&S[22]);
@@ -4129,17 +3990,7 @@ CLJC_FRAME clj_value clojure_string_starts_with_QMARK__a2_o1(clj_value self, con
 	clj_value t18 = l0;
 	clj_value a3[1] = {t18};
 	(void)a3;
-	if (__builtin_expect(clj_c_lazy(t18), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
-		Fv[0] = o17 ? t17 : CLJ_NIL;
-		Fv[1] = l0;
-		FR->n = F0 + 2;
-	}
-	}
 	t16 = clj_c_invoke(t17, a3, 1);
-	if (FR) FR->n = F0;
 	(void)t18;
 	if (o17) clj_release(t17);
 	CLJC_SITE(&S[26]);
@@ -4167,14 +4018,6 @@ CLJC_FRAME clj_value clojure_string_starts_with_QMARK__a2_o1(clj_value self, con
 	(void)a4;
 	CLJC_TAKE_CHECK(l0, t21);
 	l0 = CLJ_NIL;
-	if (__builtin_expect(clj_c_lazy(t21), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
-		Fv[0] = o20 ? t20 : CLJ_NIL;
-		FR->n = F0 + 1;
-	}
-	}
 #ifdef CLJC_LOCAL_clojure_string_text_a1_o1
 	t19 = CLJC_CALL_clojure_string_text_a1_o1(CLJ_NIL, NULL, a4, 1);
 #elif defined(CLJC_DIRECT_clojure_string_text_a1_o1)
@@ -4194,7 +4037,6 @@ CLJC_FRAME clj_value clojure_string_starts_with_QMARK__a2_o1(clj_value self, con
 	t19 = clj_c_invoke(t20, a4, 1);
 	clj_release(t21);
 #endif
-	if (FR) FR->n = F0;
 	if (o20) clj_release(t20);
 	CLJC_SITE(&S[25]);
 	if (t19 == CLJ_THROWN) {
@@ -4245,18 +4087,7 @@ CLJC_FRAME clj_value clojure_string_starts_with_QMARK__a2_o1(clj_value self, con
 	clj_value t32 = l1;
 	clj_value a8[1] = {t32};
 	(void)a8;
-	if (__builtin_expect(clj_c_lazy(t32), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
-		Fv[0] = o28 ? t28 : CLJ_NIL;
-		Fv[1] = o31 ? t31 : CLJ_NIL;
-		Fv[2] = l2;
-		FR->n = F0 + 3;
-	}
-	}
 	t30 = clj_c_invoke(t31, a8, 1);
-	if (FR) FR->n = F0;
 	(void)t32;
 	if (o31) clj_release(t31);
 	CLJC_SITE(&S[25]);
@@ -4267,22 +4098,11 @@ CLJC_FRAME clj_value clojure_string_starts_with_QMARK__a2_o1(clj_value self, con
 	clj_value a7[2] = {t29, t30};
 	(void)a7;
 	clj_value t33;
-	if (__builtin_expect(clj_c_lazy(t30), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
-		Fv[0] = o28 ? t28 : CLJ_NIL;
-		Fv[1] = t30;
-		Fv[2] = l2;
-		FR->n = F0 + 3;
-	}
-	}
 	if (CLJC_GUARD(V[10], B[5])) {
 	t33 = clj_str2(t29, t30);
 	} else {
 	t33 = clj_c_intrinsic_fallback(V[10], a7, 2);
 	}
-	if (FR) FR->n = F0;
 	clj_release(t30);
 	(void)t29;
 	CLJC_SITE(&S[25]);
@@ -4314,20 +4134,11 @@ CLJC_FRAME clj_value clojure_string_starts_with_QMARK__a2_o1(clj_value self, con
 	clj_value a10[1] = {t36};
 	(void)a10;
 	clj_value t37;
-	if (__builtin_expect(clj_c_lazy(t36), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
-		Fv[0] = l2;
-		FR->n = F0 + 1;
-	}
-	}
 	if (CLJC_GUARD(V[24], B[4])) {
 	t37 = clj_c_count(t36);
 	} else {
 	t37 = clj_c_intrinsic_fallback(V[24], a10, 1);
 	}
-	if (FR) FR->n = F0;
 	(void)t36;
 	CLJC_SITE(&S[25]);
 	if (t37 == CLJ_THROWN) {
@@ -4391,22 +4202,11 @@ CLJC_FRAME clj_value clojure_string_starts_with_QMARK__a2_o1(clj_value self, con
 	clj_value a14[1] = {t51};
 	(void)a14;
 	clj_value t52;
-	if (__builtin_expect(clj_c_lazy(t51), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
-		Fv[0] = o48 ? t48 : CLJ_NIL;
-		Fv[1] = l2;
-		Fv[2] = l3;
-		FR->n = F0 + 3;
-	}
-	}
 	if (CLJC_GUARD(V[24], B[4])) {
 	t52 = clj_c_count(t51);
 	} else {
 	t52 = clj_c_intrinsic_fallback(V[24], a14, 1);
 	}
-	if (FR) FR->n = F0;
 	(void)t51;
 	CLJC_SITE(&S[25]);
 	if (t52 == CLJ_THROWN) {
@@ -4427,22 +4227,11 @@ CLJC_FRAME clj_value clojure_string_starts_with_QMARK__a2_o1(clj_value self, con
 	clj_value a12[2] = {t46, t47};
 	(void)a12;
 	clj_value t53;
-	if (__builtin_expect(clj_c_lazy(t46), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
-		Fv[0] = t47;
-		Fv[1] = l2;
-		Fv[2] = l3;
-		FR->n = F0 + 3;
-	}
-	}
 	if (CLJC_GUARD(V[45], B[9])) {
 	t53 = clj_c_eq(t46, t47);
 	} else {
 	t53 = clj_c_intrinsic_fallback(V[45], a12, 2);
 	}
-	if (FR) FR->n = F0;
 	clj_release(t47);
 	(void)t46;
 	CLJC_SITE(&S[25]);
@@ -4608,17 +4397,7 @@ CLJC_FRAME clj_value clojure_string_ends_with_QMARK__a2_o1(clj_value self, const
 	clj_value t18 = l0;
 	clj_value a3[1] = {t18};
 	(void)a3;
-	if (__builtin_expect(clj_c_lazy(t18), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
-		Fv[0] = o17 ? t17 : CLJ_NIL;
-		Fv[1] = l0;
-		FR->n = F0 + 2;
-	}
-	}
 	t16 = clj_c_invoke(t17, a3, 1);
-	if (FR) FR->n = F0;
 	(void)t18;
 	if (o17) clj_release(t17);
 	CLJC_SITE(&S[28]);
@@ -4646,14 +4425,6 @@ CLJC_FRAME clj_value clojure_string_ends_with_QMARK__a2_o1(clj_value self, const
 	(void)a4;
 	CLJC_TAKE_CHECK(l0, t21);
 	l0 = CLJ_NIL;
-	if (__builtin_expect(clj_c_lazy(t21), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
-		Fv[0] = o20 ? t20 : CLJ_NIL;
-		FR->n = F0 + 1;
-	}
-	}
 #ifdef CLJC_LOCAL_clojure_string_text_a1_o1
 	t19 = CLJC_CALL_clojure_string_text_a1_o1(CLJ_NIL, NULL, a4, 1);
 #elif defined(CLJC_DIRECT_clojure_string_text_a1_o1)
@@ -4673,7 +4444,6 @@ CLJC_FRAME clj_value clojure_string_ends_with_QMARK__a2_o1(clj_value self, const
 	t19 = clj_c_invoke(t20, a4, 1);
 	clj_release(t21);
 #endif
-	if (FR) FR->n = F0;
 	if (o20) clj_release(t20);
 	CLJC_SITE(&S[27]);
 	if (t19 == CLJ_THROWN) {
@@ -4724,18 +4494,7 @@ CLJC_FRAME clj_value clojure_string_ends_with_QMARK__a2_o1(clj_value self, const
 	clj_value t32 = l1;
 	clj_value a8[1] = {t32};
 	(void)a8;
-	if (__builtin_expect(clj_c_lazy(t32), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
-		Fv[0] = o28 ? t28 : CLJ_NIL;
-		Fv[1] = o31 ? t31 : CLJ_NIL;
-		Fv[2] = l2;
-		FR->n = F0 + 3;
-	}
-	}
 	t30 = clj_c_invoke(t31, a8, 1);
-	if (FR) FR->n = F0;
 	(void)t32;
 	if (o31) clj_release(t31);
 	CLJC_SITE(&S[27]);
@@ -4746,22 +4505,11 @@ CLJC_FRAME clj_value clojure_string_ends_with_QMARK__a2_o1(clj_value self, const
 	clj_value a7[2] = {t29, t30};
 	(void)a7;
 	clj_value t33;
-	if (__builtin_expect(clj_c_lazy(t30), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
-		Fv[0] = o28 ? t28 : CLJ_NIL;
-		Fv[1] = t30;
-		Fv[2] = l2;
-		FR->n = F0 + 3;
-	}
-	}
 	if (CLJC_GUARD(V[10], B[5])) {
 	t33 = clj_str2(t29, t30);
 	} else {
 	t33 = clj_c_intrinsic_fallback(V[10], a7, 2);
 	}
-	if (FR) FR->n = F0;
 	clj_release(t30);
 	(void)t29;
 	CLJC_SITE(&S[27]);
@@ -4793,20 +4541,11 @@ CLJC_FRAME clj_value clojure_string_ends_with_QMARK__a2_o1(clj_value self, const
 	clj_value a10[1] = {t36};
 	(void)a10;
 	clj_value t37;
-	if (__builtin_expect(clj_c_lazy(t36), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 1);
-		Fv[0] = l2;
-		FR->n = F0 + 1;
-	}
-	}
 	if (CLJC_GUARD(V[24], B[4])) {
 	t37 = clj_c_count(t36);
 	} else {
 	t37 = clj_c_intrinsic_fallback(V[24], a10, 1);
 	}
-	if (FR) FR->n = F0;
 	(void)t36;
 	CLJC_SITE(&S[27]);
 	if (t37 == CLJ_THROWN) {
@@ -4884,23 +4623,11 @@ CLJC_FRAME clj_value clojure_string_ends_with_QMARK__a2_o1(clj_value self, const
 	clj_value a16[1] = {t52};
 	(void)a16;
 	clj_value t53;
-	if (__builtin_expect(clj_c_lazy(t52), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 4);
-		Fv[0] = o48 ? t48 : CLJ_NIL;
-		Fv[1] = t51;
-		Fv[2] = l2;
-		Fv[3] = l3;
-		FR->n = F0 + 4;
-	}
-	}
 	if (CLJC_GUARD(V[24], B[4])) {
 	t53 = clj_c_count(t52);
 	} else {
 	t53 = clj_c_intrinsic_fallback(V[24], a16, 1);
 	}
-	if (FR) FR->n = F0;
 	(void)t52;
 	CLJC_SITE(&S[27]);
 	if (t53 == CLJ_THROWN) {
@@ -4952,22 +4679,11 @@ CLJC_FRAME clj_value clojure_string_ends_with_QMARK__a2_o1(clj_value self, const
 	clj_value a12[2] = {t46, t47};
 	(void)a12;
 	clj_value t58;
-	if (__builtin_expect(clj_c_lazy(t46), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 3);
-		Fv[0] = t47;
-		Fv[1] = l2;
-		Fv[2] = l3;
-		FR->n = F0 + 3;
-	}
-	}
 	if (CLJC_GUARD(V[45], B[9])) {
 	t58 = clj_c_eq(t46, t47);
 	} else {
 	t58 = clj_c_intrinsic_fallback(V[45], a12, 2);
 	}
-	if (FR) FR->n = F0;
 	clj_release(t47);
 	(void)t46;
 	CLJC_SITE(&S[27]);
@@ -5151,15 +4867,6 @@ CLJC_FRAME clj_value clojure_string_includes_QMARK__a2(clj_value self, const clj
 	}
 	clj_value a3[1] = {t11};
 	(void)a3;
-	if (__builtin_expect(clj_c_lazy(t11), 0)) {
-	if (!FR) FR = clj_c_frefs(&F0);
-	{
-		clj_value *Fv = clj_c_frefs_at(FR, F0, 2);
-		Fv[0] = o10 ? t10 : CLJ_NIL;
-		Fv[1] = t11;
-		FR->n = F0 + 2;
-	}
-	}
 #ifdef CLJC_LOCAL_clojure_core_some_QMARK__a1
 	t9 = CLJC_CALL_clojure_core_some_QMARK__a1(CLJ_NIL, NULL, a3, 1);
 #elif defined(CLJC_DIRECT_clojure_core_some_QMARK__a1)
@@ -5168,7 +4875,6 @@ CLJC_FRAME clj_value clojure_string_includes_QMARK__a2(clj_value self, const clj
 #else
 	t9 = clj_c_invoke(t10, a3, 1);
 #endif
-	if (FR) FR->n = F0;
 	clj_release(t11);
 	if (o10) clj_release(t10);
 	CLJC_SITE(&S[29]);

@@ -187,32 +187,32 @@
   sets `IMMORTAL` only on a pool value without it: an interned keyword has it and is read everywhere. The other
   header writers touch an unpublished or unique object, or run inside `clj_init`'s once (`immortalize_root`,
   `bind_static`). `CycleTests.aVarStoreLeavesItsHeaderAlone` reproduces the race under TSan.
-- **The deep walk of a replaced var root** (`clj_rc_release_root` in `rc.c`, `clj_cc_deep_release` and
-  `collect_deep` in `cc.c`; design §7 «Сборщик циклов: как он устроен», «Корень вара», which holds the why). A
-  lazy seq realized into a value that reaches it back through a var (`(def s (lazy-seq (cons 1 s)))`, then a
-  redefinition) is a ring with no `REACH` on it. `CLJ_FLAG_LAZY` is born with a lazy seq (and with a deftype
-  instance whose core slot is a program fn, `birth_flags`: a builtin touching it runs program code, which a compiled
-  pure site tests for) and OR'd like `REACH` by `clj_reach_from`, `clj_reach_copy` and the two `memcpy` clones; it makes no candidate. `clj_var_bind_root` is the one
-  place a root is swapped (`def`, `alter-var-root`, `intern` with a value, a compiled unit's and a shaken var's
-  bind, Swift's `Runtime` definitions, `in-ns`, `load`'s `*file*`), and it releases the old root through
-  `clj_rc_release_root`, as do both drains of the retired fn roots (`eval.c`). A deep release of a shared object with
-  `LAZY` or `REACH` that stays nonzero files a deep entry (the decrement and `BUFFERED` in one CAS, no reference;
-  one with `BUFFERED` already set is left to that entry, since an entry with a reference of its own kept objects
-  past their last release: `AtomTests.publication` and `HierarchyTests.multimethodHierarchyOption`, run
-  37687819859); one that reaches
-  zero is torn down with `dead_list.deep`, so its children get the same rule, deferred frees included (bit 0 of a
-  `deferred` entry). The entries wait in their own chunk list, 500 ms from the first so a reload's defs share one
-  graph, and run on the background thread only (`cc_main` sleeps until the earliest due batch or retry), after the
-  shared collection; `clj_cc_collect` forces them and every retry. The graph enters `LAZY` or `REACH`, stops adding
-  nodes at `DEEP_MAX_NODES` (2^20; the parent of a child left out is `N_CUT`, so lost and black), and the next deep
-  collection waits `DEEP_DUTY` (7) times this one's length. After `blacken`, Tarjan's components over the black nodes
-  find rings alive at the walk; one member of each ring with a member lacking `REACH`, unless a waiting retry
-  already holds the ring or a member is cut, is retained and retried after 1 s, doubling to 64 s, while it stays
-  alive; a deep root a mutator touched mid-walk is filed again with the bit, as in the shared collection. Stats `CLJ_CC_STAT_DEEP_FILED`, `_RETRIES`, `_CUT`;
-  `clj_debug_cc_deep_filed_here` counts the calling thread's entries, `clj_debug_cc_deep_retries` the waiting
-  retries. `CycleTests`: the ring through each replacing form, two vars reaching each other, a chain through `map` and
-  `filter` over a var, a fn root retired mid-evaluation, a ring still held at the redefinition, a large lazy root
-  that files nothing when no one else holds it and one entry per redefinition when someone does.
+- **The deep walk of a replaced var root** (`clj_rc_release_root` in `rc.c`, `clj_cc_deep_release` and `collect_deep`
+  in `cc.c`; design §7 «Сборщик циклов: как он устроен», «Корень вара», which holds the why). A lazy seq realized into
+  a value that reaches it back through a var (`(def s (lazy-seq (cons 1 s)))`, then a redefinition) is a ring with no
+  `REACH` on it. `CLJ_FLAG_LAZY` is born with a lazy seq (and with a deftype instance whose core slot is a program fn,
+  `birth_flags`: a builtin touching it runs program code, which the interpreter's argument buffers test for) and OR'd
+  like `REACH` by `clj_reach_from`, `clj_reach_copy` and the two `memcpy` clones; it makes no candidate.
+  `clj_var_bind_root` is the one place a root is swapped (`def`, `alter-var-root`, `intern` with a value, a compiled
+  unit's and a shaken var's bind, Swift's `Runtime` definitions, `in-ns`, `load`'s `*file*`), and it releases the old
+  root through `clj_rc_release_root`, as do both drains of the retired fn roots (`eval.c`). A deep release of a shared
+  object with `LAZY` or `REACH` that stays nonzero files a deep entry (the decrement and `BUFFERED` in one CAS, no
+  reference; one with `BUFFERED` already set is left to that entry, since an entry with a reference of its own kept
+  objects past their last release: `AtomTests.publication` and `HierarchyTests.multimethodHierarchyOption`, run
+  37687819859); one that reaches zero is torn down with `dead_list.deep`, so its children get the same rule, deferred
+  frees included (bit 0 of a `deferred` entry). The entries wait in their own chunk list, 500 ms from the first so a
+  reload's defs share one graph, and run on the background thread only (`cc_main` sleeps until the earliest due batch
+  or retry), after the shared collection; `clj_cc_collect` forces them and every retry. The graph enters `LAZY` or
+  `REACH`, stops adding nodes at `DEEP_MAX_NODES` (2^20; the parent of a child left out is `N_CUT`, so lost and
+  black), and the next deep collection waits `DEEP_DUTY` (7) times this one's length. After `blacken`, Tarjan's
+  components over the black nodes find rings alive at the walk; one member of each ring with a member lacking `REACH`,
+  unless a waiting retry already holds the ring or a member is cut, is retained and retried after 1 s, doubling to 64
+  s, while it stays alive; a deep root a mutator touched mid-walk is filed again with the bit, as in the shared
+  collection. Stats `CLJ_CC_STAT_DEEP_FILED`, `_RETRIES`, `_CUT`; `clj_debug_cc_deep_filed_here` counts the calling
+  thread's entries, `clj_debug_cc_deep_retries` the waiting retries. `CycleTests`: the ring through each replacing
+  form, two vars reaching each other, a chain through `map` and `filter` over a var, a fn root retired mid-evaluation,
+  a ring still held at the redefinition, a large lazy root that files nothing when no one else holds it and one entry
+  per redefinition when someone does.
 - [ ] **What the collector does not see.** A type descriptor (the `users` registry holds it without a reference) and an
   exec (the specializer's dependents index resurrects one through `retain_if_live`) are never entered: their references
   count as external, so a cycle through one stays. A coroutine is entered (NOTES "Coroutines", the abandoned park), and

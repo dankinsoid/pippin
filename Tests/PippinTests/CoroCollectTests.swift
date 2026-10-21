@@ -67,7 +67,7 @@ extension CoreTests {
 			(deftype GapKey [c n] IEquiv (equiv [_ o] (<! c) false) IHashEq (hasheq [_] 7))
 			""")
 			for k in ["v", "loop", "chan", "timeout", "suspended", "deadline", "future", "alts", "let", "top"] { _ = kw(k) }
-			for (_, k) in CoroCollectTests.gapShapes { _ = kw(k) }
+			for (_, k) in CoroCollectTests.gapShapes + CoroCollectTests.interpretedGapShapes { _ = kw(k) }
 		}
 
 		// Each cycle hangs on a reference the parked frames' three kinds once missed (design §7, «Фаза 3»).
@@ -85,6 +85,15 @@ extension CoreTests {
 			("(defn gap-handed [] (let [d (chan)] (go (try (<! (identity d)) (finally (reset! unwound :handed))))) nil)", "handed"),
 			// A frame of more than 64 slots, the channel past the 64th.
 			(gapWide, "wide"),
+			// The reader's metadata, a heap stack of the runtime's C.
+			("(defn gap-read [] (go (try (read-string \"^{:c #gap/chan 0} [#gap/park 1]\") (finally (reset! unwound :read)))) nil)", "read"),
+			// An argument buffer of more than 64 values, the owned one past the 64th.
+			(gapWideArgs, "wide-args"),
+		]
+
+		// A builtin the facts call pure runs a parking lazy seq's thunk or deftype method: a compiled site names nothing
+		// there (design §7, «Чего это не собирает»), the interpreter holds its buffer.
+		static let interpretedGapShapes: [(String, String)] = [
 			// A call the facts call pure realizes a lazy seq whose thunk parks: the seq an argument, a slot beside an
 			// owned value, an argument of a local fn.
 			("(defn gap-lazy [] (let [c (chan)] (go (try (first (lazy-seq (cons (<! c) nil))) (finally (reset! unwound :lazy))))) nil)", "lazy"),
@@ -93,11 +102,8 @@ extension CoreTests {
 			// The same through a deftype's equality, and a trie insert down a shared path whose key equality parks.
 			("(defn gap-equiv [] (let [d (chan)] (go (try (vector (identity d) (= (->GapKey d 0) (->GapKey d 1))) (finally (reset! unwound :equiv))))) nil)", "equiv"),
 			("(defn gap-trie [] (let [c (chan)] (go (let [m (assoc (zipmap (range 40) (range 40)) (->GapKey c 0) 0)] (try (assoc m (->GapKey c 1) 1) (finally (reset! unwound :trie))) m))) nil)", "trie"),
-			// Heap stacks of the runtime's C: the printer's array elements, the reader's metadata.
+			// The printer's array elements, a heap stack of the runtime's C, behind a pure call.
 			("(defn gap-print [] (let [d (chan)] (go (try (pr-str (object-array [(identity d) (lazy-seq (cons (<! d) nil))])) (finally (reset! unwound :print))))) nil)", "print"),
-			("(defn gap-read [] (go (try (read-string \"^{:c #gap/chan 0} [#gap/park 1]\") (finally (reset! unwound :read)))) nil)", "read"),
-			// An argument buffer of more than 64 values, the owned one past the 64th.
-			(gapWideArgs, "wide-args"),
 		]
 
 		private static var gapWideArgs: String {
@@ -116,6 +122,13 @@ extension CoreTests {
 		func gapShapeIsCollected(backend: String, shape: String) throws {
 			let src = CoroCollectTests.gapShapes.first { $0.1 == shape }!.0
 			if backend == "interp" { _ = try eval(src) } else { try compiledEval(closed: backend == "closed") { _ = try eval(src) } }
+			try abandoned("(\(src.split(separator: " ")[1]))", unwinds: shape)
+		}
+
+		@Test(arguments: CoroCollectTests.interpretedGapShapes.map { $0.1 })
+		func interpretedGapShapeIsCollected(shape: String) throws {
+			let src = CoroCollectTests.interpretedGapShapes.first { $0.1 == shape }!.0
+			_ = try eval(src)
 			try abandoned("(\(src.split(separator: " ")[1]))", unwinds: shape)
 		}
 

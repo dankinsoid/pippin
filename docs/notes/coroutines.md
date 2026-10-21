@@ -293,52 +293,67 @@
   blackness crosses wake edges both ways. A white set holding a PARKED coroutine is not freed: each such coroutine is
   cancelled once (`cc_collected`, `CLJ_CC_STAT_COROUTINES`), its white roots are filed again, and its unwind releases
   the rest through RC, `finally` and `with-open` included. `go` and `future` keep their channel for `on_done` in the
-  coroutine's `done_value` slot, so the walk sees that edge; `resume` clears the watch bit of a coroutine it wakes.
-  A parked one's frames are read as its edges (`visit_frames`, design §7 «Фаза 3», «Кадры перечисляются»): the
+  coroutine's `done_value` slot, so the walk sees that edge; `resume` clears the watch bit of a coroutine it wakes. A
+  parked one's frames are read as its edges (`visit_frames`, design §7 «Фаза 3», «Кадры перечисляются»): the
   execution's list (`clj_frefs` on the ring header, `read_frefs`) — what a compiled frame names before a call the
   facts say may park and drops after it (`emit_frefs_push_with`: its owned temps, its owned C-variable slots, its
-  array as `CLJ_FREF_CFRAME`, a fused site's state as `CLJ_FREF_ARRAY`, a fused step's item), and before a call they
-  call pure only when an argument or the local fn it calls carries `CLJ_FLAG_LAZY` (`clj_c_lazy`: a lazy seq, or a
-  deftype instance whose core slot is a program fn, `birth_flags`, is at or under it), and the variables C code of
-  the runtime names by address or by heap stack (the next entry) —; the interpreter's frames on the ring
-  (`clj_shadow_frame.frame`): each one's owned slots, every one from 64 slots on with the count before the slots,
-  and the argument buffers on it (`clj_frame.args`, `clj_argbuf`: put on from an owned value before an argument
-  that may park — not a read, nor an intrinsic or a leaf builtin over reads none of which carries `LAZY` — and held
-  through a call but an intrinsic's or a leaf builtin's, `clj_fn.leaf` from the facts' pure names, unless an owned
-  argument carries `LAZY`; a frame of a bare thread's execution takes none, `ARGS_OFF`, and a frame a collection may
-  read evaluates its arguments out of line, `eval_all_tracked`, so a bare thread's loop is the plain one; past 64
-  values, all owned, `eval_all_wide` names them by `count` and leaves the buffer on to the caller's `argrec_end`), a
-  top-level form's frame in a coroutine through `CLJ_FREF_ARGS` (`CLJ_ROOTS_ARGS` in `exec_run_at`: no ring entry
-  records it), a fused program's unrecorded frame through its buffer; every read through `clj_coro_parked_bytes` when evacuated; and the unshared objects those reach or `alts!`
-  lends its waiter (`clj_waiter.ports`), each entered once, whose references to shared objects are the coroutine's
-  too. A ring that ever went past its capacity (`wrapped`, set at the push) is not read: an entry below its depth
-  may be a returned frame's. Debug builds stop on `cc/overcount` when a graph with no lost node counts more edges
-  and collector references into a node than it has references.
-  Triggers: a channel released to nonzero, as for any cycle; the evacuation sweep, which files a park two passes saw and
-  again after 2, 4 … 256 passes while it lasts (`cc_sweep_file`); `clj_cc_collect`, which files every parked coroutine
+  array as `CLJ_FREF_CFRAME`, a fused site's state as `CLJ_FREF_ARRAY`, a fused step's item), and the variables C code
+  of the runtime names by address or by heap stack (the next entry) —; the interpreter's frames on the ring
+  (`clj_shadow_frame.frame`): each one's owned slots, every one from 64 slots on with the count before the slots, and
+  the argument buffers on it (`clj_frame.args`, `clj_argbuf`: put on from an owned value before an argument that may
+  park — not a read, nor an intrinsic or a leaf builtin over reads none of which carries `LAZY` (a lazy seq, or a
+  deftype instance whose core slot is a program fn, `birth_flags`, is at or under it) — and held through a call but an
+  intrinsic's or a leaf builtin's, `clj_fn.leaf` from the facts' pure names, unless an owned argument carries `LAZY`;
+  a frame of a bare thread's execution takes none, `ARGS_OFF`, and a frame a collection may read evaluates its
+  arguments out of line, `eval_all_tracked`, so a bare thread's loop is the plain one; past 64 values, all owned,
+  `eval_all_wide` names them by `count` and leaves the buffer on to the caller's `argrec_end`), a top-level form's
+  frame in a coroutine through `CLJ_FREF_ARGS` (`CLJ_ROOTS_ARGS` in `exec_run_at`: no ring entry records it), a fused
+  program's unrecorded frame through its buffer; every read through `clj_coro_parked_bytes` when evacuated; and the
+  unshared objects those reach or `alts!` lends its waiter (`clj_waiter.ports`), each entered once, whose references
+  to shared objects are the coroutine's too. A ring that ever went past its capacity (`wrapped`, set at the push) is
+  not read: an entry below its depth may be a returned frame's. Debug builds stop on `cc/overcount` when a graph with
+  no lost node counts more edges and collector references into a node than it has references. Triggers: a channel
+  released to nonzero, as for any cycle; the evacuation sweep, which files a park two passes saw and again after 2, 4
+  … 256 passes while it lasts (`cc_sweep_file`); `clj_cc_collect`, which files every parked coroutine
   (`clj_coro_cc_file_parked`). `clj_debug_runtime_settle` collects every 20 ms while more coroutines live than it
   waits for, so a baseline waits out a collected park's unwind. `CoroCollectTests`: a dropped `go-loop` (resident and
-  evacuated), a `mult` with no taps, `onto-chan!` into an undrained buffer, a `future` on an undelivered promise, a park
-  inside `with-open`, one under a pending deadline and one at a suspend gate are collected and unwind, and so are
+  evacuated), a `mult` with no taps, `onto-chan!` into an undrained buffer, a `future` on an undelivered promise, a
+  park inside `with-open`, one under a pending deadline and one at a suspend gate are collected and unwind, and so are
   the shapes only a frame's own reference holds — `alts!` over dropped ports, a dropped `mix` with an input, a channel
   of the go body's own `let`, interpreted and compiled (dev and closed); `alts!` over a dropped channel and a live
   `timeout` waits for the timeout; a channel Swift holds keeps its park. `gapShapeIsCollected`, each in all three
-  backends: the reducer's accumulator, `sort`'s seq of its items, a transducer step's item, a slot a closure
-  captures, a direct fn's parameter, a slot read through the static link, an owned value beside a parking argument,
-  a last use handed to the call, a channel past a frame's 64th slot, a pure call realizing a parking lazy seq (an
-  argument, a slot beside an owned value, an argument of a local fn), a deftype's parking equality under `=` and
-  under a trie insert down a shared path, the printer's array elements, the reader's metadata, an owned value past a buffer's 64th; `aTopLevelFormsBuffersAreNamed` (interpreted and dev) a top-level
-  form `eval` runs in a `go`. `aParkAfterTheRingWrappedIsNotMisread`: a park
-  after a 16-entry ring wrapped under frames that each owned the channel is left alone and wakes. Not collected: a
-  park of a pinned kind, and a cycle through what nothing names (design §7, «Чего это не собирает»): a literal's
-  hashing, a `def`'s watches, the interpreter's keyword lookup into a program's `ILookup` type and its protocol
-  dispatch's impl, a rebound builtin at a compiled site the facts call pure, a published lazy seq a pure call
-  realizes, a deftype with a parking core method made by a compiled callee the facts call pure, a coroutine whose
-  ring wrapped. Trigger: the stale-park report naming one, or the corpus's residue (NOTES "Corpus").
+  backends: the reducer's accumulator, `sort`'s seq of its items, a transducer step's item, a slot a closure captures,
+  a direct fn's parameter, a slot read through the static link, an owned value beside a parking argument, a last use
+  handed to the call, a channel past a frame's 64th slot, the reader's metadata, an owned value past a buffer's 64th;
+  `interpretedGapShapeIsCollected` a pure call realizing a parking lazy seq (an argument, a slot beside an owned
+  value, an argument of a local fn), a deftype's parking equality under `=` and under a trie insert down a shared
+  path, the printer's array elements; `aTopLevelFormsBuffersAreNamed` (interpreted and dev) a top-level form `eval`
+  runs in a `go`. `aParkAfterTheRingWrappedIsNotMisread`: a park after a 16-entry ring wrapped under frames that each
+  owned the channel is left alone and wakes. Not collected: a park of a pinned kind, and a cycle through what nothing
+  names (design §7, «Чего это не собирает»): a literal's hashing, a `def`'s watches, the interpreter's keyword lookup
+  into a program's `ILookup` type and its protocol dispatch's impl, a compiled call the facts call pure that realizes
+  a parking lazy seq or calls a deftype's parking core method, and a rebound builtin there (the entry below), a
+  published lazy seq a pure call realizes, a coroutine whose ring wrapped. Trigger: the stale-park report naming one,
+  or the corpus's residue (NOTES "Corpus").
 - [ ] **The interpreter pays about 4 % for reading a parked frame's buffers** (design §7, «Фаза 3», «Цена»): A/B
   against main's `eval.c` over the branch, run 39299367250, interp 1.041 and core+interp 1.028, bare threads
   1.01–1.05 though they put no buffer on. Left: the `args` store and the `wrapped` test in `run_body`, the hold on
   the slow call path and in `intrinsic_apply`, a frame one word wider. Trigger: interpreter speed becoming a goal.
+- [ ] **A pure compiled call names nothing** (design §7, «Скомпилированный кадр», «Чего это не собирает»): a call the
+  facts call pure (`first`, `doall`, `=`, `assoc`) that realizes a lazy seq whose thunk parks, or calls a deftype's
+  core method that parks (`birth_flags` gives such instances `CLJ_FLAG_LAZY`), writes no frame references, so the
+  frame's owned temps and slots read as held from outside: a leak (the oracle's first finding, run 39589318892). The
+  interpreter holds its buffer there (`owned_lazy`, `reads_lazy`). Tried 2026-10-21: the site's push under
+  `clj_c_lazy` over the arguments whose fact admits a heap value and the local fn it calls, a cold branch, at 3288 of
+  core.clj's sites besides the 1007 that may park. corpus-bench against main, run 39619400074: geomean interp 0.999,
+  core+interp 1.022, dev 1.012, closed 1.016, `nested-update` closed 1.048, `medley` 1.048; on the seven slowest the
+  same tree with the test turned off (run 39625791458) gave closed 1.007 where the tree gave 1.019 (run 39625797547),
+  and one without the trie path naming changed nothing (run 39625784734). Options: a facts effect "may realize" apart
+  from "may park", so a typed argument and a builtin that reads no argument deeply skip the test (`get` realizes its
+  key, not its map); the test only in frames a coroutine can run, a fact of the unit; a deftype constructor whose type
+  has a parking core method made an effect of the facts. Trigger: a compiled program leaking through one (the
+  stale-park report, the corpus's residue), or such a fact in the facts pass. The leak fuzzer and
+  `interpretedGapShapeIsCollected` keep those shapes interpreted.
 - **C code of the runtime names every reference it owns across a call that may park** (design §7, «Фаза 3», «Код
   рантайма», «Гарантия»; `roots_internal.h`, `scripts/rooting-hazards.py`). `CLJ_ROOTS(&a, &b)` puts the tagged
   addresses of owned variables on the execution's frame-reference list for the rest of the block (`cleanup` drops
