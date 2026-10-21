@@ -19,6 +19,7 @@
 #include "clj/var.h"
 #include "clj/vector.h"
 #include "facts_internal.h"
+#include "roots_internal.h"
 
 // The same bound as a loop variable's fixpoint in facts.c, for the same reason (NOTES.md, "Facts").
 #define WIDEN_ROUNDS 3
@@ -257,7 +258,7 @@ bool clj_fact_of_schema(clj_value schema, clj_fact *out) {
 	return false;
 }
 
-static clj_value kw(const char *name) { return clj_keyword_from_cstr(name); }
+static CLJ_BORROWED clj_value kw(const char *name) { return clj_keyword_from_cstr(name); }
 
 // conj retains the item, so an immortal keyword and a borrowed singleton go in as they are.
 static clj_value vec_push(clj_value v, clj_value item) { return clj_vector_conj(v, item); }
@@ -272,6 +273,7 @@ clj_value clj_fact_to_schema(clj_fact f) {
 	}
 	uint32_t  types = f.types & ~(uint32_t)CLJ_T_NIL;
 	clj_value members = clj_vector_empty();
+	CLJ_ROOTS(&members);
 	static const tag_types by_width[] = {
 		{"number", T_NUM},        {"int", T_INT},          {"double", CLJ_T_DOUBLE}, {"map", T_MAPS},          {"set", T_SETS},
 		{"string", CLJ_T_STRING}, {"keyword", CLJ_T_KEYWORD}, {"symbol", CLJ_T_SYMBOL}, {"boolean", CLJ_T_BOOL}, {"vector", CLJ_T_VECTOR},
@@ -286,23 +288,25 @@ clj_value clj_fact_to_schema(clj_fact f) {
 	for (uint32_t bit = 0; bit < 27; bit++) {
 		if (types & (1u << bit)) members = vec_push(members, kw(clj_fact_kind_name(1u << bit)));
 	}
-	clj_value r;
-	if (clj_vector_count(members) == 1) {
-		r = clj_retain(clj_vector_nth(members, 0));
-		clj_release(members);
-	}
+	clj_value r = CLJ_NIL;
+	CLJ_ROOTS(&r);
+	if (clj_vector_count(members) == 1) r = clj_retain(clj_vector_nth(members, 0));
 	else {
 		r = vec_push(clj_vector_empty(), kw("or"));
 		for (uint32_t i = 0; i < clj_vector_count(members); i++) r = vec_push(r, clj_vector_nth(members, i));
-		clj_release(members);
 	}
+	clj_release(members);
+	members = CLJ_NIL;
 	if (f.types == CLJ_T_NIL) {
 		clj_release(r);
+		r = CLJ_NIL;
 		return kw("nil");
 	}
 	if (f.types & CLJ_T_NIL) {
 		clj_value m = vec_push(clj_vector_empty(), kw("maybe"));
-		return vec_push(m, r);
+		m = vec_push(m, r);
+		clj_release(r);
+		return m;
 	}
 	return r;
 }
@@ -312,7 +316,7 @@ clj_value clj_fact_to_schema(clj_fact f) {
 typedef struct {
 	bool            present;
 	uint32_t        nargs;
-	clj_fact        args[CLJ_FN_MAX_FIXED + 1];
+	CLJ_BORROWED clj_fact args[CLJ_FN_MAX_FIXED + 1];
 	clj_effects_req effects[CLJ_FN_MAX_FIXED + 1];
 	bool            has_ret;
 	clj_fact        ret;
@@ -387,6 +391,7 @@ static annotation annotation_of(clj_value var) {
 	if (clj_is_nil(meta)) return a;
 	clj_value schema = lookup(meta, "=>");
 	if (clj_is_nil(schema)) return a;
+	CLJ_ROOTS(&schema);
 	uint32_t top = 0, ntop = clj_is_vector(schema) ? schema_children(schema, &top) : 0;
 	if (ntop >= top + 2 && tag_is(clj_vector_nth(schema, 0), "=>")) {
 		clj_value in = clj_vector_nth(schema, top), out = clj_vector_nth(schema, top + 1);

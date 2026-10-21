@@ -88,9 +88,9 @@ clj_value clj_list_from_array(const clj_value *items, size_t n) {
 }
 
 size_t clj_list_count(clj_value list) {
-	size_t       n = 0;
-	clj_seq_iter it = clj_seq_iter_start(list);
-	clj_value    item;
+	size_t                 n = 0;
+	clj_seq_iter           it = clj_seq_iter_start(list);
+	CLJ_BORROWED clj_value item;
 	CLJ_ROOTS(&it.held, &it.item);
 	while (clj_seq_iter_next(&it, &item)) n++;
 	return n;

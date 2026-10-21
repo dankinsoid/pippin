@@ -28,21 +28,21 @@ clj_value clj_ex_info_cause(clj_value message, clj_value data, clj_value cause);
 // Consumes ex (+1 in): the pending slot takes it over, dropping any exception already pending.
 // Any value can be thrown, as in ClojureScript; (throw 42) leaves the fixnum pending.
 // The trace is captured here, not at construction: the frames of the thrower are what a reader wants.
-clj_value clj_throw(clj_value ex);
+CLJ_BORROWED clj_value clj_throw(clj_value ex);
 // Consumes both; trace nil captures the shadow stack. A rethrow of a caught non-error value keeps its frames.
-clj_value clj_throw_traced(clj_value ex, clj_value trace);
+CLJ_BORROWED clj_value clj_throw_traced(clj_value ex, clj_value trace);
 // Consumes ex, captures nothing: the pending trace is nil. For a throw whose frames nobody reads (a cancellation).
-clj_value clj_throw_untraced(clj_value ex);
+CLJ_BORROWED clj_value clj_throw_untraced(clj_value ex);
 // A message string built to its own length: design §3 «Диагностика» counts truncating a diagnostic to a
 // fixed buffer a defect, so no caller formats one into a char[]. A long form inside it is shortened by
 // clj_pr_str_max before it is formatted in; the assembled message is never cut. Owned.
-clj_value clj_error_message(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
-clj_value clj_error_message_v(const char *fmt, va_list ap) __attribute__((format(printf, 1, 0)));
+CLJ_NO_CYCLE clj_value clj_error_message(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+CLJ_NO_CYCLE clj_value clj_error_message_v(const char *fmt, va_list ap) __attribute__((format(printf, 1, 0)));
 
 // ex-info with the formatted message and nil data.
-clj_value clj_throw_msg(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+CLJ_BORROWED clj_value clj_throw_msg(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 // The same, for a throw that interrupts an unwind: cause is the in-flight value, dropped if it is no error.
-clj_value clj_throw_msg_cause(clj_value cause, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+CLJ_BORROWED clj_value clj_throw_msg_cause(clj_value cause, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 // Borrowed; nil when nothing is pending.
 clj_value clj_pending(void);
 // Owned; clears the slot and drops the pending trace. nil when nothing is pending.
@@ -118,7 +118,7 @@ clj_value clj_ex_trace(clj_value v);
 
 // Total and heterogeneous as clojure.core/type is (design §4): keyword -> itself, ex-info -> its :type
 // slot, a cancellation -> :cancelled, host error -> its host type, else nil.
-clj_value clj_ex_type(clj_value v);
+CLJ_NO_CYCLE clj_value clj_ex_type(clj_value v);
 // isa? k on ex-type, scalar case only; reads global-hierarchy's map directly, safe to call mid-unwind.
 bool clj_ex_isa(clj_value thrown, clj_value k);
 // Caches the global-hierarchy var; runtime.c calls it once after boot, before any keyword catch runs.
@@ -146,6 +146,6 @@ static inline clj_value clj_cancellation_cause(clj_value v) { return clj_cancell
 // Throws a clj_cancellation: explicit cancel, a coroutine's own deadline check, an nREPL interrupt
 // (clj_coro_cancel) and a cancelled channel op all arrive here. Untraced, and the value is one of two
 // immortal singletons, so two plain cancellations are identical? (design.md §4).
-clj_value clj_throw_cancelled(bool deadline);
+CLJ_BORROWED clj_value clj_throw_cancelled(bool deadline);
 
 #endif

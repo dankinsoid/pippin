@@ -180,7 +180,7 @@ struct clj_carrier {
 extern pthread_key_t clj_carrier_key;
 
 // The running execution; NULL until the thread's first use.
-static inline clj_coro *clj_coro_here(void) {
+CLJ_BORROWED static inline clj_coro *clj_coro_here(void) {
 	clj_carrier *car = clj_tsd_get(clj_carrier_key);
 	return car ? __atomic_load_n(&car->current, __ATOMIC_RELAXED) : NULL;
 }
@@ -211,8 +211,8 @@ uint64_t clj_sched_tick_now(void);
 void clj_sched_seed_enter(clj_coro *c);
 void clj_sched_seed_leave(clj_coro *c);
 // clj_eval's turn, spanning the analysis, whose macros run Clojure code: NULL when the caller holds one already.
-clj_coro *clj_sched_seed_outer_enter(void);
-void      clj_sched_seed_outer_leave(clj_coro *c);
+CLJ_BORROWED clj_coro *clj_sched_seed_outer_enter(void);
+void                   clj_sched_seed_outer_leave(clj_coro *c);
 // The program's randomness in seeded mode (alts! order, rand), a stream apart from the schedule's.
 uint64_t clj_sched_seed_random(void);
 // System/currentTimeMillis: the real start plus the virtual time since, in seeded mode.
@@ -287,6 +287,11 @@ bool clj_coro_evacuate_locked(clj_coro *c);
 // Under c->lock, parked: where the bytes [addr, addr + len) of its frames are read now, the blob's copy while
 // evacuated; NULL for bytes of the mapping outside its live ranges. Memory off the mapping is read where it is.
 const void *clj_coro_parked_bytes(const clj_coro *c, const void *addr, size_t len);
+#if CLJ_DEBUG
+// Under c->lock, parked: the words of [sp, stack_hi) as clj_coro_parked_bytes reads them, the frame pointer and the
+// return address its switch saved; false when it has no stack of its own.
+bool clj_coro_parked_stack(const clj_coro *c, const uintptr_t **words, size_t *n, uintptr_t *sp, uintptr_t *fp, uintptr_t *pc);
+#endif
 void      clj_coro_entry(void);
 // Runs a coroutine's body on its own stack: called by the carrier loop, returns when it parks or finishes.
 void clj_coro_switch_in(clj_carrier *car, clj_coro *c);
@@ -307,7 +312,7 @@ void clj_coro_drop_pending(clj_coro *c);
 void clj_coro_capture_spawn_trace(clj_coro *c);
 void clj_coro_free_spawn_trace(clj_coro *c);
 // Appends c's spawn trace to a trace vector (shadow.c).
-clj_value clj_coro_append_spawn_trace(clj_value trace, const clj_coro *c);
+clj_value clj_coro_append_spawn_trace(CLJ_OWNED clj_value trace, const clj_coro *c);
 
 // The uncaught-error report of a coroutine: message and trace to stderr (sched.c).
 void clj_coro_report_uncaught(clj_coro *c);

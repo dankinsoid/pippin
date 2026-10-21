@@ -10,6 +10,7 @@
 #include "clj/var.h"
 #include "clj/vector.h"
 
+// A park under lock is an error (lock.h): what runs under it is CLJ_NO_PARK.
 static clj_lock  lock = CLJ_LOCK_INIT;
 static clj_value registry; // symbol → ns; nil until the first namespace
 static clj_value all;      // vector of namespaces in creation order
@@ -38,11 +39,11 @@ const clj_type clj_ns_type = {
 	.meta = ns_meta,
 };
 
-static clj_value find_locked(clj_value name) {
+CLJ_NO_PARK static clj_value find_locked(clj_value name) {
 	return clj_is_nil(registry) ? CLJ_NIL : clj_map_get(registry, name, CLJ_NIL);
 }
 
-static clj_value find_or_create_locked(clj_value name) {
+CLJ_NO_PARK static clj_value find_or_create_locked(clj_value name) {
 	clj_value ns = find_locked(name);
 	if (!clj_is_nil(ns)) return ns;
 	clj_ns *n = clj_alloc(&clj_ns_type, sizeof *n);
@@ -83,7 +84,7 @@ clj_value clj_ns_all(void) {
 	return v;
 }
 
-clj_value clj_ns_intern(clj_value ns, clj_value sym) {
+CLJ_NO_PARK clj_value clj_ns_intern(clj_value ns, clj_value sym) {
 	CLJ_ASSERT(clj_is_symbol(sym) && clj_is_nil(clj_symbol_ns(sym)), "interned symbol must be unqualified");
 	clj_ns *n = clj_ns_of(ns);
 	clj_lock_lock(&lock);
@@ -166,12 +167,12 @@ void clj_ns_set_excludes(clj_value ns, clj_value excludes) {
 	clj_lock_unlock(&lock);
 }
 
-static clj_value resolve_ns_locked(clj_ns *n, clj_value name) {
+CLJ_NO_PARK static clj_value resolve_ns_locked(clj_ns *n, clj_value name) {
 	clj_value target = clj_map_get(n->aliases.v, name, CLJ_NIL);
 	return clj_is_nil(target) ? find_locked(name) : target;
 }
 
-clj_value clj_ns_resolve(clj_value ns, clj_value sym) {
+CLJ_NO_PARK clj_value clj_ns_resolve(clj_value ns, clj_value sym) {
 	clj_value var = CLJ_NIL;
 	clj_ns   *n = clj_ns_of(ns);
 	clj_lock_lock(&lock);
@@ -204,7 +205,7 @@ clj_value clj_ns_resolve_ns(clj_value ns, clj_value name) {
 	return target;
 }
 
-static clj_value named(clj_value *slot, const char *name) {
+CLJ_NO_PARK static clj_value named(clj_value *slot, const char *name) {
 	clj_lock_lock(&lock);
 	if (clj_is_nil(*slot)) {
 		clj_value sym = clj_symbol_from_cstr(name);
@@ -230,7 +231,7 @@ static void make_ns_var(void) {
 	clj_var_bind_root(ns_var, clj_ns_user());
 }
 
-clj_value clj_ns_var(void) {
+CLJ_NO_CYCLE clj_value clj_ns_var(void) {
 	pthread_once(&ns_var_once, make_ns_var);
 	return ns_var;
 }

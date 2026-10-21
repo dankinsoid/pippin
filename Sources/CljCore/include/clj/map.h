@@ -54,8 +54,8 @@ clj_value clj_map_dissoc(clj_value map, clj_value key);
 // answers CLJ_UNBOUND with *dup at its index when dup is given; with NULL the last value wins.
 clj_value clj_map_from_items(const clj_value *items, uint32_t n, uint32_t *dup);
 // The trie alone, for a caller that never wants a shape (a set's impl); map must be a hash map.
-clj_value clj_hash_map_assoc(clj_value map, clj_value key, clj_value val);
-clj_value clj_hash_map_dissoc(clj_value map, clj_value key);
+clj_value clj_hash_map_assoc(CLJ_OWNED clj_value map, clj_value key, clj_value val);
+clj_value clj_hash_map_dissoc(CLJ_OWNED clj_value map, clj_value key);
 
 // One entry's share of an unordered map hash; the sum of them mixed with the count is the map hash.
 uint32_t clj_map_entry_hash(clj_value key, clj_value val);

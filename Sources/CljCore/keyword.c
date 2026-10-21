@@ -36,8 +36,8 @@ const clj_type clj_keyword_type = {
 	.invoke = keyword_invoke,
 };
 
-// Consumes sym: a new keyword takes it over, an existing one drops it.
-static clj_value intern(clj_value sym) {
+// Consumes sym: a new keyword takes it over, an existing one drops it. Under table_lock, where a park is an error.
+CLJ_NO_PARK static clj_value intern(clj_value sym) {
 	clj_lock_lock(&table_lock);
 	if (clj_is_nil(table)) table = clj_map_empty();
 	clj_value kw = clj_map_get(table, sym, CLJ_NIL);

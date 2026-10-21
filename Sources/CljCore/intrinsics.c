@@ -180,14 +180,14 @@ const clj_intrinsic *clj_intrinsic_consuming(clj_value fn, uint32_t arity) {
 void clj_intrinsics_install(void) {
 	for (size_t i = 0; i < N; i++) {
 		if (table[i].arity != (uint32_t)table[i].kind) clj_ice("boot/intrinsic-table", NULL, "%s: arity does not match its kind", table[i].name);
-		const char *slash = strchr(table[i].name, '/');
-		clj_value   ns_name = clj_string_new(table[i].name, (size_t)(slash - table[i].name));
-		clj_value   ns_sym = clj_symbol_new(CLJ_NIL, ns_name);
-		clj_value   ns = clj_ns_find(ns_sym);
+		const char            *slash = strchr(table[i].name, '/');
+		CLJ_NO_CYCLE clj_value ns_name = clj_string_new(table[i].name, (size_t)(slash - table[i].name));
+		CLJ_NO_CYCLE clj_value ns_sym = clj_symbol_new(CLJ_NIL, ns_name);
+		clj_value              ns = clj_ns_find(ns_sym);
 		clj_release(ns_sym);
 		clj_release(ns_name);
-		clj_value sym = clj_symbol_from_cstr(slash + 1);
-		clj_value var = clj_is_nil(ns) ? CLJ_NIL : clj_ns_resolve(ns, sym);
+		CLJ_NO_CYCLE clj_value sym = clj_symbol_from_cstr(slash + 1);
+		clj_value              var = clj_is_nil(ns) ? CLJ_NIL : clj_ns_resolve(ns, sym);
 		clj_release(sym);
 		if (clj_is_nil(var)) clj_ice("boot/intrinsic-table", NULL, "%s names no var", table[i].name);
 		clj_value fn = clj_var_root(var);

@@ -58,9 +58,9 @@ static clj_value stripped(clj_value v, int32_t *scale) {
 }
 
 static uint32_t decimal_hash(void *self) {
-	int32_t   s;
-	clj_value u = stripped(clj_from_ptr(self), &s);
-	uint32_t  h = clj_hash_combine(clj_hash(u), clj_fmix32((uint32_t)s));
+	int32_t                s;
+	CLJ_NO_CYCLE clj_value u = stripped(clj_from_ptr(self), &s);
+	uint32_t               h = clj_hash_combine(clj_hash(u), clj_fmix32((uint32_t)s));
 	clj_release(u);
 	return h;
 }
@@ -306,11 +306,11 @@ clj_value clj_decimal_round(clj_value v, const clj_math_context *mc) {
 	clj_value u = clj_decimal_unscaled(v);
 	uint32_t  nd = digit_count(u);
 	if (mc->precision == 0 || nd <= mc->precision) return clj_retain(v);
-	uint32_t  drop = nd - mc->precision;
-	clj_value unit = clj_bigint_pow10(drop);
-	clj_value mag = clj_bigint_abs(u);
-	clj_value rem = CLJ_NIL;
-	clj_value q = clj_bigint_quot(mag, unit, &rem);
+	uint32_t               drop = nd - mc->precision;
+	CLJ_NO_CYCLE clj_value unit = clj_bigint_pow10(drop);
+	clj_value              mag = clj_bigint_abs(u);
+	CLJ_NO_CYCLE clj_value rem = CLJ_NIL;
+	clj_value              q = clj_bigint_quot(mag, unit, &rem);
 	clj_release(mag);
 	clj_value r = rounded(q, rem, unit, clj_bigint_sign(u), (int64_t)clj_decimal_scale(v) - drop, mc);
 	clj_release(rem);
@@ -329,9 +329,11 @@ clj_value clj_decimal_div_mc(clj_value a, clj_value b, const clj_math_context *m
 		clj_release(exact);
 	}
 	// n/d has dn - dd or dn - dd + 1 integer digits, so q takes this k or the next.
-	clj_value n = clj_bigint_abs(clj_decimal_unscaled(a)), d = clj_bigint_abs(clj_decimal_unscaled(b));
-	int64_t   k = (int64_t)mc->precision - ((int64_t)digit_count(n) - (int64_t)digit_count(d) + 1);
-	clj_value q, rem, unit;
+	clj_value              n = clj_bigint_abs(clj_decimal_unscaled(a)), d = clj_bigint_abs(clj_decimal_unscaled(b));
+	int64_t                k = (int64_t)mc->precision - ((int64_t)digit_count(n) - (int64_t)digit_count(d) + 1);
+	clj_value              q;
+	CLJ_NO_CYCLE clj_value rem;
+	CLJ_NO_CYCLE clj_value unit;
 	for (;;) {
 		clj_value p = clj_bigint_pow10((uint32_t)(k < 0 ? -k : k));
 		clj_value num = k >= 0 ? clj_bigint_mul(n, p) : clj_retain(n);

@@ -169,3 +169,19 @@ clj_value fx_span_unnamed(size_t n) {
 	free(items);
 	return r;
 }
+
+clj_value fx_sizeof(void) {
+	fx_park();
+	clj_value *q = malloc(sizeof *q);
+	*q = CLJ_NIL;
+	clj_value r = *q;
+	free(q);
+	return r;
+}
+
+clj_value fx_for_init(clj_value specs) {
+	for (clj_value s = fx_peek(specs); !clj_is_nil(s); s = fx_consume(s)) {
+		fx_park(); // expect: s holds a reference (handed to fx_consume
+	}
+	return CLJ_NIL;
+}

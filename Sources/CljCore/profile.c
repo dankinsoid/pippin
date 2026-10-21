@@ -9,6 +9,7 @@
 #include "clj/map.h"
 #include "clj/vector.h"
 #include "profile_internal.h"
+#include "roots_internal.h"
 
 uint8_t clj_instrument;
 
@@ -136,9 +137,8 @@ static void intern_keywords(void) {
 
 void clj_profile_intern_keywords(void) { pthread_once(&keywords_once, intern_keywords); }
 
-clj_value clj_profile_stop(void) {
-	pthread_once(&keywords_once, intern_keywords);
-	clj_lock_lock(&lock);
+// Under lock, where a park is an error.
+CLJ_NO_PARK static clj_value stop_locked(void) {
 	set_instrument(CLJ_INSTRUMENT_PROFILE, false);
 	profile_entry *entries = calloc(used ? used : 1, sizeof *entries);
 	if (!entries) clj_fatal("out of memory");
@@ -160,7 +160,15 @@ clj_value clj_profile_stop(void) {
 	}
 	free(entries);
 	clear();
+	return fns;
+}
+
+clj_value clj_profile_stop(void) {
+	pthread_once(&keywords_once, intern_keywords);
+	clj_lock_lock(&lock);
+	clj_value fns = stop_locked();
 	clj_lock_unlock(&lock);
+	CLJ_ROOTS(&fns);
 	clj_value data = clj_map_assoc(clj_map_empty(), kw_fns, fns);
 	clj_release(fns);
 	return data;

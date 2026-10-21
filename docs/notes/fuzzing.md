@@ -116,6 +116,22 @@ item 2. `fuzz/` holds it; `make fuzz` is the bounded pass, `make fuzz-long` the 
   27 s on main (run 37834676178 against 37780771278), 23 s more for the compiled backend on every gate run; the
   hand pass of 80000 forms over eighty seeds took 88 s before the unit runner joined `make fuzz-long`.
 
+## Leak fuzzing (Tests/PippinTests/LeakFuzzTests.swift, design §7 «Фаза 3»)
+
+- **The shape.** A seeded generator (`LeakProgram`, SplitMix64) writes a `defn` that binds one to three channels,
+  buffered or not, and spawns one to three `go`, `go-loop`, `mult`/`tap` or `mix`/`admix` bodies, each parking on
+  them from inside runtime callbacks up to two deep: `reduce`, `reduce-kv`, `map` realized by `doall`, a
+  transducer through `into` and `transduce`, `mapv`, `sort-by`, `filter`, `some`, `group-by`, `update`, `apply`,
+  `swap!`, a lazy seq, a closure and a vector over the channels, an atom holding one. The program returns nil, so
+  every coroutine it parks is garbage. After the call the test collects until the live coroutines are back at the
+  baseline and checks the live objects too; a failure prints the seed and the source.
+- **Backends and the oracle.** Interpreted, dev-compiled and closed-compiled, the defn compiled and called from
+  the interpreter. The suite runs in the ASan gate, a debug build, so the frame oracle (`cc_oracle.c`) checks every
+  read of a parked coroutine on the way: an owned reference nothing names fails there, with the frame, rather than
+  as a count at the end.
+- **Length.** The gate runs six programs interpreted and three a compiled backend (`CLJ_LEAK_FUZZ`, default 6);
+  `make leak-fuzz-long`, the last step of `make fuzz-long`, runs `LEAK_FUZZ` (400) from `LEAK_FUZZ_SEED`.
+
 ## Parser fuzzing (fuzz/parsers/, design §3 item 5)
 
 - **Parser fuzzing.** Four libFuzzer harnesses over the C parsers: `reader` (raw bytes as a host hands source,

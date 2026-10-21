@@ -22,10 +22,13 @@
 #include "compiled_internal.h"
 #include "ice_internal.h"
 #include "node.h"
+#include "roots_internal.h"
 
-clj_value clj_c_with_meta(clj_value v, clj_value meta) {
+clj_value clj_c_with_meta(CLJ_OWNED clj_value v, CLJ_OWNED clj_value meta) {
+	CLJ_ROOTS(&meta);
 	clj_value r = clj_with_meta(v, meta);
 	clj_release(meta);
+	meta = CLJ_NIL;
 	if (r == CLJ_THROWN) clj_ice("compiled/constant", NULL, "a compiled constant cannot carry its metadata");
 	return r;
 }
@@ -35,7 +38,8 @@ clj_value clj_c_const(const char *edn, size_t len) {
 	clj_reader_init(&r, edn, len);
 	clj_reader_use_namespaces(&r);
 	clj_reader_no_positions(&r);
-	clj_value v;
+	clj_value v = CLJ_NIL;
+	CLJ_ROOTS(&v);
 	if (clj_read(&r, &v) != CLJ_READ_OK) {
 		char msg[300];
 		snprintf(msg, sizeof msg, "compiled constant does not read back: %s", clj_reader_message(&r));
@@ -55,11 +59,11 @@ void clj_c_publish(const clj_value *pool, size_t n) {
 }
 
 clj_value clj_c_var(const char *ns, const char *name) {
-	clj_value ns_sym = clj_symbol_from_cstr(ns);
-	clj_value ns_obj = clj_ns_find_or_create(ns_sym);
+	CLJ_NO_CYCLE clj_value ns_sym = clj_symbol_from_cstr(ns);
+	clj_value              ns_obj = clj_ns_find_or_create(ns_sym);
 	clj_release(ns_sym);
-	clj_value name_str = clj_string_from_cstr(name);
-	clj_value sym = clj_symbol_new(CLJ_NIL, name_str);
+	clj_value              name_str = clj_string_from_cstr(name);
+	CLJ_NO_CYCLE clj_value sym = clj_symbol_new(CLJ_NIL, name_str);
 	clj_release(name_str);
 	clj_value var = clj_ns_intern(ns_obj, sym);
 	clj_release(sym);
@@ -93,6 +97,7 @@ clj_value clj_c_lazy_def(clj_value var, uint8_t lazy, clj_lazy_def_fn fn) {
 	}
 	clj_value v = fn(NULL, CLJ_NIL);
 	if (v == CLJ_THROWN) return CLJ_THROWN;
+	CLJ_ROOTS(&v);
 	clj_var_bind_root(var, v);
 	clj_release(v);
 	return CLJ_NIL;
@@ -122,6 +127,7 @@ static clj_value shaken_meta(bool macro) {
 
 static void shaken_bind(clj_value var, bool macro) {
 	clj_value f = clj_shaken_new(var);
+	CLJ_ROOTS(&f);
 	// Without the bracket a unit's other binds run under, clj_eval_retire_root declines and the old fn root dies early.
 	clj_eval_top_enter();
 	clj_var_bind_root(var, f);
@@ -140,9 +146,10 @@ void clj_c_shaken_macro(clj_value var) { shaken_bind(var, true); }
 
 bool clj_c_is_shaken(clj_value var) { return clj_is_shaken(clj_var_root(var)); }
 
-static clj_value duplicate_key(clj_value result, clj_value key) {
-	clj_value text = clj_pr_str_max(key, CLJ_ERROR_PRINT_MAX);
+// key is borrowed from the caller's items, never from result.
+static clj_value duplicate_key(CLJ_OWNED clj_value result, clj_value key) {
 	clj_release(result);
+	CLJ_NO_CYCLE clj_value text = clj_pr_str_max(key, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
 	clj_value r = clj_throw_msg("Duplicate key: %s", CLJ_STR(text).bytes);
 	clj_release(text);
@@ -157,9 +164,13 @@ clj_value clj_c_map_literal(const clj_value *items, uint32_t n) {
 
 clj_value clj_c_set_literal(const clj_value *items, uint32_t n) {
 	clj_value result = clj_set_empty();
+	CLJ_ROOTS(&result);
 	for (uint32_t i = 0; i < n; i++) {
-		if (clj_set_contains(result, items[i])) return duplicate_key(result, items[i]);
-		result = clj_set_conj(result, items[i]);
+		bool      dup = clj_set_contains(result, items[i]);
+		clj_value acc = result;
+		result = CLJ_NIL;
+		if (dup) return duplicate_key(acc, items[i]);
+		result = clj_set_conj(acc, items[i]);
 		if (result == CLJ_THROWN) return CLJ_THROWN;
 	}
 	return result;
@@ -250,6 +261,7 @@ clj_value clj_c_proto_miss(clj_cproto_ic *ic, clj_value method, const clj_value 
 	if (!clj_is_protocol_method(method)) return clj_c_invoke(method, args, n);
 	if (!method_accepts(method, n)) return clj_arity_error(method, n);
 	clj_value impl = clj_protocol_method_impl(method, args[0]);
+	CLJ_ROOTS(&impl);
 	if (clj_is_nil(impl)) return clj_protocol_no_impl(method, args[0]);
 	if (clj_is_fn(impl) && clj_epoch_load() == epoch) {
 		bool one_way = clj_opt_off(CLJ_NO_OPT_DISPATCH);
@@ -290,7 +302,7 @@ int64_t clj_debug_field_reads(bool hit) {
 }
 
 // @ai-generated(solo)
-CLJ_UNIT_ENTRY clj_value clj_c_field_miss(_Atomic uint64_t *cell, clj_value x, clj_value selector) {
+CLJ_UNIT_ENTRY clj_value clj_c_field_miss(_Atomic uint64_t *cell, CLJ_BORROWED clj_value x, clj_value selector) {
 	CLJ_C_FIELD_COUNT(1);
 	if (clj_is_instance(x) && !clj_opt_off(CLJ_NO_OPT_DISPATCH)) {
 		uint64_t serial = ((const clj_user_type *)clj_type_of(x))->serial;
@@ -307,6 +319,7 @@ CLJ_UNIT_ENTRY clj_value clj_c_field_miss(_Atomic uint64_t *cell, clj_value x, c
 CLJ_UNIT_ENTRY bool clj_c_mfield_slow(clj_value x, uint32_t i, bool dbl, void *out) {
 	clj_value v = clj_mutable_field(x, clj_fixnum((intptr_t)i));
 	if (v == CLJ_THROWN) return false;
+	CLJ_ROOTS(&v);
 	int64_t n;
 	bool    ok = dbl ? clj_is_double(v) : clj_int64_of(v, &n);
 	if (ok && dbl) *(double *)out = clj_double_val(v);
@@ -318,7 +331,7 @@ CLJ_UNIT_ENTRY bool clj_c_mfield_slow(clj_value x, uint32_t i, bool dbl, void *o
 
 // @ai-generated(solo)
 CLJ_UNIT_ENTRY bool clj_c_set_mfield_slow(clj_value x, uint32_t i, bool dbl, void *v) {
-	clj_value boxed = dbl ? clj_double_new(*(double *)v) : clj_long_new(*(int64_t *)v);
+	CLJ_NO_CYCLE clj_value boxed = dbl ? clj_double_new(*(double *)v) : clj_long_new(*(int64_t *)v);
 	clj_value r = clj_set_field_closed(x, clj_fixnum((intptr_t)i), boxed);
 	clj_release(boxed);
 	if (r == CLJ_THROWN) return false;

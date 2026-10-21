@@ -685,11 +685,12 @@ static bool parse_group(comp *c, atom *a) {
 		size_t start = c->pos;
 		while (!at_end(c) && peek(c) != '>') c->pos++;
 		if (c->pos == start || at_end(c)) return fail(c, "Named capturing group has no name", start);
-		clj_value name = clj_string_new(c->src + start, c->pos - start);
+		CLJ_NO_CYCLE clj_value name = clj_string_new(c->src + start, c->pos - start);
 		c->pos++;
-		uint32_t g = ++c->ngroups;
-		if (clj_is_nil(c->names)) c->names = clj_map_empty();
-		c->names = clj_map_assoc(c->names, name, clj_fixnum((intptr_t)g));
+		uint32_t  g = ++c->ngroups;
+		clj_value names = clj_is_nil(c->names) ? clj_map_empty() : c->names;
+		c->names = CLJ_NIL;
+		c->names = clj_map_assoc(names, name, clj_fixnum((intptr_t)g));
 		clj_release(name);
 		save_group(p, 2 * g);
 		if (!parse_alt(c, w)) return false;
@@ -802,8 +803,8 @@ static bool parse_escaped_atom(comp *c, atom *a, uint16_t fl, size_t start) {
 		if (!eat(c, '<')) return fail(c, "\\k is not followed by '<' for a named group", c->pos);
 		size_t nstart = c->pos;
 		while (!at_end(c) && peek(c) != '>') c->pos++;
-		clj_value name = clj_string_new(c->src + nstart, c->pos - nstart);
-		bool      closed = eat(c, '>');
+		CLJ_NO_CYCLE clj_value name = clj_string_new(c->src + nstart, c->pos - nstart);
+		bool                   closed = eat(c, '>');
 		clj_value g = closed && !clj_is_nil(c->names) ? clj_map_get(c->names, name, CLJ_NIL) : CLJ_NIL;
 		bool      known = clj_is_fixnum(g);
 		if (known) emit(p, RE_BACKREF, fl)->a = (uint32_t)clj_fixnum_val(g);
@@ -1428,16 +1429,17 @@ const clj_type clj_matcher_type = {
 // ---- construction
 
 static clj_value syntax_error(clj_value pattern, const char *desc, size_t offset) {
-	clj_value data = clj_map_empty();
-	clj_value kw = clj_keyword_from_cstr("pattern");
+	clj_value              data = clj_map_empty();
+	CLJ_NO_CYCLE clj_value kw = clj_keyword_from_cstr("pattern");
 	data = clj_map_assoc(data, kw, pattern);
 	clj_release(kw);
 	kw = clj_keyword_from_cstr("offset");
 	data = clj_map_assoc(data, kw, clj_fixnum((intptr_t)offset));
 	clj_release(kw);
+	CLJ_ROOTS(&data);
 	char msg[512];
 	snprintf(msg, sizeof msg, "%s near index %zu\n%.256s", desc, offset, CLJ_STR(pattern).bytes);
-	clj_value text = clj_string_from_cstr(msg);
+	CLJ_NO_CYCLE clj_value text = clj_string_from_cstr(msg);
 	clj_value ex = clj_ex_info(text, data);
 	clj_release(text);
 	clj_release(data);
@@ -1480,6 +1482,7 @@ clj_value clj_regex_new(clj_value pattern) {
 	c.len = clj_string_len(pattern);
 	c.p = p;
 	c.names = CLJ_NIL;
+	CLJ_ROOTS(&c.names);
 	emit(p, RE_SAVE, 0);
 	re_width w;
 	bool     ok = parse_alt(&c, &w);
@@ -1487,6 +1490,7 @@ clj_value clj_regex_new(clj_value pattern) {
 	if (!ok) {
 		prog_free(p);
 		clj_release(c.names);
+		c.names = CLJ_NIL;
 		return syntax_error(pattern, c.err, c.errpos);
 	}
 	save_group(p, 1);
@@ -1671,6 +1675,7 @@ clj_value clj_regex_split(clj_value re, clj_value s, intptr_t limit) {
 	int32_t *g = malloc(2 * (clj_regex_group_count(re) + 1) * sizeof *g);
 	if (!g) clj_fatal("out of memory");
 	clj_value parts = clj_vector_empty();
+	CLJ_ROOTS(&parts);
 	uint32_t  index = 0, at = 0;
 	bool      thrown = false, none = true;
 	re_ctx    ctx;
@@ -1747,8 +1752,8 @@ static bool expand(buf *b, clj_value re, clj_value s, const re_text *t, const in
 				clj_throw_msg("Unclosed group name in the replacement");
 				return false;
 			}
-			clj_value name = clj_string_new(r + start, end - start);
-			clj_value idx = clj_is_nil(clj_regex_of(re)->names.v) ? CLJ_NIL : clj_map_get(clj_regex_of(re)->names.v, name, CLJ_NIL);
+			CLJ_NO_CYCLE clj_value name = clj_string_new(r + start, end - start);
+			clj_value              idx = clj_is_nil(clj_regex_of(re)->names.v) ? CLJ_NIL : clj_map_get(clj_regex_of(re)->names.v, name, CLJ_NIL);
 			bool      known = clj_is_fixnum(idx);
 			group = known ? (uint32_t)clj_fixnum_val(idx) : 0;
 			clj_release(name);
@@ -1792,6 +1797,7 @@ static bool put_replacement(buf *b, clj_value re, clj_value s, const re_text *t,
 	arg = CLJ_NIL;
 	if (out == CLJ_THROWN) return false;
 	if (!clj_is_string(out)) {
+		CLJ_ROOTS(&out);
 		clj_throw_msg("%s cannot be cast to a string", clj_type_name(out));
 		clj_release(out);
 		return false;

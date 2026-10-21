@@ -24,6 +24,9 @@ void clj_cell_reborn(clj_header *h, const clj_type *type, size_t size, bool pois
 #if CLJ_DEBUG
 // The running execution's owner tag, 0 on a thread that has none yet (coro.c).
 uint32_t clj_debug_owner_here(void);
+// The header at w when w is the start of a cell or allocation whose descriptor is a known type, live or freed: the
+// caller tells which by the header. NULL for anything else (cc.c, the frame oracle).
+const clj_header *clj_debug_object_at(uintptr_t w);
 #endif
 
 #endif

@@ -31,14 +31,14 @@ static clj_queue *queue_own(clj_value self) {
 static uint32_t rear_count(const clj_queue *q) { return clj_is_nil(q->rear.v) ? 0 : clj_vector_count(q->rear.v); }
 
 // One list of the front's items followed by the rear's: the JVM's Seq view, materialized.
-// keep arrives after the walk, which is clj_seq_items' own.
 static clj_value queue_seq(clj_value self) {
 	const clj_queue *q = clj_queue_of(self);
 	if (!q->count) return CLJ_NIL;
 	uint32_t rn = rear_count(q);
 	if (!rn) return clj_retain(q->front.v);
 	size_t     n;
-	clj_value  keep;
+	clj_value  keep = CLJ_NIL;
+	CLJ_ROOTS(&keep);
 	clj_value *front = clj_seq_items(q->front.v, &n, &keep);
 	if (!front) return CLJ_THROWN;
 	clj_value *items = malloc((n + rn) * sizeof *items);
@@ -76,9 +76,9 @@ static clj_value queue_reduce(clj_value self, clj_value f, clj_value init) {
 	const clj_queue *q = clj_queue_of(self);
 	if (!q->count) return clj_reduce_empty(f, init);
 	clj_reducer  r = clj_reducer_start(f, init, 2);
-	clj_seq_iter it = clj_seq_iter_start(q->front.v);
-	clj_value    item;
-	bool         go = true;
+	clj_seq_iter           it = clj_seq_iter_start(q->front.v);
+	CLJ_BORROWED clj_value item;
+	bool                   go = true;
 	CLJ_ROOTS(&r.acc, &it.held, &it.item);
 	while (go && clj_seq_iter_next(&it, &item)) go = clj_reducer_step(&r, item);
 	if (it.thrown) {
@@ -130,12 +130,12 @@ clj_value clj_queue_pop(clj_value self) {
 	if (!clj_queue_of(self)->count) return self;
 	// its front is a list, a seq of conj'd items or of the rear vector, whose next runs nothing
 	clj_queue *q = queue_own(self);
-	clj_value  front = clj_next(q->front.v);
+	CLJ_ROOTS((clj_value *)&q);
+	clj_value front = clj_next(q->front.v);
 	if (front == CLJ_THROWN) {
 		clj_release(clj_from_ptr(q));
 		return CLJ_THROWN;
 	}
-	clj_value old_front = q->front.v;
 	if (clj_is_nil(front)) {
 		// The rear becomes the front; the vector lives on behind the seq view.
 		front = clj_seq(q->rear.v);
@@ -143,6 +143,7 @@ clj_value clj_queue_pop(clj_value self) {
 		clj_slot_store(&q->h, &q->rear, clj_vector_empty());
 		clj_release(old_rear);
 	}
+	clj_value old_front = q->front.v;
 	clj_slot_store(&q->h, &q->front, front);
 	clj_release(old_front);
 	q->count--;
@@ -158,7 +159,7 @@ static clj_value b_queue_pop(const clj_value *args, size_t n) {
 }
 
 static void bind(clj_value ns, const char *name, clj_value val) {
-	clj_value sym = clj_symbol_from_cstr(name);
+	CLJ_NO_CYCLE clj_value sym = clj_symbol_from_cstr(name);
 	clj_var_bind_root(clj_ns_intern(ns, sym), val);
 	clj_release(sym);
 }
@@ -173,7 +174,7 @@ void clj_queue_install(void) {
 	bind(core, "clojure.lang.PersistentQueue", type);
 	clj_core_mark_extension("clojure.lang.PersistentQueue");
 	clj_builtin_bind("queue-pop*", b_queue_pop, 1, 1);
-	clj_value ns_name = clj_symbol_from_cstr("clojure.lang.PersistentQueue");
+	CLJ_NO_CYCLE clj_value ns_name = clj_symbol_from_cstr("clojure.lang.PersistentQueue");
 	bind(clj_ns_find_or_create(ns_name), "EMPTY", clj_queue_empty());
 	clj_release(ns_name);
 }

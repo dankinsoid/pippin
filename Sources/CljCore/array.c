@@ -41,8 +41,8 @@ bool clj_array_kind_named(clj_value v, clj_array_kind *out) {
 }
 
 static clj_value out_of_range(clj_array_kind kind, clj_value v) {
-	clj_value text = clj_pr_str(v);
-	clj_value e = clj_throw_msg("Value out of range for %s: %s", kind_name[kind], CLJ_STR(text).bytes);
+	CLJ_NO_CYCLE clj_value text = clj_pr_str(v);
+	clj_value              e = clj_throw_msg("Value out of range for %s: %s", kind_name[kind], CLJ_STR(text).bytes);
 	clj_release(text);
 	return e;
 }
@@ -183,13 +183,14 @@ clj_value clj_array_clone(clj_value arr) {
 	return copy;
 }
 
-// keep arrives after the walk, which is clj_seq_items' own.
 clj_value clj_array_from_seq(clj_array_kind kind, clj_value coll) {
-	size_t     n = 0;
-	clj_value  keep = CLJ_NIL;
-	clj_value *items = clj_seq_items(coll, &n, &keep);
+	size_t                  n = 0;
+	clj_value               keep = CLJ_NIL;
+	clj_value               arr = CLJ_NIL;
+	CLJ_ROOTS(&keep, &arr);
+	CLJ_BORROWED clj_value *items = clj_seq_items(coll, &n, &keep);
 	if (!items) return CLJ_THROWN;
-	clj_value arr = clj_array_new(kind, (uint32_t)n);
+	arr = clj_array_new(kind, (uint32_t)n);
 	clj_value err = CLJ_NIL;
 	for (size_t i = 0; i < n; i++) {
 		if (clj_array_set(arr, (uint32_t)i, items[i]) == CLJ_THROWN) {

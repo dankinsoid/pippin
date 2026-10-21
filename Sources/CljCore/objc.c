@@ -860,7 +860,7 @@ static const struct {
 // A keyword is immortal and interning is idempotent, so a race here stores the same value twice.
 static clj_value known_keys[KNOWN_STRUCTS][6];
 
-static clj_value field_key(int s, unsigned i) {
+CLJ_NO_CYCLE static clj_value field_key(int s, unsigned i) {
 	if (!known_keys[s][i]) known_keys[s][i] = clj_keyword_from_cstr(known_structs[s].field[i]);
 	return known_keys[s][i];
 }
@@ -906,7 +906,7 @@ static clj_value read_scalar(char enc, const unsigned char *at) {
 }
 
 // The key of the cursor's member: the header's name when the encoding carries one, else the table's (ks >= 0).
-static clj_value member_key(const fcursor *c, int ks, unsigned i) {
+CLJ_NO_CYCLE static clj_value member_key(const fcursor *c, int ks, unsigned i) {
 	if (!c->name) return field_key(ks, i);
 	char text[128];
 	if (c->namelen >= sizeof text) return CLJ_NIL;
@@ -939,18 +939,24 @@ static clj_value decode_struct(const char *enc, const unsigned char *buf) {
 	if (!struct_info(enc, &si)) return CLJ_NIL;
 	int         ks = si.named ? -1 : known_index(&si);
 	bool        keyed = si.named || ks >= 0;
-	clj_value   items[CLJ_OBJC_MAX_FIELDS * 2];
-	unsigned    n = 0;
+	clj_value   slots[CLJ_OBJC_MAX_FIELDS * 2], *items = slots;
+	size_t      n = 0;
 	fcursor     c;
 	const char *f;
 	uint32_t    off;
+	// The keys are keywords, immortal: naming them with the owned values overcounts nothing the collector frees.
+	CLJ_ROOTS_SPAN(&items, &n);
 	fields_begin(&si, &c);
 	for (unsigned i = 0; field_next(&c, &f, &off); i++) {
-		if (keyed) items[n++] = member_key(&c, ks, i);
-		items[n++] = *f == '{' ? decode_struct(f, buf + off) : read_scalar(*f, buf + off);
+		if (keyed) {
+			items[n] = member_key(&c, ks, i);
+			n++;
+		}
+		items[n] = *f == '{' ? decode_struct(f, buf + off) : read_scalar(*f, buf + off);
+		n++;
 	}
-	clj_value out = keyed ? clj_map_from_items(items, n, NULL) : clj_vector_from_array(items, n);
-	for (unsigned i = keyed ? 1 : 0; i < n; i += keyed ? 2 : 1) clj_release(items[i]);
+	clj_value out = keyed ? clj_map_from_items(items, (uint32_t)n, NULL) : clj_vector_from_array(items, (uint32_t)n);
+	for (size_t i = keyed ? 1 : 0; i < n; i += keyed ? 2 : 1) clj_release(items[i]);
 	return out;
 }
 
@@ -1138,22 +1144,27 @@ static clj_value from_ns_collection(id obj, unsigned depth) {
 	clj_value *items = n ? malloc((is_array ? n : 2 * n) * sizeof *items) : NULL;
 	if (n && !items) clj_fatal("out of memory converting a Cocoa collection");
 
-	uint32_t  m = 0;
+	size_t    m = 0;
 	clj_value out;
+	CLJ_ROOTS_SPAN(&items, &m);
 	if (is_array) {
-		for (unsigned long i = 0; i < n; i++)
-			items[m++] = from_ns_element(((id (*)(id, SEL, unsigned long))objc_msgSend)(obj, sel_registerName("objectAtIndex:"), i), depth);
-		out = clj_vector_from_array(items, m);
+		for (unsigned long i = 0; i < n; i++) {
+			items[m] = from_ns_element(((id (*)(id, SEL, unsigned long))objc_msgSend)(obj, sel_registerName("objectAtIndex:"), i), depth);
+			m++;
+		}
+		out = clj_vector_from_array(items, (uint32_t)m);
 	} else {
 		id keys = ((id (*)(id, SEL))objc_msgSend)(obj, sel_registerName("allKeys"));
 		for (unsigned long i = 0; i < n; i++) {
 			id k = ((id (*)(id, SEL, unsigned long))objc_msgSend)(keys, sel_registerName("objectAtIndex:"), i);
-			items[m++] = from_ns_element(k, depth);
-			items[m++] = from_ns_element(((id (*)(id, SEL, id))objc_msgSend)(obj, sel_registerName("objectForKey:"), k), depth);
+			items[m] = from_ns_element(k, depth);
+			m++;
+			items[m] = from_ns_element(((id (*)(id, SEL, id))objc_msgSend)(obj, sel_registerName("objectForKey:"), k), depth);
+			m++;
 		}
-		out = clj_map_from_items(items, m, NULL);
+		out = clj_map_from_items(items, (uint32_t)m, NULL);
 	}
-	for (uint32_t i = 0; i < m; i++) clj_release(items[i]);
+	for (size_t i = 0; i < m; i++) clj_release(items[i]);
 	free(items);
 	return out;
 }
@@ -1605,8 +1616,9 @@ static IMP trampoline_for(const objc_sig *sig) {
 // A callback has nowhere to throw to, so an error in a body is reported where it happened.
 static void report_uncaught(const char *what) {
 	clj_value ex = clj_take_pending(), trace = clj_take_pending_trace();
-	clj_value msg = clj_ex_message(ex);
-	clj_value text = clj_is_string(msg) ? clj_retain(msg) : clj_pr_str(ex);
+	CLJ_ROOTS(&ex, &trace);
+	CLJ_NO_CYCLE clj_value msg = clj_ex_message(ex);
+	CLJ_NO_CYCLE clj_value text = clj_is_string(msg) ? clj_retain(msg) : clj_pr_str(ex);
 	(void)!write(2, "clj: uncaught error in ", 23);
 	(void)!write(2, what, strlen(what));
 	(void)!write(2, ": ", 2);
@@ -1616,18 +1628,20 @@ static void report_uncaught(const char *what) {
 	clj_release(msg);
 	clj_release(ex);
 	clj_release(trace);
+	ex = trace = CLJ_NIL;
 }
 
 // ints and fps start at the callback's own first argument: the trampoline ate x0 and, for a method, x1.
-static void call_in(const objc_sig *sig, clj_value fn, clj_value self, const char *what,
+static void call_in(const objc_sig *sig, clj_value fn, CLJ_OWNED clj_value self, const char *what,
                     const long long *ints, const double *fps, unsigned char *rbuf) {
 	// The slice's token is hidden: popping our pool pops any pool a send opened inside it.
 	void *saved = clj_objc_pool_token;
 	clj_objc_pool_token = NULL;
 	void *pool = objc_autoreleasePoolPush();
 
-	clj_value argv[CLJ_OBJC_MAX_ARGS + 1];
-	uint32_t  argc = 0;
+	clj_value slots[CLJ_OBJC_MAX_ARGS + 1], *argv = slots;
+	size_t    argc = 0;
+	CLJ_ROOTS_SPAN(&argv, &argc);
 	if (self != CLJ_UNBOUND) argv[argc++] = self;
 	unsigned ni = 0, nf = 0;
 	for (unsigned i = 0; i < sig->nargs; i++) {
@@ -1649,7 +1663,8 @@ static void call_in(const objc_sig *sig, clj_value fn, clj_value self, const cha
 				break;
 			default: memcpy(buf, (const void *)(intptr_t)ints[ni++], abi->size); break;
 			}
-			argv[argc++] = decode_struct(sig->argenc[i], buf);
+			argv[argc] = decode_struct(sig->argenc[i], buf);
+			argc++;
 			continue;
 		}
 		switch (kind_of(sig->arg[i])) {
@@ -1657,17 +1672,19 @@ static void call_in(const objc_sig *sig, clj_value fn, clj_value self, const cha
 			long long raw = ints[ni++];
 			// A raw pointer in is borrowed: releasing it at the wrapper's death would be a release of
 			// something that is not an object at all.
-			argv[argc++] = sig->arg[i] == '^' ? (raw ? wrap_pointer((void *)(intptr_t)raw, sig->argptr[i]) : CLJ_NIL)
-			                                  : from_int_return(raw, sig->arg[i], false);
+			argv[argc] = sig->arg[i] == '^' ? (raw ? wrap_pointer((void *)(intptr_t)raw, sig->argptr[i]) : CLJ_NIL)
+			                                : from_int_return(raw, sig->arg[i], false);
 			break;
 		}
-		case K_FLOAT: argv[argc++] = clj_double_new((float)fps[nf++]); break;
-		default: argv[argc++] = clj_double_new(fps[nf++]); break;
+		case K_FLOAT: argv[argc] = clj_double_new((float)fps[nf++]); break;
+		default: argv[argc] = clj_double_new(fps[nf++]); break;
 		}
+		argc++;
 	}
 
 	clj_value r = clj_host_invoke(fn, argv, argc);
-	for (uint32_t i = 0; i < argc; i++) clj_release(argv[i]);
+	CLJ_ROOTS(&r);
+	while (argc) clj_release(argv[--argc]);
 
 	// A returned object outlives our pool only if it is autoreleased into the caller's.
 	id autorelease_me = NULL;
@@ -1981,9 +1998,9 @@ clj_value clj_objc_reify(clj_value super, clj_value protos, clj_value sels, clj_
 	if (!string_vector(sels, n, false)) return clj_throw_msg("objc-reify: every selector must be a string");
 	if (!string_vector(encs, n, true) || clj_vector_count(fns) != n) return clj_throw_msg("objc-reify: one encoding and one fn per selector");
 
-	pool_scope   p = pool_enter();
-	clj_value    err = CLJ_NIL;
-	reify_class *rc = reify_class_for(super, protos, sels, encs, &err);
+	pool_scope             p = pool_enter();
+	CLJ_BORROWED clj_value err = CLJ_NIL;
+	reify_class           *rc = reify_class_for(super, protos, sels, encs, &err);
 	pool_leave(p);
 	if (!rc) return err == CLJ_NIL ? clj_throw_msg("objc-reify failed") : err;
 
@@ -2198,8 +2215,8 @@ static block_kind *block_kind_for(const char *signature, const char *who, clj_va
 
 clj_value clj_objc_block(clj_value signature, clj_value fn) {
 	if (!clj_is_string(signature)) return clj_throw_msg("objc-block expects a signature string, got: %s", clj_type_name(signature));
-	clj_value   err = CLJ_NIL;
-	block_kind *k = block_kind_for(CLJ_STR(signature).bytes, "objc-block", &err);
+	CLJ_BORROWED clj_value err = CLJ_NIL;
+	block_kind            *k = block_kind_for(CLJ_STR(signature).bytes, "objc-block", &err);
 	if (!k) return err == CLJ_NIL ? clj_throw_msg("objc-block failed") : err;
 	if (!k->invoke)
 		return clj_throw_msg("objc-block: a struct of %u bytes returned through x8, a size the bridge has no return shape for: %s",
@@ -2250,8 +2267,8 @@ clj_value clj_objc_call_block(clj_value block, const clj_value *args, uint32_t n
 	const char         *signature = block_signature(b);
 	if (!signature) return clj_throw_msg("objc-invoke: this block carries no signature, and the bridge builds no prototype without one");
 
-	clj_value   err = CLJ_NIL;
-	block_kind *k = block_kind_for(signature, "objc-invoke", &err);
+	CLJ_BORROWED clj_value err = CLJ_NIL;
+	block_kind            *k = block_kind_for(signature, "objc-invoke", &err);
 	if (!k) return err == CLJ_NIL ? clj_throw_msg("objc-invoke failed") : err;
 	if (nargs != k->sig.nargs) return clj_throw_msg("The block %s takes %u argument(s), got %u", signature, k->sig.nargs, nargs);
 

@@ -62,8 +62,8 @@ static clj_value drain_onto(outbuf *b, clj_value tail) {
 }
 
 static clj_value complete(clj_value xf, outbuf *b) {
-	clj_value nil = CLJ_NIL;
-	clj_value r = clj_invoke(xf, &nil, 1);
+	CLJ_BORROWED clj_value nil = CLJ_NIL;
+	clj_value              r = clj_invoke(xf, &nil, 1);
 	if (r == CLJ_THROWN) {
 		drop_outputs(b);
 		return CLJ_THROWN;

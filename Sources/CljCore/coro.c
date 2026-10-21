@@ -613,6 +613,20 @@ const void *clj_coro_parked_bytes(const clj_coro *c, const void *addr, size_t le
 	return NULL;
 }
 
+#if CLJ_DEBUG
+bool clj_coro_parked_stack(const clj_coro *c, const uintptr_t **words, size_t *n, uintptr_t *sp, uintptr_t *fp, uintptr_t *pc) {
+	if (!c->map || atomic_load_explicit(&c->state, memory_order_acquire) != CLJ_CORO_PARKED) return false;
+	const char *lo = c->sp, *hi = c->shadow->stack_hi;
+	*words = clj_coro_parked_bytes(c, lo, (size_t)(hi - lo));
+	if (!*words) return false;
+	*n = (size_t)(hi - lo) / sizeof(uintptr_t);
+	*sp = (uintptr_t)lo;
+	*fp = (*words)[SWITCH_FP / sizeof(uintptr_t)];
+	*pc = (*words)[SWITCH_LR / sizeof(uintptr_t)];
+	return true;
+}
+#endif
+
 // Same addresses, so no pointer in the frames needs fixing; on the carrier before the switch, or under c->lock.
 static void evac_restore(clj_coro *c) {
 	clj_shadow_stack *s = c->shadow;
@@ -875,6 +889,8 @@ void clj_debug_coro_dump(void) {
 	size_t     n;
 	clj_coro **cs = live_snapshot(&n);
 	fprintf(stderr, "coroutines: %zu linked of %zu live\n", n, atomic_load_explicit(&live_coros, memory_order_relaxed));
+	clj_value trace = CLJ_NIL, frames = CLJ_NIL;
+	CLJ_ROOTS(&trace, &frames);
 	for (size_t i = 0; i < n; i++) {
 		clj_coro *c = cs[i];
 		pthread_mutex_lock(&c->lock);
@@ -887,15 +903,17 @@ void clj_debug_coro_dump(void) {
 		if (w && w->wait_chan) clj_debug_chan_describe(w->wait_chan, where, sizeof where);
 		pthread_mutex_unlock(&c->lock);
 		if (*where) fprintf(stderr, "    on %s\n", where);
-		clj_value trace = clj_coro_parked_trace(clj_from_ptr(c));
+		trace = clj_coro_parked_trace(clj_from_ptr(c));
 		if (!clj_is_nil(trace)) {
-			clj_value frames = clj_trace_realize(trace);
+			frames = clj_trace_realize(trace);
 			clj_value text = clj_pr_str_max(frames, 2000);
 			fprintf(stderr, "    %.*s\n", (int)clj_string_len(text), CLJ_STR(text).bytes);
 			clj_release(text);
 			clj_release(frames);
+			frames = CLJ_NIL;
 		}
 		clj_release(trace);
+		trace = CLJ_NIL;
 		clj_release(clj_from_ptr(c));
 	}
 	free(cs);

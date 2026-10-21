@@ -12,7 +12,7 @@ static clj_value ns_symbol_arg(const char *what, clj_value v) {
 }
 
 // A namespace from a namespace or its symbol; throws "No namespace: x found".
-static clj_value the_ns(clj_value v) {
+static CLJ_NO_CYCLE clj_value the_ns(clj_value v) {
 	if (clj_is_ns(v)) return v;
 	if (!clj_is_symbol(v)) return clj_throw_msg("%s cannot be cast to a namespace", clj_type_name(v));
 	clj_value ns = clj_ns_find(v);
@@ -64,7 +64,11 @@ typedef struct {
 
 static bool collect_public(clj_value key, clj_value val, void *ctx) {
 	collect_ctx *c = ctx;
-	if (!c->public_only || !clj_var_is_private(val)) c->out = clj_map_assoc(c->out, key, val);
+	if (!c->public_only || !clj_var_is_private(val)) {
+		clj_value acc = c->out;
+		c->out = CLJ_NIL;
+		c->out = clj_map_assoc(acc, key, val);
+	}
 	return true;
 }
 
@@ -72,6 +76,7 @@ static clj_value ns_map_of(clj_value ns_arg, bool with_refers, bool public_only)
 	clj_value ns = the_ns(ns_arg);
 	if (ns == CLJ_THROWN) return CLJ_THROWN;
 	collect_ctx c = {clj_map_empty(), public_only};
+	CLJ_ROOTS(&c.out);
 	if (with_refers) clj_map_each(clj_ns_refers(ns), collect_public, &c);
 	clj_map_each(clj_ns_mappings(ns), collect_public, &c);
 	return c.out;
@@ -83,6 +88,7 @@ static bool collect_import(clj_value key, clj_value var, void *ctx);
 static clj_value b_ns_map(const clj_value *args, size_t n) {
 	(void)n;
 	clj_value m = ns_map_of(args[0], true, false);
+	CLJ_ROOTS(&m);
 	if (m != CLJ_THROWN) clj_map_each(clj_ns_imports(the_ns(args[0])), collect_import, &m);
 	return m;
 }
@@ -287,7 +293,7 @@ static clj_value b_alter_var_root(const clj_value *args, size_t n) {
 	if (root == CLJ_THROWN) return CLJ_THROWN;
 	clj_value v = CLJ_NIL;
 	CLJ_ROOTS(&root, &v);
-	clj_value *all = calloc(n - 1, sizeof *all);
+	CLJ_BORROWED clj_value *all = calloc(n - 1, sizeof *all);
 	if (!all) clj_fatal("out of memory");
 	all[0] = root;
 	memcpy(all + 1, args + 2, (n - 2) * sizeof *all);
@@ -338,7 +344,8 @@ static clj_value b_read_string(const clj_value *args, size_t n) {
 	clj_reader r;
 	clj_reader_init(&r, CLJ_STR(s).bytes, clj_string_len(s));
 	clj_reader_use_namespaces(&r);
-	clj_value       form;
+	clj_value form = CLJ_NIL;
+	CLJ_ROOTS(&form);
 	clj_read_status st = clj_read(&r, &form);
 	if (st == CLJ_READ_EOF) return clj_throw_msg("EOF while reading");
 	if (st == CLJ_READ_ERROR) return clj_throw_msg("%s", clj_reader_message(&r));
@@ -359,7 +366,8 @@ static clj_value b_read_prefix_star(const clj_value *args, size_t n) {
 	clj_reader  r;
 	clj_reader_init(&r, bytes, len);
 	clj_reader_use_namespaces(&r);
-	clj_value       form;
+	clj_value form = CLJ_NIL;
+	CLJ_ROOTS(&form);
 	clj_read_status st = clj_read(&r, &form);
 	if (st == CLJ_READ_EOF) return CLJ_NIL;
 	if (st == CLJ_READ_ERROR) {
@@ -429,7 +437,7 @@ static bool is_jvm_package(const char *pkg, size_t len) {
 }
 
 // The JVM spells a record of namespace my-app.core as my_app.core.Name.
-static clj_value program_type_var(clj_value pkg, clj_value name) {
+static CLJ_NO_CYCLE clj_value program_type_var(clj_value pkg, clj_value name) {
 	clj_value ns = clj_ns_find(pkg);
 	if (clj_is_nil(ns)) {
 		clj_value   text = clj_symbol_name(pkg);
@@ -475,7 +483,7 @@ static clj_value objc_runtime_bridge(const char *pkg, size_t plen, const char *n
 static CLJ_NO_PARK const type_bridge bridges[] = {host_resolver_bridge, objc_runtime_bridge};
 
 // The var holding the type pkg.name names, interning a bridge's answer as pkg/name; nil when nothing reaches it.
-static clj_value import_type_var(clj_value pkg, clj_value name) {
+static CLJ_NO_CYCLE clj_value import_type_var(clj_value pkg, clj_value name) {
 	clj_value var = program_type_var(pkg, name);
 	if (!clj_is_nil(var)) return var;
 	clj_value   ptext = clj_symbol_name(pkg), ntext = clj_symbol_name(name);
@@ -485,11 +493,13 @@ static clj_value import_type_var(clj_value pkg, clj_value name) {
 	clj_value t = CLJ_NIL;
 	for (size_t i = 0; i < sizeof bridges / sizeof *bridges && clj_is_nil(t); i++) t = bridges[i](p, plen, CLJ_STR(ntext).bytes, clj_string_len(ntext));
 	if (clj_is_nil(t)) return CLJ_NIL;
+	CLJ_ROOTS(&t);
 	var = clj_ns_intern(clj_ns_find_or_create(pkg), name);
 	clj_value root = clj_var_root(var);
 	if (root != CLJ_UNBOUND && !is_type_value(root) && !clj_is_objc_object(root)) {
+		clj_value e = clj_throw_msg("Cannot import %s.%s: %s/%s is a var holding a %s", p, CLJ_STR(ntext).bytes, p, CLJ_STR(ntext).bytes, clj_type_name(root));
 		clj_release(t);
-		return clj_throw_msg("Cannot import %s.%s: %s/%s is a var holding a %s", p, CLJ_STR(ntext).bytes, p, CLJ_STR(ntext).bytes, clj_type_name(root));
+		return e;
 	}
 	clj_var_bind_root(var, t);
 	clj_release(t);
@@ -507,7 +517,7 @@ static clj_value import_into(clj_value ns, clj_value pkg, clj_value name, clj_va
 	if (clj_is_nil(prior)) prior = clj_map_get(clj_ns_imports(ns), name, CLJ_NIL);
 	// The core's own fallback is not a mapping: an import shadows it, since the JVM's core has no such var.
 	if (!clj_is_nil(prior) && prior != var) {
-		clj_value text = clj_pr_str(prior);
+		CLJ_NO_CYCLE clj_value text = clj_pr_str(prior);
 		if (text == CLJ_THROWN) return CLJ_THROWN;
 		clj_value r = clj_throw_msg("%s already refers to: %s in namespace: %s", CLJ_STR(clj_symbol_name(name)).bytes, CLJ_STR(text).bytes,
 		                            CLJ_STR(clj_symbol_name(clj_ns_name(ns))).bytes);
@@ -520,53 +530,62 @@ static clj_value import_into(clj_value ns, clj_value pkg, clj_value name, clj_va
 }
 
 // (import* specs): each spec a symbol pkg.Name or a sequential (pkg Name*). The last type imported, or nil.
-// The specs are the reader's lists and vectors, whose walk runs nothing.
 static clj_value b_import_star(const clj_value *args, size_t n) {
 	(void)n;
-	clj_value ns = clj_ns_current(), last = CLJ_NIL;
-	clj_value specs = clj_seq(args[0]);
-	if (specs == CLJ_THROWN) return CLJ_THROWN;
-	for (clj_value s = specs; !clj_is_nil(s);) {
-		clj_value spec = clj_first(s), r = CLJ_NIL;
+	clj_value              ns = clj_ns_current();
+	CLJ_BORROWED clj_value last = CLJ_NIL;
+	clj_value              s = clj_seq(args[0]);
+	if (s == CLJ_THROWN) return CLJ_THROWN;
+	clj_value spec = CLJ_NIL, items = CLJ_NIL, pkg = CLJ_NIL, t = CLJ_NIL, name = CLJ_NIL;
+	CLJ_ROOTS(&s, &spec, &items, &pkg, &t, &name);
+	while (!clj_is_nil(s)) {
+		spec = clj_first(s);
+		CLJ_BORROWED clj_value r = CLJ_NIL;
 		if (clj_is_symbol(spec) && clj_is_nil(clj_symbol_ns(spec))) {
 			clj_value   text = clj_symbol_name(spec);
 			const char *bytes = CLJ_STR(text).bytes;
 			const char *dot = strrchr(bytes, '.');
 			// A name with no package reaches no namespace, and every bridge takes a package.
 			if (dot && dot != bytes && dot[1]) {
-				char *pkg = malloc((size_t)(dot - bytes) + 1);
-				if (!pkg) clj_fatal("out of memory");
-				memcpy(pkg, bytes, (size_t)(dot - bytes));
-				pkg[dot - bytes] = '\0';
-				clj_value psym = clj_symbol_from_cstr(pkg), nsym = clj_symbol_from_cstr(dot + 1);
-				free(pkg);
+				char *ptext = malloc((size_t)(dot - bytes) + 1);
+				if (!ptext) clj_fatal("out of memory");
+				memcpy(ptext, bytes, (size_t)(dot - bytes));
+				ptext[dot - bytes] = '\0';
+				CLJ_NO_CYCLE clj_value psym = clj_symbol_from_cstr(ptext);
+				CLJ_NO_CYCLE clj_value nsym = clj_symbol_from_cstr(dot + 1);
+				free(ptext);
 				r = import_into(ns, psym, nsym, &last);
 				clj_release(psym);
 				clj_release(nsym);
 			}
 		} else if (clj_is_vector(spec) || clj_is_seq(spec)) {
-			clj_value items = clj_seq(spec);
-			clj_value pkg = clj_is_nil(items) || items == CLJ_THROWN ? CLJ_NIL : clj_first(items);
+			items = clj_seq(spec);
+			pkg = clj_is_nil(items) || items == CLJ_THROWN ? CLJ_NIL : clj_first(items);
 			if (items == CLJ_THROWN || pkg == CLJ_THROWN) r = CLJ_THROWN;
 			else if (!clj_is_symbol(pkg) || !clj_is_nil(clj_symbol_ns(pkg))) r = clj_throw_msg("import expects a package symbol first, got: %s", clj_type_name(pkg));
 			else {
-				clj_value t = clj_next(items);
+				t = clj_next(items);
 				while (!clj_is_nil(t) && t != CLJ_THROWN && r != CLJ_THROWN) {
-					clj_value name = clj_first(t);
+					name = clj_first(t);
 					r = name == CLJ_THROWN ? CLJ_THROWN : import_into(ns, pkg, name, &last);
 					clj_release(name);
+					name = CLJ_NIL;
 					clj_value nx = r == CLJ_THROWN ? CLJ_NIL : clj_next(t);
 					clj_release(t);
 					t = nx;
 				}
 				if (t == CLJ_THROWN) r = CLJ_THROWN;
+				t = CLJ_NIL;
 			}
 			clj_release(pkg);
+			pkg = CLJ_NIL;
 			clj_release(items);
+			items = CLJ_NIL;
 		} else {
 			r = clj_throw_msg("import expects a symbol or a list (package Name*), got: %s", clj_type_name(spec));
 		}
 		clj_release(spec);
+		spec = CLJ_NIL;
 		if (r == CLJ_THROWN) {
 			clj_release(s);
 			return CLJ_THROWN;
@@ -581,7 +600,9 @@ static clj_value b_import_star(const clj_value *args, size_t n) {
 
 static bool collect_import(clj_value key, clj_value var, void *ctx) {
 	clj_value *out = ctx;
-	*out = clj_map_assoc(*out, key, clj_var_root(var));
+	clj_value  acc = *out;
+	*out = CLJ_NIL;
+	*out = clj_map_assoc(acc, key, clj_var_root(var));
 	return true;
 }
 
@@ -590,6 +611,7 @@ static clj_value b_ns_imports(const clj_value *args, size_t n) {
 	clj_value ns = the_ns(args[0]);
 	if (ns == CLJ_THROWN) return CLJ_THROWN;
 	clj_value out = clj_map_empty();
+	CLJ_ROOTS(&out);
 	clj_map_each(clj_ns_imports(ns), collect_import, &out);
 	return out;
 }

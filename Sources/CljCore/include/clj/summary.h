@@ -36,7 +36,7 @@ typedef struct {
 	bool     annotated; // the var's :clj/facts meta contributed
 	bool     recursive; // the walk reached its own summary: a fixpoint was run
 	uint32_t        effects;
-	clj_fact        params[CLJ_FN_MAX_FIXED + 1];
+	CLJ_BORROWED clj_fact params[CLJ_FN_MAX_FIXED + 1];
 	clj_effects_req param_effects[CLJ_FN_MAX_FIXED + 1];
 	uint32_t param_line[CLJ_FN_MAX_FIXED + 1], param_col[CLJ_FN_MAX_FIXED + 1]; // the use that imposed it; 0 for an annotation
 	clj_fact ret;

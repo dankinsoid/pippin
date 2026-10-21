@@ -149,7 +149,7 @@ void clj_inst_format(clj_value inst, char *out, size_t cap) {
 
 // The root of a clojure.core var, owned, or CLJ_UNBOUND before core.clj defined it.
 static clj_value core_root(const char *name) {
-	clj_value sym = clj_symbol_from_cstr(name);
+	CLJ_NO_CYCLE clj_value sym = clj_symbol_from_cstr(name);
 	clj_value var = clj_ns_resolve(clj_ns_core(), sym);
 	clj_release(sym);
 	if (clj_is_nil(var) || !clj_var_is_bound(var)) return CLJ_UNBOUND;
@@ -161,8 +161,10 @@ static clj_value b_inst_p(const clj_value *args, size_t n) {
 	(void)n;
 	if (clj_is_inst(args[0])) return CLJ_TRUE;
 	if (!clj_is_instance(args[0])) return CLJ_FALSE;
-	clj_value proto = core_root("Inst"), satisfies = core_root("satisfies?");
+	clj_value proto = CLJ_NIL, satisfies = CLJ_NIL;
 	CLJ_ROOTS(&proto, &satisfies);
+	proto = core_root("Inst");
+	satisfies = core_root("satisfies?");
 	clj_value r = CLJ_FALSE;
 	if (proto != CLJ_UNBOUND && satisfies != CLJ_UNBOUND) {
 		clj_value call[2] = {proto, args[0]};

@@ -7,6 +7,7 @@
 #include "clj/keyword.h"
 #include "clj/lock.h"
 #include "clj/shape.h"
+#include "roots_internal.h"
 
 // A transition; immutable once published, so readers walk the list without the lock.
 typedef struct edge {
@@ -377,6 +378,7 @@ clj_value clj_shape_map_single(clj_value key, clj_value val) {
 clj_value clj_shape_map_to_hash_map(clj_value map) {
 	clj_shape_map *m = smap_of(map);
 	clj_value      h = clj_map_empty();
+	CLJ_ROOTS(&map);
 	for (uint32_t i = 0; i < m->shape->nkeys; i++) h = clj_hash_map_assoc(h, m->shape->keys[i], m->slots[i].v);
 	clj_release(map);
 	return h;
@@ -418,31 +420,35 @@ clj_value clj_shape_map_assoc(clj_value map, clj_value key, clj_value val) {
 	int32_t        i = clj_shape_index(m->shape, key);
 	if (i >= 0) {
 		if (m->slots[i].v == val) return map;
-		m = smap_own(map);
-		clj_value old = m->slots[i].v;
-		clj_slot_store(&m->h, &m->slots[i], clj_retain(val));
+		clj_shape_map *o = smap_own(map);
+		clj_value      old = o->slots[i].v;
+		clj_slot_store(&o->h, &o->slots[i], clj_retain(val));
 		clj_release(old);
-		return clj_from_ptr(m);
+		return clj_from_ptr(o);
 	}
-	const edge *e = clj_is_keyword(key) ? edge_add((clj_shape *)m->shape, key) : NULL;
+	const edge *e = NULL;
+	if (clj_is_keyword(key)) {
+		CLJ_ROOTS(&map);
+		e = edge_add((clj_shape *)m->shape, key);
+	}
 	if (!e) {
 		COUNT(!clj_is_keyword(key) ? CLJ_MAPS_TRIE_KEY : clj_shape_is_dictionary(m->shape) ? CLJ_MAPS_TRIE_DICT : m->shape->nkeys >= CLJ_SHAPE_MAX_KEYS ? CLJ_MAPS_TRIE_FULL : CLJ_MAPS_TRIE_CAP);
 		return clj_hash_map_assoc(clj_shape_map_to_hash_map(map), key, val);
 	}
 	if (!e->identity) return smap_permuted(map, e, val);
-	uint32_t n = m->shape->nkeys;
+	uint32_t       n = m->shape->nkeys;
+	clj_shape_map *o;
 	if (clj_is_unique(map)) {
-		m = clj_realloc(m, sizeof *m + (n + 1) * sizeof(clj_value));
+		o = clj_realloc(m, sizeof *m + (n + 1) * sizeof(clj_value));
 	} else {
-		clj_shape_map *c = smap_alloc(e->to);
-		for (uint32_t k = 0; k < n; k++) clj_slot_init_copied(&c->h, &c->slots[k], clj_retain(m->slots[k].v));
-		clj_reach_copy(&c->h, &m->h);
+		o = smap_alloc(e->to);
+		for (uint32_t k = 0; k < n; k++) clj_slot_init_copied(&o->h, &o->slots[k], clj_retain(m->slots[k].v));
+		clj_reach_copy(&o->h, &m->h);
 		clj_release(map);
-		m = c;
 	}
-	m->shape = e->to;
-	clj_slot_store(&m->h, &m->slots[n], clj_retain(val));
-	return clj_from_ptr(m);
+	o->shape = e->to;
+	clj_slot_store(&o->h, &o->slots[n], clj_retain(val));
+	return clj_from_ptr(o);
 }
 
 clj_value clj_shape_map_dissoc(clj_value map, clj_value key) {
@@ -453,7 +459,11 @@ clj_value clj_shape_map_dissoc(clj_value map, clj_value key) {
 		clj_release(map);
 		return clj_map_empty_new();
 	}
-	const edge *e = edge_remove((clj_shape *)m->shape, key);
+	const edge *e;
+	{
+		CLJ_ROOTS(&map);
+		e = edge_remove((clj_shape *)m->shape, key);
+	}
 	if (!e) {
 		COUNT(CLJ_MAPS_TRIE_CAP);
 		return clj_hash_map_dissoc(clj_shape_map_to_hash_map(map), key);
@@ -462,8 +472,8 @@ clj_value clj_shape_map_dissoc(clj_value map, clj_value key) {
 	uint32_t  n = m->shape->nkeys;
 	clj_value old = m->slots[i].v;
 	memmove(m->slots + i, m->slots + i + 1, (n - 1 - (uint32_t)i) * sizeof(clj_value));
-	m = clj_realloc(m, sizeof *m + (n - 1) * sizeof(clj_value));
-	m->shape = e->to;
+	clj_shape_map *o = clj_realloc(m, sizeof *m + (n - 1) * sizeof(clj_value));
+	o->shape = e->to;
 	clj_release(old);
-	return clj_from_ptr(m);
+	return clj_from_ptr(o);
 }

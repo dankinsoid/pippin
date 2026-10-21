@@ -864,6 +864,9 @@ typedef struct {
 	const clj_header **seen; // open addressing, 2 * PRIVATE_MAX_NODES
 	const clj_header **stack;
 	uint32_t           n, entered;
+#if CLJ_DEBUG
+	clj_cc_oracle     *oracle;
+#endif
 } private_walk;
 
 static void private_enter(private_walk *p, clj_header *h) {
@@ -893,7 +896,12 @@ static void private_child(clj_value v, void *ctx) {
 }
 
 // A reference a frame owns: an edge to a shared object, an unshared one entered.
-static void frame_owned(private_walk *p, clj_value v) { private_child(v, p); }
+static void frame_owned(private_walk *p, clj_value v) {
+#if CLJ_DEBUG
+	clj_cc_oracle_named(p->oracle, v);
+#endif
+	private_child(v, p);
+}
 
 // A reference a frame lends: only an unshared object's slots are the coroutine's.
 static void frame_lent(private_walk *p, clj_value v) {
@@ -984,6 +992,9 @@ static void read_frefs(private_walk *p, const clj_frefs *fl) {
 static void visit_frames(graph *g, const clj_coro *c) {
 	const clj_header *seen[2 * PRIVATE_MAX_NODES] = {0}, *stack[PRIVATE_MAX_NODES];
 	private_walk      p = {.g = g, .c = c, .seen = seen, .stack = stack};
+#if CLJ_DEBUG
+	p.oracle = clj_cc_oracle_begin(c);
+#endif
 	read_frefs(&p, &c->shadow->frefs);
 	interp_frames(&p);
 	if (c->waiter) frame_lent(&p, c->waiter->ports);
@@ -991,6 +1002,9 @@ static void visit_frames(graph *g, const clj_coro *c) {
 		const clj_header *u = stack[--p.n];
 		if (u->type->each_child) u->type->each_child((void *)u, private_child, &p);
 	}
+#if CLJ_DEBUG
+	clj_cc_oracle_end(p.oracle);
+#endif
 }
 
 // Under the coroutine's lock, sched.c judging it: a live one is black and its edges are not read.

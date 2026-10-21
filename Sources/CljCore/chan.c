@@ -477,9 +477,9 @@ static clj_value buffer_take(clj_chan *ch) {
 // ---- the operations under the lock; woken nodes go to a list the caller flushes after unlocking
 
 typedef struct {
-	qnode    *nodes[16];
-	size_t    n;
-	clj_value port;
+	qnode                 *nodes[16];
+	size_t                 n;
+	CLJ_BORROWED clj_value port;
 } wakes;
 
 // Under the lock: the value is published through the node, a slot of the channel, before a waiter sees it.
@@ -492,18 +492,23 @@ static void add_wake(wakes *ws, qnode *n, clj_value value, bool ok) {
 	}
 	// A close! with more than 16 parked takers wakes the rest under the lock: still no user code there.
 	clj_value v = n->value.v;
+	CLJ_ROOTS(&v);
 	clj_slot_clear(&n->value);
 	wake(n, v, ok, ws->port);
 	clj_release(v);
+	v = CLJ_NIL;
 }
 
 static void flush_wakes(wakes *ws, bool ok) {
+	clj_value v = CLJ_NIL;
+	CLJ_ROOTS(&v);
 	for (size_t i = 0; i < ws->n; i++) {
-		qnode    *n = ws->nodes[i];
-		clj_value v = n->value.v;
+		qnode *n = ws->nodes[i];
+		v = n->value.v;
 		clj_slot_clear(&n->value);
 		wake(n, v, ok, ws->port);
 		clj_release(v);
+		v = CLJ_NIL;
 	}
 	ws->n = 0;
 }
@@ -512,14 +517,17 @@ enum { OP_DONE, OP_NOT_READY, OP_STALE };
 
 // Every live taker gets the buffer's head while there is one (a promise buffer serves all of them).
 static void drain_to_takers(clj_chan *ch, clj_value chv, wakes *ws) {
+	clj_value v = CLJ_NIL;
+	CLJ_ROOTS(&v);
 	while (ch->count) {
 		bool   stale;
 		qnode *t = pop_live(&ch->takers, &ch->takers_tail, &ch->ntakers, NULL, &stale);
 		if (!t) return;
-		clj_value v = buffer_take(ch);
+		v = buffer_take(ch);
 		ws->port = chv;
 		add_wake(ws, t, v, true);
 		clj_release(v);
+		v = CLJ_NIL;
 	}
 }
 
@@ -560,7 +568,7 @@ static bool step_add(clj_chan *ch, clj_value chv, clj_value v) {
 	return done;
 }
 
-static void step_complete(clj_chan *ch, clj_value chv) {
+static void step_complete(clj_chan *ch, CLJ_BORROWED clj_value chv) {
 	if (ch->completed) return;
 	ch->completed = true;
 	clj_value r = clj_invoke(ch->add_fn.v, &chv, 1);
@@ -749,6 +757,7 @@ static clj_value chan_take(clj_value chv, bool uncancellable) {
 	wakes       ws = {.n = 0};
 	clj_value   out = CLJ_NIL;
 	clj_waiter *w = NULL;
+	CLJ_ROOTS(&out);
 	chan_lock(ch);
 	int r = take_locked(ch, chv, NULL, &out, &ws);
 	if (r == OP_NOT_READY) {
@@ -770,6 +779,7 @@ static clj_value chan_take(clj_value chv, bool uncancellable) {
 	clj_waiter_release(w);
 	if (!uncancellable && cancelled_here()) {
 		clj_release(out);
+		out = CLJ_NIL;
 		return cancelled_throw();
 	}
 	return out;
@@ -795,6 +805,7 @@ clj_value clj_chan_poll(clj_value chv) {
 	clj_chan *ch = chan_of(chv);
 	wakes     ws = {.n = 0};
 	clj_value out = CLJ_NIL;
+	CLJ_ROOTS(&out);
 	chan_lock(ch);
 	take_locked(ch, chv, NULL, &out, &ws);
 	chan_unlock(ch);
@@ -804,7 +815,7 @@ clj_value clj_chan_poll(clj_value chv) {
 
 // ---- put! and take! with callbacks
 
-static void callback_now(clj_value fn, clj_value v, bool on_caller) {
+static void callback_now(clj_value fn, CLJ_BORROWED clj_value v, bool on_caller) {
 	if (clj_is_nil(fn)) return;
 	if (on_caller) {
 		clj_value r = clj_invoke(fn, &v, 1);
@@ -859,6 +870,7 @@ clj_value clj_chan_take_cb(clj_value chv, clj_value fn, bool on_caller) {
 	clj_share(fn);
 	wakes     ws = {.n = 0};
 	clj_value out = CLJ_NIL;
+	CLJ_ROOTS(&out);
 	chan_lock(ch);
 	int r = take_locked(ch, chv, NULL, &out, &ws);
 	if (r == OP_NOT_READY) {
@@ -878,6 +890,7 @@ clj_value clj_chan_take_cb(clj_value chv, clj_value fn, bool on_caller) {
 	flush_wakes(&ws, true);
 	callback_now(fn, out, on_caller);
 	clj_release(out);
+	out = CLJ_NIL;
 	return CLJ_NIL;
 }
 
@@ -994,8 +1007,9 @@ clj_value clj_chan_alts(clj_value ports, clj_value opts) {
 	for (uint32_t i = 0; i < n; i++) order[i] = i;
 	if (!priority) shuffle(order, n);
 	clj_waiter *w = clj_waiter_new(clj_coro_current(), CLJ_NIL);
-	clj_value   result = CLJ_UNBOUND;
+	clj_value   result = CLJ_UNBOUND, out = CLJ_NIL;
 	bool        stale = false;
+	CLJ_ROOTS(&result, &out);
 	for (uint32_t k = 0; k < n && result == CLJ_UNBOUND && !stale; k++) {
 		uint32_t  i = order[k];
 		clj_value port = clj_vector_nth(ports, i);
@@ -1005,12 +1019,12 @@ clj_value clj_chan_alts(clj_value ports, clj_value opts) {
 		clj_chan *ch = chan_of(chv);
 		wakes     ws = {.n = 0};
 		bool      ok = false;
-		clj_value out = CLJ_NIL;
 		chan_lock(ch);
 		int r = is_put ? put_locked(ch, chv, v, w, &ok, &ws) : take_locked(ch, chv, w, &out, &ws);
 		if (r == OP_DONE) {
 			result = pair(is_put ? clj_bool(ok) : out, chv);
 			clj_release(out);
+			out = CLJ_NIL;
 		} else if (r == OP_STALE) {
 			stale = true;
 		} else if (!has_default) {
@@ -1074,8 +1088,10 @@ void clj_debug_chan_describe(const void *chan, char *buf, size_t n) {
 
 static void close_timer(void *ctx) {
 	clj_value chv = clj_from_ptr(ctx);
+	CLJ_ROOTS(&chv);
 	clj_release(clj_chan_close(chv));
 	clj_release(chv);
+	chv = CLJ_NIL;
 }
 
 clj_value clj_chan_timeout(int64_t ms) {
@@ -1148,9 +1164,9 @@ clj_value clj_chan_deref_timeout(clj_value chv, int64_t ms, clj_value timeout_va
 	if (has_value) return clj_chan_deref(chv);
 	clj_value t = clj_chan_timeout(ms);
 	clj_value items[2] = {chv, t};
-	clj_value ports = clj_vector_from_array(items, 2);
-	clj_value opts = clj_map_assoc(clj_map_empty(), kw_priority, CLJ_TRUE);
+	clj_value ports = clj_vector_from_array(items, 2), opts = CLJ_NIL;
 	CLJ_ROOTS(&t, &ports, &opts);
+	opts = clj_map_assoc(clj_map_empty(), kw_priority, CLJ_TRUE);
 	clj_value r = clj_chan_alts(ports, opts);
 	clj_release(opts);
 	clj_release(ports);
@@ -1206,10 +1222,12 @@ static void future_done(clj_coro *c, void *ctx) {
 }
 
 // The coroutine keeps chv for its on_done in a slot, which the cycle collector follows (design §7, «Фаза 3»).
-static clj_value spawn_into(clj_value f, clj_value chv, int affinity, void (*done)(clj_coro *c, void *ctx), bool detached) {
+static clj_value spawn_into(clj_value f, CLJ_OWNED clj_value chv, int affinity, void (*done)(clj_coro *c, void *ctx), bool detached) {
+	CLJ_ROOTS(&chv);
 	clj_value coro = clj_coro_spawn_into(f, affinity, done, chv, detached);
 	if (coro == CLJ_THROWN) {
 		clj_release(chv);
+		chv = CLJ_NIL;
 		return CLJ_THROWN;
 	}
 	clj_chan *ch = chan_of(chv);
@@ -1486,9 +1504,9 @@ static clj_value b_close(const clj_value *args, size_t n) {
 static clj_value b_alts(const clj_value *args, size_t n) {
 	clj_value opts = n > 1 ? args[1] : CLJ_NIL;
 	if (clj_is_vector(args[0]) || !clj_has_core(args[0], CLJ_CORE_SEQUENTIAL)) return point(clj_chan_alts(args[0], opts));
-	clj_value ports = clj_vector_empty();
-	clj_value s = clj_seq(args[0]);
+	clj_value ports = clj_vector_empty(), s = CLJ_NIL;
 	CLJ_ROOTS(&s, &ports);
+	s = clj_seq(args[0]);
 	while (!clj_is_nil(s)) {
 		clj_value x = s == CLJ_THROWN ? CLJ_THROWN : clj_first(s);
 		if (x == CLJ_THROWN) {
@@ -1660,13 +1678,15 @@ static clj_value b_coro_uncancel_scope(const clj_value *args, size_t n) {
 
 // Thread/sleep for library code: a namespace Thread with sleep, so the JVM's static call resolves (NOTES.md).
 static void install_thread_ns(void) {
-	clj_value ns_name = clj_symbol_from_cstr("Thread");
-	clj_value ns = clj_ns_find_or_create(ns_name);
-	clj_value name = clj_symbol_from_cstr("sleep");
-	clj_value qualified = clj_symbol_new(clj_symbol_name(ns_name), clj_symbol_name(name));
-	clj_value f = clj_fn_native(qualified, b_sleep, 1, 1);
+	CLJ_NO_CYCLE clj_value ns_name = clj_symbol_from_cstr("Thread");
+	clj_value              ns = clj_ns_find_or_create(ns_name);
+	CLJ_NO_CYCLE clj_value name = clj_symbol_from_cstr("sleep");
+	CLJ_NO_CYCLE clj_value qualified = clj_symbol_new(clj_symbol_name(ns_name), clj_symbol_name(name));
+	clj_value              f = clj_fn_native(qualified, b_sleep, 1, 1);
+	CLJ_ROOTS(&f);
 	clj_var_bind_root(clj_ns_intern(ns, name), f);
 	clj_release(f);
+	f = CLJ_NIL;
 	clj_release(qualified);
 	clj_release(name);
 	clj_release(ns_name);

@@ -23,6 +23,6 @@ typedef struct clj_recovery {
 
 void      clj_recovery_push(clj_recovery *r);
 void      clj_recovery_pop(clj_recovery *r);
-clj_value clj_recovery_throw(clj_recovery *r);
+CLJ_BORROWED clj_value clj_recovery_throw(clj_recovery *r);
 
 #endif

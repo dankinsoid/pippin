@@ -227,7 +227,7 @@ static clj_value *sort_by_keys(clj_value *items, size_t n, const clj_call *key, 
 		if (k == CLJ_THROWN) break;
 		keys[nkeys] = k;
 	}
-	clj_value *out = NULL;
+	CLJ_BORROWED clj_value *out = NULL;
 	if (nkeys == n) {
 		for (size_t i = 0; i < n; i++) perm[i] = i;
 		const size_t *sorted = merge_sort_keys(keys, perm, perm + n, n, s);
@@ -247,12 +247,12 @@ static clj_value *sort_by_keys(clj_value *items, size_t n, const clj_call *key, 
 static clj_value sort_items(clj_value coll, sort_ctx *s, const clj_call *key) {
 	size_t    n = 0;
 	clj_value keep = CLJ_NIL;
-	// The items stay borrowed from `keep` for the whole sort: no retain per element.
-	clj_value *items = clj_seq_items(coll, &n, &keep);
-	if (!items) return CLJ_THROWN;
 	CLJ_ROOTS(&keep);
-	clj_value *sorted = items;
-	clj_value *scratch = NULL;
+	// The items stay borrowed from `keep` for the whole sort: no retain per element.
+	CLJ_BORROWED clj_value *items = clj_seq_items(coll, &n, &keep);
+	if (!items) return CLJ_THROWN;
+	CLJ_BORROWED clj_value *sorted = items;
+	CLJ_BORROWED clj_value *scratch = NULL;
 	if (n > 1) {
 		if (key) {
 			sorted = scratch = sort_by_keys(items, n, key, s);
@@ -271,7 +271,12 @@ static clj_value sort_items(clj_value coll, sort_ctx *s, const clj_call *key) {
 	// `sort` is (with-meta (seq a) (meta coll)); an empty coll answers the bare () before that.
 	if (out != CLJ_THROWN && n) {
 		clj_value m = clj_meta(coll);
-		if (!clj_is_nil(m)) out = clj_with_meta(out, m);
+		CLJ_ROOTS(&m);
+		if (!clj_is_nil(m)) {
+			clj_value o = out;
+			out = CLJ_NIL;
+			out = clj_with_meta(o, m);
+		}
 		clj_release(m);
 	}
 	return out;

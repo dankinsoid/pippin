@@ -103,9 +103,9 @@ clj_value clj_reduce_empty(clj_value f, clj_value init) {
 
 clj_value clj_reduce_iter(clj_value coll, clj_value f, clj_value init) {
 	if (clj_deadline_tick()) return CLJ_THROWN;
-	clj_reducer  r = clj_reducer_start(f, init, 2);
-	clj_seq_iter it = clj_seq_iter_start(coll);
-	clj_value    item;
+	clj_reducer            r = clj_reducer_start(f, init, 2);
+	clj_seq_iter           it = clj_seq_iter_start(coll);
+	CLJ_BORROWED clj_value item;
 	CLJ_ROOTS(&r.acc, &it.held, &it.item);
 	while (clj_seq_iter_next(&it, &item)) {
 		if (!clj_reducer_step(&r, item)) {

@@ -13,8 +13,8 @@
 enum { CLJ_FORCE_UNFORCED = 0, CLJ_FORCE_FORCING = 1, CLJ_FORCE_FORCED = 2, CLJ_FORCE_WAITED = 3, CLJ_FORCE_FAILED = 4 };
 
 typedef struct clj_forcing {
-	clj_value           obj;
-	struct clj_forcing *prev;
+	CLJ_BORROWED clj_value obj;
+	struct clj_forcing    *prev;
 } clj_forcing;
 
 // This execution is forcing obj: a frame of its stack names it.

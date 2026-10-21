@@ -24,24 +24,24 @@ static inline clj_ns *clj_ns_of(clj_value v) { return (clj_ns *)clj_to_ptr(v); }
 static inline clj_value clj_ns_name(clj_value ns) { return clj_ns_of(ns)->name.v; }
 
 // name is an unqualified symbol. Borrowed results; nil when not found.
-clj_value clj_ns_find(clj_value name);
-clj_value clj_ns_find_or_create(clj_value name);
+CLJ_NO_CYCLE clj_value clj_ns_find(clj_value name);
+CLJ_NO_CYCLE clj_value clj_ns_find_or_create(clj_value name);
 // Every namespace, as an owned vector in creation order.
 clj_value clj_ns_all(void);
 // The var mapped to sym in ns, created unbound when missing. sym must be unqualified.
-clj_value clj_ns_intern(clj_value ns, clj_value sym);
+CLJ_NO_CYCLE clj_value clj_ns_intern(clj_value ns, clj_value sym);
 void      clj_ns_refer(clj_value ns, clj_value sym, clj_value var);
 // Maps sym to var in the import table, which resolution reads after the refers.
 void      clj_ns_import(clj_value ns, clj_value sym, clj_value var);
 // Removes sym from the namespace's own mappings, refers and imports; a var that was mapped stays alive (vars are immortal).
 void      clj_ns_unmap(clj_value ns, clj_value sym);
 // The namespace leaves the registry and all-ns, borrowed, or nil; it stays alive for whatever still names it.
-clj_value clj_ns_remove(clj_value name);
+CLJ_NO_CYCLE clj_value clj_ns_remove(clj_value name);
 void      clj_ns_unalias(clj_value ns, clj_value alias);
 // alias → target; replaces a previous alias of the same name.
 void      clj_ns_alias(clj_value ns, clj_value alias, clj_value target);
 // Borrowed meta, nil when none; set shares m like every other slot.
-clj_value clj_ns_meta(clj_value ns);
+CLJ_BORROWED clj_value clj_ns_meta(clj_value ns);
 void      clj_ns_set_meta(clj_value ns, clj_value m);
 // Borrowed snapshots of the maps, valid until the next mutation of the namespace on any thread; retain to keep.
 clj_value clj_ns_mappings(clj_value ns);
@@ -51,16 +51,16 @@ clj_value clj_ns_imports(clj_value ns);
 // The clojure.core names the unqualified fallback skips (:refer-clojure :exclude). excludes is a set or nil.
 void      clj_ns_set_excludes(clj_value ns, clj_value excludes);
 // Qualified symbols reach private vars too: the analyzer refuses those, (var ns/x) does not.
-clj_value clj_ns_resolve(clj_value ns, clj_value sym);
+CLJ_NO_CYCLE clj_value clj_ns_resolve(clj_value ns, clj_value sym);
 // The namespace an alias or a namespace name reaches from ns; nil when neither.
-clj_value clj_ns_resolve_ns(clj_value ns, clj_value name);
+CLJ_NO_CYCLE clj_value clj_ns_resolve_ns(clj_value ns, clj_value name);
 
 // The value of clojure.core/*ns*: this thread's binding when it has one, else the root (`user` until set).
 CLJ_BORROWED clj_value clj_ns_current(void);
 // Sets the thread's binding of *ns* when there is one, else its root.
 void      clj_ns_set_current(clj_value ns);
 // The var clojure.core/*ns* itself (dynamic, root `user`).
-clj_value clj_ns_var(void);
+CLJ_NO_CYCLE clj_value clj_ns_var(void);
 CLJ_BORROWED clj_value clj_ns_core(void);
 CLJ_BORROWED clj_value clj_ns_user(void);
 

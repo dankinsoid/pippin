@@ -7,6 +7,9 @@
 #if defined(__APPLE__)
 #include <malloc/malloc.h>
 #endif
+#if defined(__has_feature) && (__has_feature(address_sanitizer) || __has_feature(thread_sanitizer))
+#include <sanitizer/allocator_interface.h>
+#endif
 
 #include "alloc.h"
 #include "stats_internal.h"
@@ -98,6 +101,80 @@ static void live_add(const clj_type *type, int64_t n) {
 }
 
 int64_t clj_debug_live_objects_of(const clj_type *type) { return atomic_load(&type_slot(type)->live); }
+
+static bool type_known(const clj_type *type) {
+	size_t i = (((uintptr_t)type >> 4) * 0x9E3779B97F4A7C15u) & (TYPE_SLOTS - 1);
+	for (size_t probes = 0; probes < TYPE_SLOTS; probes++, i = (i + 1) & (TYPE_SLOTS - 1)) {
+		const clj_type *cur = atomic_load_explicit(&type_counts[i].type, memory_order_acquire);
+		if (cur == type) return true;
+		if (!cur) return false;
+	}
+	return false;
+}
+
+// Every slab ever mapped, by base address (slabs are never unmapped): open addressing, 0 empty.
+static pthread_mutex_t slabs_mu = PTHREAD_MUTEX_INITIALIZER;
+static uintptr_t      *slab_set;
+static size_t          slab_cap, slab_count;
+
+static void slab_set_put(uintptr_t *set, size_t cap, uintptr_t base) {
+	size_t i = ((base >> 16) * 0x9E3779B97F4A7C15u) & (cap - 1);
+	while (set[i]) i = (i + 1) & (cap - 1);
+	set[i] = base;
+}
+
+static void slab_register(uintptr_t base) {
+	pthread_mutex_lock(&slabs_mu);
+	if (2 * (slab_count + 1) > slab_cap) {
+		size_t     cap = slab_cap ? 2 * slab_cap : 1024;
+		uintptr_t *set = calloc(cap, sizeof *set);
+		if (!set) clj_fatal("out of memory");
+		for (size_t i = 0; i < slab_cap; i++)
+			if (slab_set[i]) slab_set_put(set, cap, slab_set[i]);
+		free(slab_set);
+		slab_set = set;
+		slab_cap = cap;
+	}
+	slab_set_put(slab_set, slab_cap, base);
+	slab_count++;
+	pthread_mutex_unlock(&slabs_mu);
+}
+
+static bool slab_known(uintptr_t base) {
+	pthread_mutex_lock(&slabs_mu);
+	bool found = false;
+	if (slab_cap) {
+		for (size_t i = ((base >> 16) * 0x9E3779B97F4A7C15u) & (slab_cap - 1); slab_set[i]; i = (i + 1) & (slab_cap - 1)) {
+			if (slab_set[i] == base) {
+				found = true;
+				break;
+			}
+		}
+	}
+	pthread_mutex_unlock(&slabs_mu);
+	return found;
+}
+
+// An arbitrary word is never dereferenced before the allocator vouches for it: it may be a stale stack slot.
+const clj_header *clj_debug_object_at(uintptr_t w) {
+	if (w < 4096 || (w & 7)) return NULL;
+	uintptr_t base = w & ~(uintptr_t)(SLAB_SIZE - 1);
+	if (slab_known(base)) {
+		const slab *s = (const slab *)base;
+		uintptr_t   off = w - base;
+		if (off < SLAB_HEADER || off + sizeof(clj_header) > s->bump || (off - SLAB_HEADER) % s->cell) return NULL;
+	} else {
+#if defined(__has_feature) && (__has_feature(address_sanitizer) || __has_feature(thread_sanitizer))
+		if (!__sanitizer_get_ownership((const void *)w)) return NULL;
+#elif defined(__APPLE__)
+		if (malloc_size((const void *)w) < sizeof(clj_header)) return NULL;
+#else
+		return NULL;
+#endif
+	}
+	const clj_header *h = (const clj_header *)w;
+	return type_known(h->type) ? h : NULL;
+}
 
 void clj_debug_live_report(void) {
 	for (size_t i = 0; i < TYPE_SLOTS; i++) {
@@ -207,6 +284,9 @@ static slab *slab_new(heap *h, uint32_t cls) {
 	s->cell = class_cell(cls);
 	s->bump = SLAB_HEADER;
 	atomic_init(&s->foreign, NULL);
+#if CLJ_DEBUG
+	slab_register((uintptr_t)s);
+#endif
 	return s;
 }
 

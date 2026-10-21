@@ -90,9 +90,9 @@ clj_value clj_count(clj_value coll) {
 	if (!t || !t->seq) return clj_throw_msg("count not supported on this type: %s", clj_type_name(coll));
 	clj_value s = t->seq(coll);
 	if (s == CLJ_THROWN) return s;
-	clj_seq_iter it = clj_seq_iter_start(s);
-	clj_value    item;
-	intptr_t     n = 0;
+	clj_seq_iter           it = clj_seq_iter_start(s);
+	CLJ_BORROWED clj_value item;
+	intptr_t               n = 0;
 	CLJ_ROOTS(&s, &it.held, &it.item);
 	while (clj_seq_iter_next(&it, &item)) n++;
 	clj_release(s);
@@ -103,6 +103,7 @@ clj_value clj_conj(clj_value coll, clj_value x) {
 	if (clj_is_nil(coll)) coll = clj_list_empty();
 	const clj_type *t = type_or_null(coll);
 	if (!t || !t->conj) {
+		CLJ_ROOTS(&coll);
 		clj_value r = clj_throw_msg("conj not supported on this type: %s", clj_type_name(coll));
 		clj_release(coll);
 		return r;
@@ -212,8 +213,8 @@ clj_value clj_nth(clj_value coll, clj_value index, bool has_not_found, clj_value
 	} else if (t && (t->core_bits & CLJ_CORE_SEQUENTIAL) && t->seq) {
 		clj_value s = t->seq(coll);
 		if (s == CLJ_THROWN) return s;
-		clj_seq_iter it = clj_seq_iter_start(s);
-		clj_value    item;
+		clj_seq_iter           it = clj_seq_iter_start(s);
+		CLJ_BORROWED clj_value item;
 		count = 0;
 		CLJ_ROOTS(&s, &it.held, &it.item);
 		while (clj_seq_iter_next(&it, &item)) {
@@ -243,10 +244,11 @@ clj_value clj_meta(clj_value v) {
 // @ai-generated(guided)
 clj_value clj_with_meta(clj_value v, clj_value m) {
 	const clj_type *t = type_or_null(v);
-	clj_value       r;
-	if (!t || !t->with_meta) r = clj_throw_msg("with-meta: %s does not support metadata", clj_type_name(v));
-	else if (!clj_is_nil(m) && !clj_has_core(m, CLJ_CORE_MAP)) r = clj_throw_msg("with-meta: metadata must be a map, got: %s", clj_type_name(m));
-	else return t->with_meta(v, m);
+	bool            supported = t && t->with_meta;
+	if (supported && (clj_is_nil(m) || clj_has_core(m, CLJ_CORE_MAP))) return t->with_meta(v, m);
+	CLJ_ROOTS(&v);
+	clj_value r = !supported ? clj_throw_msg("with-meta: %s does not support metadata", clj_type_name(v))
+	                         : clj_throw_msg("with-meta: metadata must be a map, got: %s", clj_type_name(m));
 	clj_release(v);
 	return r;
 }
@@ -383,9 +385,9 @@ clj_value *clj_seq_items(clj_value coll, size_t *n, clj_value *keep) {
 	size_t     cap = 8, count = 0, owned = 0;
 	clj_value *items = malloc(cap * sizeof *items);
 	if (!items) clj_fatal("out of memory");
-	clj_seq_iter it = clj_seq_iter_start(seq);
-	clj_value    item;
-	bool         own = false; // slot-yielded items outlive their step only if retained here
+	clj_seq_iter           it = clj_seq_iter_start(seq);
+	CLJ_BORROWED clj_value item;
+	bool                   own = false; // slot-yielded items outlive their step only if retained here
 	CLJ_ROOTS(&seq, &it.held, &it.item);
 	CLJ_ROOTS_SPAN(&items, &owned);
 	while (clj_seq_iter_next(&it, &item)) {
@@ -431,9 +433,10 @@ static void drop_thrown(const clj_seq_iter *it) {
 }
 
 bool clj_seq_equals(clj_value a, clj_value b) {
-	clj_seq_iter ia = clj_seq_iter_start(a), ib = clj_seq_iter_start(b);
-	clj_value    x, y;
-	bool         eq;
+	clj_seq_iter           ia = clj_seq_iter_start(a), ib = clj_seq_iter_start(b);
+	CLJ_BORROWED clj_value x;
+	CLJ_BORROWED clj_value y;
+	bool                   eq;
 	CLJ_ROOTS(&ia.held, &ia.item, &ib.held, &ib.item);
 	for (;;) {
 		bool ma = clj_seq_iter_next(&ia, &x), mb = clj_seq_iter_next(&ib, &y);
@@ -458,9 +461,9 @@ bool clj_seq_equals(clj_value a, clj_value b) {
 }
 
 uint32_t clj_seq_hash(clj_value seq) {
-	uint32_t     h = 1, n = 0;
-	clj_seq_iter it = clj_seq_iter_start(seq);
-	clj_value    item;
+	uint32_t               h = 1, n = 0;
+	clj_seq_iter           it = clj_seq_iter_start(seq);
+	CLJ_BORROWED clj_value item;
 	CLJ_ROOTS(&it.held, &it.item);
 	while (clj_seq_iter_next(&it, &item)) {
 		h = 31 * h + clj_hash(item);

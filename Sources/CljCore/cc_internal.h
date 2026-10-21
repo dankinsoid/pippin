@@ -55,6 +55,15 @@ void  clj_cc_main_idle(void);
 // Seeded mode, where no background thread runs: a full collection when anything waits for one.
 void  clj_cc_seed_collect(void);
 
+#if CLJ_DEBUG
+// The frame oracle (cc_oracle.c), under the parked coroutine's lock: begin, every reference its frames' enumeration
+// names, end, which reports cc/frame-missed or cc/frame-overnamed. NULL, and every call a no-op, under CLJ_CC_ORACLE=0.
+typedef struct clj_cc_oracle clj_cc_oracle;
+clj_cc_oracle *clj_cc_oracle_begin(const clj_coro *c);
+void           clj_cc_oracle_named(clj_cc_oracle *o, clj_value v);
+void           clj_cc_oracle_end(clj_cc_oracle *o);
+#endif
+
 // clj_share without the owner check: a dying thread's TLS is gone.
 void clj_share_unowned(clj_value v);
 

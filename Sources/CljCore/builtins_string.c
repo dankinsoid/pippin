@@ -268,7 +268,7 @@ static clj_value replace(clj_value s, clj_value match, clj_value repl, bool firs
 static clj_value b_replace(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_string(args[0])) return not_a_string("replace", args[0]);
-	clj_value match = needle_of(args[1]);
+	CLJ_NO_CYCLE clj_value match = needle_of(args[1]);
 	if (match == CLJ_THROWN) return CLJ_THROWN;
 	clj_value repl = needle_of(args[2]);
 	if (repl == CLJ_THROWN) {
@@ -284,7 +284,7 @@ static clj_value b_replace(const clj_value *args, size_t n) {
 static clj_value b_replace_first(const clj_value *args, size_t n) {
 	(void)n;
 	if (!clj_is_string(args[0])) return not_a_string("replace-first", args[0]);
-	clj_value match = needle_of(args[1]);
+	CLJ_NO_CYCLE clj_value match = needle_of(args[1]);
 	if (match == CLJ_THROWN) return CLJ_THROWN;
 	clj_value repl = needle_of(args[2]);
 	if (repl == CLJ_THROWN) {

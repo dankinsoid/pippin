@@ -50,16 +50,16 @@
 #define T_SEQABLE (T_COLL | CLJ_T_STRING | CLJ_T_ARRAY | CLJ_T_NIL)
 
 typedef struct {
-	uint32_t  node;
-	clj_value var;
-	uint32_t  nargs;
-	bool      in_fn; // inside a fn body, which outlives the form
-	clj_fact *args;
+	uint32_t               node;
+	CLJ_NO_CYCLE clj_value var;
+	uint32_t               nargs;
+	bool                   in_fn; // inside a fn body, which outlives the form
+	clj_fact              *args;
 } facts_site;
 
 typedef struct {
-	clj_value var;
-	bool      in_fn;
+	CLJ_NO_CYCLE clj_value var;
+	bool                   in_fn;
 } facts_read;
 
 struct clj_facts {
@@ -79,7 +79,7 @@ struct clj_facts {
 	uint32_t         ndiags, cdiags, nerrors;
 	bool             warn; // the namespace's :facts/warnings switch, read once
 	uint32_t         hits, narrowed;
-	clj_value       *dep_vars;
+	CLJ_NO_CYCLE clj_value *dep_vars;
 	uint32_t        *dep_epochs;
 	uint32_t         ndeps, cdeps;
 	facts_site      *sites;
@@ -477,8 +477,8 @@ typedef struct {
 	uint32_t      nalias, calias;
 	uint32_t      effects; // of the frame being walked
 	uint32_t      caught;  // try bodies with a handler the walk is inside of
-	clj_value     def_var; // the var whose def's init is the fn about to be walked, else nil
-	clj_value     def_target; // the var whose def's init is being walked, whatever the init, else nil
+	CLJ_NO_CYCLE clj_value def_var; // the var whose def's init is the fn about to be walked, else nil
+	CLJ_NO_CYCLE clj_value def_target; // the var whose def's init is being walked, whatever the init, else nil
 	// The method fns of the deftype*/record* call being walked and the type it made: their receiver is its instance.
 	const clj_node **methods;
 	uint32_t         nmethods;
@@ -497,7 +497,7 @@ typedef struct {
 	char         *stack_limit; // the walk descends no lower: it runs under specialize.c's lock, where a fault is fatal
 	// The def'd arity being walked, whose own sites (same var, same arity, in its own frame) are no recorded sites but
 	// the self fixpoint's: joined into self_join when it is set, dropped otherwise (NOTES.md "Facts", the caller join).
-	clj_value           self_var;
+	CLJ_NO_CYCLE clj_value self_var;
 	const clj_node     *self_fn;
 	const clj_fn_arity *self_arity;
 	uint32_t            self_depth; // in_fn at that arity's frame
@@ -681,10 +681,10 @@ static void run_frame(pass *p, uint32_t owner, const clj_fn_arity *a, const clj_
 static void free_scratch(clj_facts *f);
 
 typedef struct {
-	clj_value           var;
-	const clj_node     *fn;
-	const clj_fn_arity *arity;
-	bool                found;
+	CLJ_NO_CYCLE clj_value var;
+	const clj_node        *fn;
+	const clj_fn_arity    *arity;
+	bool                   found;
 } self_scan;
 
 // Whether the arity's own frame calls its var at its own arity; nested fns and fused programs are other frames.
@@ -895,8 +895,8 @@ static void run_fn(pass *p, const clj_node *n, const clj_fact *captured, uint32_
 	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED + 1; i++) {
 		const clj_fn_arity *a = i <= CLJ_FN_MAX_FIXED ? n->u.fn.fixed[i] : n->u.fn.variadic;
 		if (!a) continue;
-		clj_fact params[CLJ_FN_MAX_FIXED + 1];
-		bool     at = receiver && a->nparams >= 1 && !rebinds_receiver(a->body);
+		CLJ_BORROWED clj_fact params[CLJ_FN_MAX_FIXED + 1];
+		bool                  at = receiver && a->nparams >= 1 && !rebinds_receiver(a->body);
 		for (uint32_t k = 0; at && k < a->nparams; k++) params[k] = k ? clj_fact_top() : *receiver;
 		run_frame(p, n->id, a, a->body, captured, ncaptured, &self, NULL, n, join_var, at ? params : NULL);
 	}
@@ -1676,9 +1676,9 @@ static clj_fact infer(pass *p, const clj_node *n, env *e, use_kind use) {
 }
 
 typedef struct {
-	clj_value *vars;
-	uint32_t  *nargs;
-	uint32_t   n, cap;
+	CLJ_NO_CYCLE clj_value *vars;
+	uint32_t               *nargs;
+	uint32_t                n, cap;
 } call_list;
 
 static void collect_calls(const clj_node *n, void *ctx) {

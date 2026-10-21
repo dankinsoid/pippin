@@ -86,9 +86,10 @@ static clj_value array_ctor(clj_array_kind kind, const clj_value *args, size_t n
 		}
 		return arr;
 	}
-	size_t     count = 0;
-	clj_value  keep = CLJ_NIL;
-	clj_value *items = clj_seq_items(args[1], &count, &keep);
+	size_t                  count = 0;
+	clj_value               keep = CLJ_NIL;
+	CLJ_ROOTS(&keep);
+	CLJ_BORROWED clj_value *items = clj_seq_items(args[1], &count, &keep);
 	if (!items) {
 		clj_release(arr);
 		return CLJ_THROWN;
@@ -124,8 +125,8 @@ CTOR(b_object_array, CLJ_ARRAY_OBJECT)
 
 static clj_value kind_arg(const char *what, clj_value v, clj_array_kind *out) {
 	if (clj_array_kind_named(v, out)) return CLJ_NIL;
-	clj_value text = clj_pr_str(v);
-	clj_value e = clj_throw_msg("%s: unknown array kind: %s", what, CLJ_STR(text).bytes);
+	CLJ_NO_CYCLE clj_value text = clj_pr_str(v);
+	clj_value              e = clj_throw_msg("%s: unknown array kind: %s", what, CLJ_STR(text).bytes);
 	clj_release(text);
 	return e;
 }
@@ -156,6 +157,7 @@ static clj_value b_vector_of(const clj_value *args, size_t n) {
 	clj_array_kind kind;
 	if (kind_arg("vector-of", args[0], &kind) == CLJ_THROWN) return CLJ_THROWN;
 	clj_value v = clj_vector_empty();
+	CLJ_ROOTS(&v);
 	for (size_t i = 1; i < n; i++) {
 		clj_value x = clj_array_cast(kind, args[i]);
 		if (x == CLJ_THROWN) {

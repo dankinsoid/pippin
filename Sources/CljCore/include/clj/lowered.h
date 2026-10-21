@@ -20,7 +20,7 @@ typedef struct {
 	clj_value (*make)(void *ctx);    // the literal as a closure: another count, or a source that lets the fn out of C
 	void     *ctx;
 	uint32_t  arity;
-	clj_value closure; // made on the first need; clj_lowered_call releases it
+	CLJ_BORROWED clj_value closure; // made on the first need; clj_lowered_call names and releases it
 	// The step with args[0] at +1, which it consumes, or NULL. Only a driver that owns its accumulator calls it
 	// (clj_reducer, through clj_call.owned); every other caller reaches step.
 	clj_native_ctx_fn owned;

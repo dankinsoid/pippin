@@ -14,6 +14,7 @@
 #include "clj/vector.h"
 #include "coro_internal.h"
 #include "guard_internal.h"
+#include "roots_internal.h"
 #include "shadow_internal.h"
 #include "trace_internal.h"
 
@@ -125,6 +126,7 @@ static clj_value frame_map(clj_value name, uint32_t line, uint32_t col) {
 clj_value clj_trace_vector(const clj_trace_frame *frames, size_t n) {
 	pthread_once(&keywords_once, intern_keywords);
 	clj_value trace = clj_vector_empty();
+	CLJ_ROOTS(&trace);
 	for (size_t i = 0; i < n; i++) {
 		clj_value m = frame_map(frames[i].fn->u.fn.name.v, frames[i].at->line, frames[i].at->col);
 		trace = clj_vector_conj(trace, m);
@@ -141,6 +143,7 @@ clj_value clj_trace_realize(clj_value trace) {
 	pthread_once(&keywords_once, intern_keywords);
 	const clj_trace_capture *t = clj_to_ptr(trace);
 	clj_value                v = clj_vector_empty();
+	CLJ_ROOTS(&v);
 	for (uint32_t i = 0; i < t->n; i++) {
 		clj_value m = frame_map(t->frames[i].name, t->frames[i].line, t->frames[i].col);
 		v = clj_vector_conj(v, m);
@@ -149,9 +152,10 @@ clj_value clj_trace_realize(clj_value trace) {
 	return v;
 }
 
-clj_value clj_coro_append_spawn_trace(clj_value trace, const clj_coro *c) {
+clj_value clj_coro_append_spawn_trace(CLJ_OWNED clj_value trace, const clj_coro *c) {
 	if (!c || !c->nspawn) return trace;
 	pthread_once(&keywords_once, intern_keywords);
+	CLJ_ROOTS(&trace);
 	for (uint32_t i = 0; i < c->nspawn; i++) {
 		clj_value m = frame_map(c->spawn_trace[i].name, c->spawn_trace[i].line, c->spawn_trace[i].col);
 		trace = clj_vector_conj(trace, m);

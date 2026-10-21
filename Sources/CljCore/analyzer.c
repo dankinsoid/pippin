@@ -237,8 +237,13 @@ static void *zalloc(size_t n, size_t size) {
 
 // Consumes data (a map or nil); the position is added when known. The keys are the rich meta's
 // (design §4 «Локация в коде»), so one reader of ex-data serves every diagnostic.
-static clj_value with_position(const analyzer *a, clj_value data) {
+static clj_value with_position(const analyzer *a, CLJ_OWNED clj_value data) {
 	if (!a->line) return data;
+	CLJ_BORROWED clj_value file;
+	{
+		CLJ_ROOTS(&data);
+		file = clj_var_thread_binding(clj_load_file_var());
+	}
 	if (clj_is_nil(data)) data = clj_map_empty();
 	data = clj_map_assoc(data, kw_line, clj_fixnum(a->line));
 	data = clj_map_assoc(data, kw_column, clj_fixnum(a->col));
@@ -246,7 +251,6 @@ static clj_value with_position(const analyzer *a, clj_value data) {
 		data = clj_map_assoc(data, kw_end_line, clj_fixnum(a->end_line));
 		data = clj_map_assoc(data, kw_end_column, clj_fixnum(a->end_col));
 	}
-	clj_value file = clj_var_thread_binding(clj_load_file_var());
 	if (!clj_is_nil(file) && clj_is_string(clj_volatile_value(file))) data = clj_map_assoc(data, kw_file, clj_volatile_value(file));
 	return data;
 }
@@ -260,6 +264,7 @@ bool clj_form_span(clj_value form, uint32_t span[4]) {
 		clj_release(m);
 		return false;
 	}
+	CLJ_ROOTS(&m);
 	clj_value l = clj_map_get(m, kw_line, CLJ_NIL), c = clj_map_get(m, kw_column, CLJ_NIL);
 	bool      ok = clj_is_fixnum(l) && clj_is_fixnum(c) && clj_fixnum_val(l) > 0;
 	if (ok) {
@@ -283,8 +288,9 @@ bool clj_form_position(clj_value form, uint32_t *line, uint32_t *col) {
 }
 
 static void throw_at(const analyzer *a, const char *fmt, va_list ap) {
-	clj_value message = clj_error_message_v(fmt, ap);
-	clj_value data = with_position(a, CLJ_NIL);
+	CLJ_NO_CYCLE clj_value message = clj_error_message_v(fmt, ap);
+	clj_value              data = with_position(a, CLJ_NIL);
+	CLJ_ROOTS(&data);
 	clj_throw(clj_ex_info(message, data));
 	clj_release(message);
 	clj_release(data);
@@ -312,13 +318,15 @@ static clj_value fail_value(const analyzer *a, const char *fmt, ...) {
 // A thrown value that is no error, or an error without a string message, passes unchanged.
 static clj_value rethrow_positioned(const analyzer *a) {
 	if (!a->line || !clj_is_exception(clj_pending())) return CLJ_THROWN;
-	clj_value ex = clj_take_pending();
-	clj_value message = clj_ex_message(ex);
+	clj_value ex = clj_take_pending(), data = CLJ_NIL;
+	CLJ_ROOTS(&ex, &data);
+	// a string wherever a park can see it
+	CLJ_NO_CYCLE clj_value message = clj_ex_message(ex);
 	if (!clj_is_string(message)) {
 		clj_release(message);
 		return clj_throw(ex);
 	}
-	clj_value data = with_position(a, clj_ex_data(ex));
+	data = with_position(a, clj_ex_data(ex));
 	clj_value wrapped = clj_ex_info_cause(message, data, ex);
 	clj_release(message);
 	clj_release(data);
@@ -328,7 +336,7 @@ static clj_value rethrow_positioned(const analyzer *a) {
 
 // fmt has one %s, filled with the printed form.
 static clj_node *fail_form(const analyzer *a, const char *fmt, clj_value form) {
-	clj_value text = clj_pr_str(form);
+	CLJ_NO_CYCLE clj_value text = clj_pr_str(form);
 	if (text == CLJ_THROWN) return NULL;
 	clj_node *r = fail(a, fmt, CLJ_STR(text).bytes);
 	clj_release(text);
@@ -369,7 +377,7 @@ typedef struct {
 	const char *name;
 	size_t      len;
 	uint32_t    max;      // the threshold; a candidate past it is no suggestion
-	clj_value   best;     // the nearest name, nil when none is within max
+	CLJ_BORROWED clj_value best; // the nearest name, nil when none is within max
 	uint32_t    distance; // of best; max + 1 while there is none
 	bool        local;    // best is a local of the scope chain, so no namespace has to answer for it
 } nearest;
@@ -405,7 +413,7 @@ static bool offer_mapping(clj_value key, clj_value val, void *ctx) {
 // mappings; a local wins a tie against a var, being the nearer binding. Design §3 «Диагностика»: no hint
 // means no line, so nothing within the threshold answers nil. Borrowed; the owner is the scope or the ns.
 // @ai-generated(solo)
-static clj_value nearest_name(const analyzer *a, scope *s, clj_value sym) {
+static CLJ_BORROWED clj_value nearest_name(const analyzer *a, scope *s, clj_value sym) {
 	if (!clj_is_nil(clj_symbol_ns(sym))) return CLJ_NIL;
 	clj_value text = clj_symbol_name(sym);
 	size_t    len = clj_string_len(text);
@@ -430,15 +438,17 @@ static clj_value nearest_name(const analyzer *a, scope *s, clj_value sym) {
 // Unresolved name: the message Clojure words, plus the nearest name in scope under :suggestion when one
 // is computable. A consumer renders the hint; the message never claims one that was not found.
 static clj_node *fail_unresolved(const analyzer *a, scope *s, clj_value sym) {
-	clj_value text = clj_pr_str(sym);
+	CLJ_NO_CYCLE clj_value text = clj_pr_str(sym);
 	if (text == CLJ_THROWN) return NULL;
-	clj_value message = clj_error_message("Unable to resolve symbol: %s in this context", CLJ_STR(text).bytes);
+	CLJ_NO_CYCLE clj_value message = clj_error_message("Unable to resolve symbol: %s in this context", CLJ_STR(text).bytes);
 	clj_release(text);
 	clj_value data = with_position(a, CLJ_NIL);
+	CLJ_ROOTS(&data);
 	clj_value hint = nearest_name(a, s, sym);
 	if (!clj_is_nil(hint)) {
-		if (clj_is_nil(data)) data = clj_map_empty();
-		data = clj_map_assoc(data, kw_suggestion, hint);
+		clj_value m = clj_is_nil(data) ? clj_map_empty() : data;
+		data = CLJ_NIL;
+		data = clj_map_assoc(m, kw_suggestion, hint);
 	}
 	clj_throw(clj_ex_info(message, data));
 	clj_release(message);
@@ -665,10 +675,10 @@ static bool is_map(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type
 // Borrowed items of a seq or vector form in a malloc'd array; the form keeps them alive, or the analyzer
 // does until it is done when the form's seq hands them out owned (clj_seq_items then keeps a vector).
 // NULL with the exception pending when realizing a lazy form throws.
-// Analysis walks forms the reader or a macro made, and a park inside a macro is out of what the frames name.
-static clj_value *seq_items(analyzer *a, clj_value form, uint32_t *n) {
+static CLJ_BORROWED clj_value *seq_items(analyzer *a, clj_value form, uint32_t *n) {
 	size_t     count;
-	clj_value  keep;
+	clj_value  keep = CLJ_NIL;
+	CLJ_ROOTS(&keep);
 	clj_value *items = clj_seq_items(form, &count, &keep);
 	if (!items) return NULL;
 	if (clj_is_vector(keep)) a->keeps = clj_vector_conj(clj_is_nil(a->keeps) ? clj_vector_empty() : a->keeps, keep);
@@ -690,12 +700,13 @@ static clj_value qualified_text(clj_value sym);
 // made at runtime, because a compiled unit carries the name and meets the resolver only when it runs.
 static clj_node *host_type_symbol(analyzer *a, scope *s, clj_value sym) {
 	if (clj_is_nil(clj_symbol_ns(sym))) return NULL;
-	clj_value text = qualified_text(sym);
-	bool      known = !clj_is_nil(clj_host_type_named(CLJ_STR(text).bytes, clj_string_len(text)));
+	CLJ_NO_CYCLE clj_value text = qualified_text(sym);
+	bool                   known = !clj_is_nil(clj_host_type_named(CLJ_STR(text).bytes, clj_string_len(text)));
 	clj_node *node = NULL;
 	if (known) {
 		clj_value items[2] = {clj_symbol_from_cstr("clojure.core/host-type"), text};
 		clj_value form = clj_list_from_array(items, 2);
+		CLJ_ROOTS(&form);
 		clj_release(items[0]);
 		node = analyze(a, s, form, false);
 		clj_release(form);
@@ -756,13 +767,8 @@ static clj_node *analyze_symbol(analyzer *a, scope *s, clj_value sym) {
 
 enum { MAX_EXPANSION_STEPS = 1000 };
 
-// The macro var a seq form's head names, or nil: a local of s (NULL at top level) shadows it.
-static clj_value macro_var(const analyzer *a, scope *s, clj_value form) {
-	if (!clj_is_seq(form)) return CLJ_NIL;
-	clj_seq_iter it = clj_seq_iter_start(form);
-	clj_value    head;
-	if (!clj_seq_iter_next(&it, &head)) return CLJ_NIL;
-	clj_seq_iter_close(&it);
+// The macro var head names, or nil: a local of s (NULL at top level) shadows it.
+static clj_value head_macro_var(const analyzer *a, scope *s, clj_value head) {
 	if (!clj_is_symbol(head) || clj_is_special_symbol(head)) return CLJ_NIL;
 	if (s && clj_is_nil(clj_symbol_ns(head))) {
 		bool     captured;
@@ -774,17 +780,32 @@ static clj_value macro_var(const analyzer *a, scope *s, clj_value form) {
 	return !clj_is_nil(var) && clj_var_is_macro(var) && !private_elsewhere(a, head, var) ? var : CLJ_NIL;
 }
 
+// The macro var a seq form's head names, or nil.
+static clj_value macro_var(const analyzer *a, scope *s, clj_value form) {
+	if (!clj_is_seq(form)) return CLJ_NIL;
+	clj_seq_iter           it = clj_seq_iter_start(form);
+	CLJ_BORROWED clj_value head;
+	CLJ_ROOTS(&it.held, &it.item);
+	if (!clj_seq_iter_next(&it, &head)) return CLJ_NIL;
+	// a head a first slot yielded lives until the close
+	clj_value var = head_macro_var(a, s, head);
+	clj_seq_iter_close(&it);
+	return var;
+}
+
 // (macro &form &env args...) with &env nil: there is no local environment value yet.
 static clj_value expand_once(analyzer *a, clj_value var, clj_value form) {
 	clj_value fn = clj_var_deref(var);
 	if (fn == CLJ_THROWN) return rethrow_positioned(a);
+	CLJ_ROOTS(&fn);
 	uint32_t   n;
 	clj_value *items = seq_items(a, form, &n);
 	if (!items) {
 		clj_release(fn);
+		fn = CLJ_NIL;
 		return rethrow_positioned(a);
 	}
-	clj_value *args = zalloc(n + 1, sizeof *args);
+	CLJ_BORROWED clj_value *args = zalloc(n + 1, sizeof *args);
 	args[0] = form;
 	args[1] = CLJ_NIL;
 	memcpy(args + 2, items + 1, (n - 1) * sizeof *args);
@@ -792,18 +813,21 @@ static clj_value expand_once(analyzer *a, clj_value var, clj_value form) {
 	free(args);
 	free(items);
 	clj_release(fn);
+	fn = CLJ_NIL;
 	return r == CLJ_THROWN ? rethrow_positioned(a) : r;
 }
 
 // A macro returning its own form ends the loop, as in Clojure; the form is then analyzed as a call.
 static clj_value expand_all(analyzer *a, scope *s, clj_value form) {
 	clj_value cur = clj_retain(form);
+	CLJ_ROOTS(&cur);
 	for (uint32_t step = 0;; step++) {
 		clj_value var = macro_var(a, s, cur);
 		if (clj_is_nil(var)) return cur;
 		if (step == MAX_EXPANSION_STEPS) {
-			clj_value text = clj_pr_str(cur);
+			CLJ_NO_CYCLE clj_value text = clj_pr_str(cur);
 			clj_release(cur);
+			cur = CLJ_NIL;
 			if (text == CLJ_THROWN) return CLJ_THROWN;
 			clj_value r = fail_value(a, "Macro expansion exceeded %d steps at: %s", MAX_EXPANSION_STEPS, CLJ_STR(text).bytes);
 			clj_release(text);
@@ -835,15 +859,14 @@ static void set_span(analyzer *a, clj_value form) {
 
 static analyzer analyzer_for(const clj_env *env) {
 	pthread_once(&keywords_once, intern_keywords);
-	analyzer a = {.env = env ? *env : (clj_env){0}, .stack_limit = clj_stack_limit()};
-	if (clj_is_nil(a.env.ns)) a.env.ns = clj_ns_current();
-	a.line = a.env.line;
-	a.col = a.env.col;
-	return a;
+	clj_env e = env ? *env : (clj_env){0};
+	if (clj_is_nil(e.ns)) e.ns = clj_ns_current();
+	return (analyzer){.env = e, .line = e.line, .col = e.col, .stack_limit = clj_stack_limit()};
 }
 
 clj_value clj_macroexpand_1(clj_value form, const clj_env *env) {
 	analyzer a = analyzer_for(env);
+	CLJ_ROOTS(&a.keeps);
 	set_span(&a, form);
 	clj_value var = macro_var(&a, NULL, form);
 	clj_value r = clj_is_nil(var) ? clj_retain(form) : expand_once(&a, var, form);
@@ -853,6 +876,7 @@ clj_value clj_macroexpand_1(clj_value form, const clj_env *env) {
 
 clj_value clj_macroexpand(clj_value form, const clj_env *env) {
 	analyzer a = analyzer_for(env);
+	CLJ_ROOTS(&a.keeps);
 	set_span(&a, form);
 	clj_value r = expand_all(&a, NULL, form);
 	clj_release(a.keeps);
@@ -885,7 +909,7 @@ static clj_value build_vector(const clj_node *const *items, uint32_t n) {
 }
 
 static clj_value build_map(const clj_node *const *items, uint32_t n) {
-	clj_value *vals = malloc((n ? n : 1) * sizeof *vals);
+	CLJ_BORROWED clj_value *vals = malloc((n ? n : 1) * sizeof *vals);
 	if (!vals) clj_fatal("out of memory");
 	for (uint32_t i = 0; i < n; i++) vals[i] = items[i]->u.value.v;
 	clj_value m = clj_map_from_items(vals, n, NULL);
@@ -904,8 +928,10 @@ static clj_node *literal_with_meta(analyzer *a, scope *s, clj_value form, clj_no
 	if (!node) return NULL;
 	clj_value m = clj_meta(form);
 	if (clj_is_nil(m)) return node;
+	CLJ_ROOTS(&m);
 	clj_node *meta_node = analyze(a, s, m, false);
 	clj_release(m);
+	m = CLJ_NIL;
 	if (!meta_node) {
 		clj_release(clj_from_ptr(node));
 		return NULL;
@@ -946,8 +972,8 @@ static clj_node *analyze_vector(analyzer *a, scope *s, clj_value form) {
 }
 
 typedef struct {
-	clj_value *entries;
-	size_t     n;
+	CLJ_BORROWED clj_value *entries;
+	size_t                  n;
 } collect_ctx;
 
 static bool collect_entry(clj_value key, clj_value val, void *ctx) {
@@ -958,9 +984,9 @@ static bool collect_entry(clj_value key, clj_value val, void *ctx) {
 }
 
 static clj_node *analyze_map(analyzer *a, scope *s, clj_value form) {
-	uint32_t    n = 2 * clj_map_count(form);
-	clj_value  *entries = zalloc(n, sizeof *entries);
-	collect_ctx c = {entries, 0};
+	uint32_t                n = 2 * clj_map_count(form);
+	CLJ_BORROWED clj_value *entries = zalloc(n, sizeof *entries);
+	collect_ctx             c = {entries, 0};
 	clj_map_each(form, collect_entry, &c);
 	clj_node *node = node_new(a, CLJ_NODE_MAP);
 	node->u.seq.items = zalloc(n, sizeof *node->u.seq.items);
@@ -981,9 +1007,9 @@ static bool collect_item(clj_value item, void *ctx) {
 }
 
 static clj_node *analyze_set(analyzer *a, scope *s, clj_value form) {
-	uint32_t    n = clj_set_count(form);
-	clj_value  *items = zalloc(n, sizeof *items);
-	collect_ctx c = {items, 0};
+	uint32_t                n = clj_set_count(form);
+	CLJ_BORROWED clj_value *items = zalloc(n, sizeof *items);
+	collect_ctx             c = {items, 0};
 	clj_set_each(form, collect_item, &c);
 	clj_node *node = node_new(a, CLJ_NODE_SET);
 	node->u.seq.items = zalloc(n, sizeof *node->u.seq.items);
@@ -1214,6 +1240,11 @@ static clj_value quoted(clj_value v) {
 // :name is the var's own symbol, so a redefinition allocates nothing new for it.
 // @ai-generated(guided)
 static clj_value def_meta_form(const analyzer *a, clj_value sym, clj_value var, clj_value doc) {
+	CLJ_BORROWED clj_value file = clj_var_thread_binding(clj_load_file_var());
+	clj_value              ns = quoted(clj_var_ns(var)), nm = CLJ_NIL;
+	CLJ_ROOTS(&ns, &nm);
+	nm = quoted(clj_var_name(var));
+	// m is handed to every parking call that sees it, so it needs no name
 	clj_value m = clj_meta(sym);
 	if (clj_is_nil(m)) m = clj_map_empty();
 	if (!clj_is_nil(doc)) m = clj_map_assoc(m, kw_doc, doc);
@@ -1221,9 +1252,7 @@ static clj_value def_meta_form(const analyzer *a, clj_value sym, clj_value var, 
 		m = clj_map_assoc(m, kw_line, clj_fixnum(a->line));
 		m = clj_map_assoc(m, kw_column, clj_fixnum(a->col));
 	}
-	clj_value file = clj_var_thread_binding(clj_load_file_var());
 	if (!clj_is_nil(file) && clj_is_string(clj_volatile_value(file))) m = clj_map_assoc(m, kw_file, clj_volatile_value(file));
-	clj_value ns = quoted(clj_var_ns(var)), nm = quoted(clj_var_name(var));
 	m = clj_map_assoc(m, kw_ns, ns);
 	m = clj_map_assoc(m, kw_name, nm);
 	clj_release(ns);
@@ -1245,12 +1274,10 @@ static clj_node *analyze_def(analyzer *a, scope *s, const clj_value *items, uint
 	clj_value sym = items[1];
 	if (!clj_is_symbol(sym)) return fail(a, "First argument to def must be a Symbol");
 	clj_value ns_name = clj_symbol_name(clj_ns_name(a->env.ns));
+	if (!clj_is_nil(clj_symbol_ns(sym)) && !clj_equals(clj_symbol_ns(sym), ns_name)) return fail(a, "Can't create defs outside of current ns");
 	clj_value sym_meta = clj_meta(sym);
-	clj_value name = sym;
-	if (!clj_is_nil(clj_symbol_ns(sym)) && !clj_equals(clj_symbol_ns(sym), ns_name)) {
-		clj_release(sym_meta);
-		return fail(a, "Can't create defs outside of current ns");
-	}
+	CLJ_ROOTS(&sym_meta);
+	CLJ_NO_CYCLE clj_value name = sym;
 	// The var's name is a bare symbol: the meta stays on the var, not on the key that reaches it.
 	if (!clj_is_nil(clj_symbol_ns(sym)) || !clj_is_nil(sym_meta)) name = clj_symbol_new(CLJ_NIL, clj_symbol_name(sym));
 	clj_node *node = node_new(a, CLJ_NODE_DEF);
@@ -1262,10 +1289,13 @@ static clj_node *analyze_def(analyzer *a, scope *s, const clj_value *items, uint
 	if (clj_is_map(sym_meta) && clj_truthy(clj_map_get(sym_meta, kw_eager, CLJ_NIL))) node->u.def.asked = CLJ_DEF_ASKED_EAGER;
 	else if (clj_is_map(sym_meta) && clj_truthy(clj_map_get(sym_meta, kw_lazy, CLJ_NIL))) node->u.def.asked = CLJ_DEF_ASKED_LAZY;
 	clj_release(sym_meta);
+	sym_meta = CLJ_NIL;
 	if (name != sym) clj_release(name);
 	clj_value meta_form = def_meta_form(a, sym, node->u.def.var.v, doc);
+	CLJ_ROOTS(&meta_form);
 	node->u.def.meta = analyze(a, s, meta_form, false);
 	clj_release(meta_form);
+	meta_form = CLJ_NIL;
 	if (!node->u.def.meta) {
 		clj_release(clj_from_ptr(node));
 		return NULL;
@@ -1295,7 +1325,7 @@ static clj_node *analyze_invoke(analyzer *a, scope *s, const clj_value *items, u
 }
 
 // stem, consumed, when it names a type of ours, else nil.
-static clj_value user_type_named(const analyzer *a, clj_value stem) {
+static CLJ_NO_CYCLE clj_value user_type_named(const analyzer *a, clj_value stem) {
 	clj_value var = clj_ns_resolve(a->env.ns, stem);
 	// Unbound is the type's own name, declared before it is defined; any other value is a boxed JVM class.
 	clj_value root = clj_is_nil(var) ? CLJ_NIL : clj_var_root(var);
@@ -1309,7 +1339,7 @@ static clj_value user_type_named(const analyzer *a, clj_value stem) {
 }
 
 // The type of a (Name. args*) head, owned, or nil: a JVM class does not resolve, so it stays unresolved.
-static clj_value ctor_head_type(const analyzer *a, clj_value v) {
+static CLJ_NO_CYCLE clj_value ctor_head_type(const analyzer *a, clj_value v) {
 	if (!clj_is_symbol(v) || !clj_is_nil(clj_symbol_ns(v))) return CLJ_NIL;
 	clj_value   name = clj_symbol_name(v);
 	size_t      len = clj_string_len(name);
@@ -1453,8 +1483,8 @@ static const char *core_catch_name(clj_value cls) {
 static bool catch_kind_of(analyzer *a, clj_value cls, clj_catch *c) {
 	const char *core_name = core_catch_name(cls);
 	if (core_name) {
-		clj_value bare = clj_symbol_from_cstr(core_name);
-		bool      ok = catch_kind_of(a, bare, c);
+		CLJ_NO_CYCLE clj_value bare = clj_symbol_from_cstr(core_name);
+		bool                   ok = catch_kind_of(a, bare, c);
 		clj_release(bare);
 		return ok;
 	}
@@ -1595,6 +1625,7 @@ static clj_node *analyze_set_bang(analyzer *a, scope *s, const clj_value *items,
 	clj_release(var_items[1]);
 	clj_value call_items[3] = {clj_symbol_from_cstr("clojure.core/var-set"), var_form, clj_retain(items[2])};
 	clj_value call = clj_list_from_array(call_items, 3);
+	CLJ_ROOTS(&call);
 	for (int i = 0; i < 3; i++) clj_release(call_items[i]);
 	clj_node *node = analyze(a, s, call, false);
 	clj_release(call);
@@ -1628,9 +1659,9 @@ static clj_node *analyze_fields(analyzer *a, scope *s, const clj_value *items, u
 static int form_names(const analyzer *a, clj_value form, clj_value sym);
 
 typedef struct {
-	const analyzer *a;
-	clj_value       sym;
-	int             found;
+	const analyzer        *a;
+	CLJ_BORROWED clj_value sym;
+	int                    found;
 } names_ctx;
 
 static bool names_entry(clj_value key, clj_value val, void *ctx) {
@@ -1661,8 +1692,9 @@ static int form_names(const analyzer *a, clj_value form, clj_value sym) {
 	if (is_map(form)) clj_map_each(form, names_entry, &c);
 	else if (clj_is_set(form)) clj_set_each(form, names_item, &c);
 	if (c.found || !clj_is_seq(form)) return c.found;
-	clj_seq_iter it = clj_seq_iter_start(form);
-	clj_value    item;
+	clj_seq_iter           it = clj_seq_iter_start(form);
+	CLJ_BORROWED clj_value item;
+	CLJ_ROOTS(&it.held, &it.item);
 	while (clj_seq_iter_next(&it, &item)) {
 		int r = form_names(a, item, sym);
 		if (r) {
@@ -1678,6 +1710,7 @@ static int form_names(const analyzer *a, clj_value form, clj_value sym) {
 static bool snapshot_fields(analyzer *a, scope *s, clj_value form, clj_value *wrapped) {
 	*wrapped = CLJ_NIL;
 	clj_value binds = CLJ_NIL;
+	CLJ_ROOTS(&binds);
 	for (scope *sc = s; sc; sc = sc->parent) {
 		for (uint32_t i = 0; i < sc->nlocals; i++) {
 			const local *l = &sc->locals[i];
@@ -1723,6 +1756,7 @@ static clj_node *analyze_ctor(analyzer *a, scope *s, clj_value type_sym, const c
 	call[1] = clj_retain(type_sym);
 	for (uint32_t i = 1; i < n; i++) call[i + 1] = clj_retain(items[i]);
 	clj_value form = clj_list_from_array(call, n + 1);
+	CLJ_ROOTS(&form);
 	for (uint32_t i = 0; i < n + 1; i++) clj_release(call[i]);
 	free(call);
 	clj_node *node = analyze(a, s, form, false);
@@ -1733,7 +1767,7 @@ static clj_node *analyze_ctor(analyzer *a, scope *s, clj_value type_sym, const c
 // (new Name args*) is (Name. args*); the JVM's message for a class that does not resolve.
 static clj_node *analyze_new(analyzer *a, scope *s, const clj_value *items, uint32_t n) {
 	if (n < 2) return fail(a, "Wrong number of args (%u) passed to new", n - 1);
-	clj_value type_sym = is_unqualified_symbol(items[1]) ? user_type_named(a, clj_retain(items[1])) : CLJ_NIL;
+	CLJ_NO_CYCLE clj_value type_sym = is_unqualified_symbol(items[1]) ? user_type_named(a, clj_retain(items[1])) : CLJ_NIL;
 	if (clj_is_nil(type_sym)) return fail_form(a, "Unable to resolve classname: %s", items[1]);
 	clj_node *node = analyze_ctor(a, s, type_sym, items + 1, n - 1);
 	clj_release(type_sym);
@@ -1744,6 +1778,7 @@ static clj_node *analyze_list_at(analyzer *a, scope *s, clj_value form, bool tai
 	clj_value expanded = expand_all(a, s, form);
 	if (expanded == CLJ_THROWN) return NULL;
 	if (expanded != form) {
+		CLJ_ROOTS(&expanded);
 		clj_node *node = analyze(a, s, expanded, tail);
 		clj_release(expanded);
 		return node;
@@ -1760,7 +1795,8 @@ static clj_node *analyze_list_at(analyzer *a, scope *s, clj_value form, bool tai
 	case SP_LET: node = analyze_let(a, s, items, n, tail, false); break;
 	case SP_LOOP: node = analyze_let(a, s, items, n, tail, true); break;
 	case SP_FN: {
-		clj_value wrapped;
+		clj_value wrapped = CLJ_NIL;
+		CLJ_ROOTS(&wrapped);
 		if (!snapshot_fields(a, s, form, &wrapped)) node = NULL;
 		else if (clj_is_nil(wrapped)) node = analyze_fn(a, s, items, n);
 		else {
@@ -1781,7 +1817,7 @@ static clj_node *analyze_list_at(analyzer *a, scope *s, clj_value form, bool tai
 	case SP_FINALLY: node = fail(a, "finally outside try"); break;
 	case SP_NONE:
 	case SP_RESERVED: {
-		clj_value type_sym = ctor_head_type(a, items[0]);
+		CLJ_NO_CYCLE clj_value type_sym = ctor_head_type(a, items[0]);
 		if (!clj_is_nil(type_sym)) {
 			node = analyze_ctor(a, s, type_sym, items, n);
 			clj_release(type_sym);
@@ -1805,6 +1841,7 @@ static clj_node *analyze(analyzer *a, scope *s, clj_value form, bool tail) {
 		clj_value seq = clj_seq(form);
 		if (seq == CLJ_THROWN) return NULL;
 		if (clj_is_nil(seq)) return literal_with_meta(a, s, form, node_const(a, clj_list_empty()));
+		CLJ_ROOTS(&seq);
 		clj_node *node = analyze_list(a, s, seq, tail);
 		clj_release(seq);
 		return node;
@@ -1862,12 +1899,14 @@ static clj_def_lazy def_laziness(const clj_node *n) {
 
 clj_node *clj_analyze(clj_value form, const clj_env *env) {
 	analyzer      a = analyzer_for(env);
+	CLJ_ROOTS(&a.keeps);
 	clj_ice_frame frame = {.pass = "analyze", .file = clj_ice_current_file(), .line = a.line, .col = a.col};
 	clj_ice_enter(&frame);
 	scope     top = {0};
 	clj_node *node = analyze(&a, &top, form, false);
 	free(top.locals);
 	clj_release(a.keeps);
+	a.keeps = CLJ_NIL;
 	if (node) {
 		CLJ_VERIFY_TREE(node, "analyze", CLJ_VERIFY_ANALYZED);
 		clj_optimize(node);

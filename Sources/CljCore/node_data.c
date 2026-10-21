@@ -144,7 +144,6 @@ static bool serializable_entry(clj_value key, clj_value val, void *ctx) {
 }
 
 // What the printer writes and the reader hands back as an equal value; a seq comes back as a list.
-// Analysis reads a constant: its seqs are data the reader or a macro made, not a program's lazy work.
 static bool serializable(clj_value v) {
 	if (!clj_is_ptr(v) || clj_is_number(v) || clj_is_string(v) || clj_is_keyword(v) || clj_is_symbol(v) || clj_is_regex(v) || clj_is_uuid(v) || clj_is_inst(v)) return true;
 	bool ok = true;
@@ -155,8 +154,9 @@ static bool serializable(clj_value v) {
 	} else if (clj_is_set(v)) {
 		clj_set_each(v, serializable_item, &ok);
 	} else if (clj_is_seq(v)) {
-		clj_seq_iter it = clj_seq_iter_start(v);
-		clj_value    item;
+		clj_seq_iter           it = clj_seq_iter_start(v);
+		CLJ_BORROWED clj_value item;
+		CLJ_ROOTS(&it.held, &it.item);
 		while (ok && clj_seq_iter_next(&it, &item)) ok = serializable(item);
 		clj_seq_iter_close(&it);
 		if (it.thrown) return false;
@@ -204,6 +204,8 @@ static clj_value encode(const clj_node *n);
 
 static clj_value encode_all(const clj_node *const *nodes, uint32_t n) {
 	clj_value *items = zalloc(n, sizeof *items);
+	size_t     nitems = n;
+	CLJ_ROOTS_SPAN(&items, &nitems);
 	for (uint32_t i = 0; i < n; i++) items[i] = encode(nodes[i]);
 	clj_value v = vec_take(items, n);
 	free(items);
@@ -213,6 +215,8 @@ static clj_value encode_all(const clj_node *const *nodes, uint32_t n) {
 // A vector of [head ...items]: head is immortal (a keyword) and items are owned.
 static clj_value tagged(clj_value head, const clj_node *const *nodes, uint32_t n) {
 	clj_value *items = zalloc(n + 1, sizeof *items);
+	size_t     nitems = n + 1;
+	CLJ_ROOTS_SPAN(&items, &nitems);
 	items[0] = head;
 	for (uint32_t i = 0; i < n; i++) items[i + 1] = encode(nodes[i]);
 	clj_value v = vec_take(items, n + 1);
@@ -224,6 +228,8 @@ static clj_value encode_opt(const clj_node *n) { return n ? encode(n) : CLJ_NIL;
 
 static clj_value encode_bindings(const clj_node *n) {
 	clj_value *items = zalloc(n->u.let.n, sizeof *items);
+	size_t     nitems = n->u.let.n;
+	CLJ_ROOTS_SPAN(&items, &nitems);
 	for (uint32_t i = 0; i < n->u.let.n; i++) items[i] = vec2(clj_fixnum(n->u.let.slots[i]), encode(n->u.let.inits[i]));
 	clj_value v = vec_take(items, n->u.let.n);
 	free(items);
@@ -245,13 +251,15 @@ static clj_value encode_arity(const clj_fn_arity *a) {
 }
 
 static clj_value encode_arities(const clj_node *n) {
-	clj_value arities[CLJ_FN_MAX_FIXED + 2];
-	uint32_t  na = 0;
+	clj_value  buf[CLJ_FN_MAX_FIXED + 2];
+	clj_value *arities = buf;
+	size_t     na = 0;
+	CLJ_ROOTS_SPAN(&arities, &na);
 	for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
 		if (n->u.fn.fixed[i]) arities[na++] = encode_arity(n->u.fn.fixed[i]);
 	}
 	if (n->u.fn.variadic) arities[na++] = encode_arity(n->u.fn.variadic);
-	return vec_take(arities, na);
+	return vec_take(arities, (uint32_t)na);
 }
 
 static clj_value encode_capture(const clj_capture *c) {
@@ -265,15 +273,19 @@ static clj_value encode_capture(const clj_capture *c) {
 
 static clj_value encode_fn(const clj_node *n) {
 	if (n->kind == CLJ_NODE_DIRECT_FN) return vec3(kw_direct_fn, clj_retain(n->u.fn.name.v), encode_arities(n));
+	clj_value arities = encode_arities(n);
+	CLJ_ROOTS(&arities);
 	clj_value *captures = zalloc(n->u.fn.ncaptures, sizeof *captures);
 	for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) captures[i] = encode_capture(&n->u.fn.captures[i]);
-	clj_value v = vec4(kw_fn, clj_retain(n->u.fn.name.v), encode_arities(n), vec_take(captures, n->u.fn.ncaptures));
+	clj_value v = vec4(kw_fn, clj_retain(n->u.fn.name.v), arities, vec_take(captures, n->u.fn.ncaptures));
 	free(captures);
 	return v;
 }
 
 static clj_value encode_direct_call(const clj_node *n) {
 	clj_value *items = zalloc(n->u.direct.n + 2, sizeof *items);
+	size_t     nitems = n->u.direct.n + 2;
+	CLJ_ROOTS_SPAN(&items, &nitems);
 	items[0] = kw_direct_call;
 	items[1] = vec2(clj_fixnum(n->u.direct.slot), clj_fixnum(n->u.direct.depth));
 	for (uint32_t i = 0; i < n->u.direct.n; i++) items[i + 2] = encode(n->u.direct.args[i]);
@@ -284,6 +296,8 @@ static clj_value encode_direct_call(const clj_node *n) {
 
 static clj_value encode_try(const clj_node *n) {
 	clj_value *catches = zalloc(n->u.try_.ncatches, sizeof *catches);
+	size_t     ncatches = n->u.try_.ncatches;
+	CLJ_ROOTS_SPAN(&catches, &ncatches);
 	for (uint32_t i = 0; i < n->u.try_.ncatches; i++) {
 		const clj_catch *c = &n->u.try_.catches[i];
 		if (c->kind == CLJ_CATCH_KEYWORD || c->kind == CLJ_CATCH_HOST) {
@@ -297,13 +311,17 @@ static clj_value encode_try(const clj_node *n) {
 			catches[i] = vec3(c->kind == CLJ_CATCH_ALL ? kw_all : kw_error, clj_fixnum(c->slot), encode(c->handler));
 		}
 	}
-	clj_value v = vec4(kw_try, encode(n->u.try_.body), vec_take(catches, n->u.try_.ncatches), encode_opt(n->u.try_.finally_));
+	// vec_take releases the catches: nothing may park after it while the span names them
+	clj_value body = encode(n->u.try_.body);
+	CLJ_ROOTS(&body);
+	clj_value fin = encode_opt(n->u.try_.finally_);
+	clj_value v = vec4(kw_try, body, vec_take(catches, n->u.try_.ncatches), fin);
 	free(catches);
 	return v;
 }
 
 static clj_value encode_fused(const clj_node *n) {
-	clj_value *names = zalloc(n->u.fused.nguards, sizeof *names);
+	CLJ_NO_CYCLE clj_value *names = zalloc(n->u.fused.nguards, sizeof *names);
 	for (uint32_t i = 0; i < n->u.fused.nguards; i++) names[i] = clj_symbol_from_cstr(n->u.fused.guards[i]->name);
 	clj_value items[5] = {kw_fused, vec_take(names, n->u.fused.nguards), encode_all(n->u.fused.args, n->u.fused.nargs), encode(n->u.fused.fused),
 	                      encode(n->u.fused.original)};
@@ -351,6 +369,8 @@ static clj_value encode_kind(const clj_node *n) {
 	case CLJ_NODE_DIRECT_CALL: return encode_direct_call(n);
 	case CLJ_NODE_INVOKE: {
 		clj_value *items = zalloc(n->u.invoke.n + 2, sizeof *items);
+		size_t     nitems = n->u.invoke.n + 2;
+		CLJ_ROOTS_SPAN(&items, &nitems);
 		items[0] = kw_invoke;
 		items[1] = encode(n->u.invoke.fn);
 		for (uint32_t i = 0; i < n->u.invoke.n; i++) items[i + 2] = encode(n->u.invoke.args[i]);
@@ -360,6 +380,8 @@ static clj_value encode_kind(const clj_node *n) {
 	}
 	case CLJ_NODE_OBJC_SEND: {
 		clj_value *items = zalloc(n->u.objc.n + 3, sizeof *items);
+		size_t     nitems = n->u.objc.n + 3;
+		CLJ_ROOTS_SPAN(&items, &nitems);
 		items[0] = kw_objc_send;
 		items[1] = clj_retain(n->u.objc.selector.v);
 		items[2] = encode(n->u.objc.target);
@@ -377,6 +399,8 @@ static clj_value encode_kind(const clj_node *n) {
 	case CLJ_NODE_THROW: return vec2(kw_throw, encode(n->u.throw_));
 	case CLJ_NODE_INTRINSIC: {
 		clj_value *items = zalloc(n->u.intrinsic.n + 2, sizeof *items);
+		size_t     nitems = n->u.intrinsic.n + 2;
+		CLJ_ROOTS_SPAN(&items, &nitems);
 		items[0] = kw_intrinsic;
 		items[1] = qualified(n->u.intrinsic.var.v);
 		for (uint32_t i = 0; i < n->u.intrinsic.n; i++) items[i + 2] = encode(n->u.intrinsic.args[i]);
@@ -403,7 +427,8 @@ clj_value clj_node_to_data(const clj_node *root) {
 // @ai-generated(solo)
 bool clj_node_tree_digest(const clj_node *root, uint64_t out[2]) {
 	clj_value data = clj_node_to_data(root);
-	clj_value text = data == CLJ_THROWN ? CLJ_THROWN : clj_pr_str(data);
+	CLJ_ROOTS(&data);
+	CLJ_NO_CYCLE clj_value text = data == CLJ_THROWN ? CLJ_THROWN : clj_pr_str(data);
 	clj_release(data);
 	if (text == CLJ_THROWN) {
 		clj_release(clj_take_pending());
@@ -425,7 +450,7 @@ bool clj_node_tree_digest(const clj_node *root, uint64_t out[2]) {
 // ---- decoding
 
 static clj_node *fail_data(clj_value data, const char *what) {
-	clj_value text = clj_pr_str_max(data, CLJ_ERROR_PRINT_MAX);
+	CLJ_NO_CYCLE clj_value text = clj_pr_str_max(data, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return NULL;
 	clj_throw_msg("malformed node data, %s: %s", what, CLJ_STR(text).bytes);
 	clj_release(text);
@@ -445,7 +470,8 @@ static clj_value var_named(clj_value sym) {
 	if (!clj_is_symbol(sym) || clj_is_nil(clj_symbol_ns(sym))) return CLJ_NIL;
 	clj_value var = clj_ns_resolve(clj_ns_current(), sym);
 	if (!clj_is_nil(var)) return var;
-	clj_value ns_name = clj_symbol_new(CLJ_NIL, clj_symbol_ns(sym)), name = clj_symbol_new(CLJ_NIL, clj_symbol_name(sym));
+	CLJ_NO_CYCLE clj_value ns_name = clj_symbol_new(CLJ_NIL, clj_symbol_ns(sym));
+	CLJ_NO_CYCLE clj_value name = clj_symbol_new(CLJ_NIL, clj_symbol_name(sym));
 	var = clj_ns_intern(clj_ns_find_or_create(ns_name), name);
 	clj_release(ns_name);
 	clj_release(name);
@@ -815,6 +841,7 @@ static clj_node *decode_bound(clj_value data, dframe *fr, uint32_t slot) {
 	uint32_t count = clj_vector_count(data), line = 0, col = 0;
 	if (count >= 3 && as_u32(clj_vector_nth(data, count - 2), &line) && line > 0 && as_u32(clj_vector_nth(data, count - 1), &col)) {
 		clj_value body = clj_vector_pop(clj_vector_pop(clj_retain(data)));
+		CLJ_ROOTS(&body);
 		clj_node *n = decode_kind(body, fr, slot);
 		clj_release(body);
 		if (n) {

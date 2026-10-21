@@ -629,8 +629,8 @@ static bool const_arg(const clj_node *n, clj_value *out) {
 // speculates the same way). A fold that throws leaves the node, so the program throws where it would have.
 // @ai-generated(guided)
 static void fold_intrinsic(clj_node *n) {
-	const clj_intrinsic *op = n->u.intrinsic.op;
-	clj_value            vals[3];
+	const clj_intrinsic   *op = n->u.intrinsic.op;
+	CLJ_BORROWED clj_value vals[3];
 	if (!op->pure || clj_var_root(n->u.intrinsic.var.v) != clj_intrinsic_builtin(op)) return;
 	for (uint32_t i = 0; i < n->u.intrinsic.n; i++) {
 		if (!const_arg(n->u.intrinsic.args[i], &vals[i])) return;
@@ -642,6 +642,7 @@ static void fold_intrinsic(clj_node *n) {
 		clj_release(clj_take_pending());
 		return;
 	}
+	CLJ_ROOTS(&r);
 	if (!clj_node_foldable(r)) {
 		clj_release(r);
 		return;
@@ -760,7 +761,7 @@ typedef struct {
 	bool      self_read;   // the fn's own name, which no frame here holds
 	bool      has_fn;      // a fn inside: each copy would be a closure, and in C functions, of its own
 	bool      calls_def;   // a call of the var being defined: the copy would make the caller its own callee
-	clj_value def_var;
+	CLJ_NO_CYCLE clj_value def_var;
 	int       level;       // direct fn bodies entered
 	bool      in_loop;     // a recur here goes back to a loop of the body
 } callee_scan;
@@ -1240,7 +1241,7 @@ typedef struct {
 	clj_fn_arity *arity; // the frame the sites below are in; NULL outside every fn
 	uint32_t      grown, budget;
 	uint32_t      orig;    // the frame's slots before the pass: what the analyzer bound
-	clj_value     def_var; // a call of the var a def is binding reaches the old root, never the fn being defined
+	CLJ_NO_CYCLE clj_value def_var; // a call of the var a def is binding reaches the old root, never the fn being defined
 } inline_frame;
 
 // One past the highest slot a let, loop or catch of n's own frame binds.
@@ -1525,6 +1526,7 @@ static bool try_proto_inline(clj_node *n, inline_frame *fr, uint32_t base) {
 	const clj_type *t = single_implementor(root);
 	if (!t) return false;
 	clj_value impl = clj_proto_impl_for_type(root, t);
+	CLJ_ROOTS(&impl);
 	bool      shaped = clj_is_fn(impl) && clj_fn_of(impl)->kind == CLJ_FN_CLOSURE && !clj_fn_of(impl)->nenv;
 	const clj_node     *code = shaped ? clj_fn_of(impl)->u.node : NULL;
 	const clj_fn_arity *a = code ? code->u.fn.fixed[nargs] : NULL;
@@ -1593,6 +1595,7 @@ static bool try_proto_inline(clj_node *n, inline_frame *fr, uint32_t base) {
 	clj_node *test = node_at(CLJ_NODE_ROOT_IS, at);
 	clj_slot_store(&test->h, &test->u.root_is.var, clj_retain(var));
 	clj_slot_store(&test->h, &test->u.root_is.expect, impl);
+	impl = CLJ_NIL;
 	clj_slot_store(&test->h, &test->u.root_is.type, clj_retain(clj_from_ptr((void *)t)));
 	test->u.root_is.proto = true;
 	test->u.root_is.recv = args[0]->u.local.index;
@@ -1659,12 +1662,19 @@ typedef struct {
 	uint32_t        nkeys, nextra;
 	operand         m, keys[CLJ_INLINE_PATH_MAX], last, f, extra[PATH_EXTRA_MAX]; // last: get-in's not-found, assoc-in's v
 	const clj_node *literal; // update-in's f, a literal fn copied where it is called
-	clj_value       f_var;   // update-in's f, a var read where it is called; nil otherwise
+	CLJ_NO_CYCLE clj_value f_var; // update-in's f, a var read where it is called; nil otherwise
 	uint32_t        nodes;
-	clj_value       get2, get3, assoc, identical, reduced_p, unreduced, not_found;
+	// core's vars, and the not-found keyword
+	CLJ_NO_CYCLE clj_value get2;
+	CLJ_NO_CYCLE clj_value get3;
+	CLJ_NO_CYCLE clj_value assoc;
+	CLJ_NO_CYCLE clj_value identical;
+	CLJ_NO_CYCLE clj_value reduced_p;
+	CLJ_NO_CYCLE clj_value unreduced;
+	CLJ_NO_CYCLE clj_value not_found;
 } path_ctx;
 
-static clj_value table_var(const char *qualified, uint32_t arity) {
+static CLJ_NO_CYCLE clj_value table_var(const char *qualified, uint32_t arity) {
 	clj_value            sym = clj_symbol_from_cstr(qualified);
 	const clj_intrinsic *op = clj_intrinsic_find_named(sym, arity);
 	const clj_fusion_var *fv = op ? NULL : clj_fusion_find_named(sym);
@@ -1755,8 +1765,8 @@ static const clj_node *update_in_level_fn(const clj_node *code) {
 }
 
 typedef struct {
-	const clj_node *fn;  // a direct call of it
-	clj_value       var; // or a call of the var
+	const clj_node        *fn;  // a direct call of it
+	CLJ_NO_CYCLE clj_value var; // or a call of the var
 	position        at;
 	bool            found;
 } call_find;
@@ -1998,7 +2008,7 @@ typedef struct {
 	sr_kind   kind;
 	uint32_t  n;
 	clj_node *src[SR_KEYS_MAX];  // owned: what a read of the field copies (a LOCAL of its slot, a CONST, a trivial read)
-	clj_value keys[SR_KEYS_MAX]; // SR_MAP: the literal's keys in its order, interned keywords
+	CLJ_NO_CYCLE clj_value keys[SR_KEYS_MAX]; // SR_MAP: the literal's keys in its order, interned keywords
 	position  at;
 } sr_value;
 
@@ -2011,7 +2021,7 @@ typedef struct {
 typedef struct {
 	sr_frame            *fr;
 	uint32_t             next; // the frame's next fresh slot
-	sr_value             vals[SR_VALUES_MAX];
+	CLJ_NO_CYCLE sr_value vals[SR_VALUES_MAX]; // nodes and interned keywords
 	uint32_t             nvals;
 	int8_t               alias[INLINE_SLOTS_MAX]; // slot -> the value it names, -1
 	const clj_intrinsic *ops[SR_OPS_MAX];
@@ -2129,7 +2139,8 @@ static clj_value sr_sample(const sr_value *v) {
 // What a read answered: a field, the not-found argument, a constant, or nothing the layout fixes.
 typedef enum { SR_NONE, SR_FIELD, SR_NF, SR_CONST } sr_answer;
 
-static sr_answer sr_classify(clj_value r, const sr_value *v, bool consts, uint32_t *field, clj_value *k) {
+// *k is an immediate.
+static sr_answer sr_classify(CLJ_OWNED clj_value r, const sr_value *v, bool consts, uint32_t *field, clj_value *k) {
 	if (r == CLJ_THROWN) {
 		clj_release(clj_take_pending());
 		return SR_NONE;
@@ -2145,7 +2156,7 @@ static sr_answer sr_classify(clj_value r, const sr_value *v, bool consts, uint32
 		clj_release(r);
 		return SR_NF;
 	}
-	if (consts && clj_node_foldable(r) && (clj_is_nil(r) || clj_is_bool(r) || clj_is_fixnum(r))) {
+	if (consts && (clj_is_nil(r) || clj_is_bool(r) || clj_is_fixnum(r))) {
 		*k = r;
 		return SR_CONST;
 	}
@@ -2178,7 +2189,6 @@ static int sr_answered(const clj_node **pp, sr_ctx *c, bool bind, sr_answer a, u
 		return sr_rw(pp, c, bind);
 	}
 	clj_node *with = a == SR_FIELD ? sr_copy(c->vals[vi].src[field]) : const_node(k, at);
-	if (a == SR_CONST) clj_release(k);
 	if (nf && !sr_trivial(c, *nf)) {
 		clj_node        *effect = sr_detach(nf);
 		const clj_node **items = zalloc(2, sizeof *items);
@@ -2207,15 +2217,16 @@ static int sr_intrinsic(const clj_node **pp, sr_ctx *c, bool bind, uint32_t vi) 
 	bool            is_assoc = nargs == 3 && op->fn.f3 == clj_assoc3;
 	if (!is_assoc && !sr_layout_op(op)) return -2;
 	// every operand past the value is a constant, but a not-found argument
-	bool             has_nf = nargs == 3 && !is_assoc;
-	const clj_node **nf = has_nf ? &n->u.intrinsic.args[2] : NULL;
-	clj_value        args[3] = {0};
+	bool                   has_nf = nargs == 3 && !is_assoc;
+	const clj_node       **nf = has_nf ? &n->u.intrinsic.args[2] : NULL;
+	CLJ_BORROWED clj_value args[3] = {0};
 	for (uint32_t i = 1; i < nargs; i++) {
 		if ((nf && i == 2) || (is_assoc && i == 2)) continue;
 		if (n->u.intrinsic.args[i]->kind != CLJ_NODE_CONST) return -2;
 		args[i] = n->u.intrinsic.args[i]->u.value.v;
 	}
 	clj_value sample = sr_sample(v);
+	CLJ_ROOTS(&sample);
 	args[0] = sample;
 	if (is_assoc) {
 		if (!bind || c->nvals == SR_VALUES_MAX) {
@@ -2226,10 +2237,12 @@ static int sr_intrinsic(const clj_node **pp, sr_ctx *c, bool bind, uint32_t vi) 
 		args[2] = sr_sentinel(SR_SENT_NEW);
 		clj_value r = clj_intrinsic_call(op, args);
 		clj_release(sample);
+		sample = CLJ_NIL;
 		if (r == CLJ_THROWN) {
 			clj_release(clj_take_pending());
 			return -2;
 		}
+		CLJ_ROOTS(&r);
 		int32_t at = -1;
 		bool    same = (v->kind == SR_TUPLE ? clj_is_vector(r) && clj_vector_count(r) == v->n : clj_is_map(r) && clj_map_count(r) == v->n);
 		for (uint32_t i = 0; same && i < v->n; i++) {
@@ -2240,6 +2253,7 @@ static int sr_intrinsic(const clj_node **pp, sr_ctx *c, bool bind, uint32_t vi) 
 			clj_release(got);
 		}
 		clj_release(r);
+		r = CLJ_NIL;
 		if (!same || at < 0) return -2;
 		sr_need(c, op);
 		uint32_t  nv = c->nvals++;
@@ -2266,9 +2280,10 @@ static int sr_intrinsic(const clj_node **pp, sr_ctx *c, bool bind, uint32_t vi) 
 	if (nf) args[2] = sr_sentinel(SR_SENT_NF);
 	clj_value r = clj_intrinsic_call(op, args);
 	clj_release(sample);
-	uint32_t  field = 0;
-	clj_value k = CLJ_NIL;
-	sr_answer a = sr_classify(r, v, true, &field, &k);
+	sample = CLJ_NIL;
+	uint32_t               field = 0;
+	CLJ_BORROWED clj_value k = CLJ_NIL;
+	sr_answer              a = sr_classify(r, v, true, &field, &k);
 	if (a == SR_NONE) return -2;
 	sr_need(c, op);
 	return sr_answered(pp, c, bind, a, field, k, nf, vi);
@@ -2284,7 +2299,7 @@ static int sr_lookup(const clj_node **pp, sr_ctx *c, bool bind, uint32_t vi, boo
 	const clj_node **nf = head_is_value ? (nargs == 2 ? &n->u.invoke.args[1] : NULL) : (nargs == 2 ? &n->u.invoke.args[1] : NULL);
 	clj_value        sample = sr_sample(v), r;
 	clj_value        nfv = nf ? sr_sentinel(SR_SENT_NF) : CLJ_NIL;
-	// analysis asks a sample built for the question; it is the pass's own
+	CLJ_ROOTS(&sample);
 	if (head_is_value) {
 		clj_value args[2] = {keyn->u.value.v, nfv};
 		r = clj_invoke(sample, args, nargs);
@@ -2296,9 +2311,10 @@ static int sr_lookup(const clj_node **pp, sr_ctx *c, bool bind, uint32_t vi, boo
 		r = clj_get(sample, keyn->u.value.v, nfv);
 	}
 	clj_release(sample);
-	uint32_t  field = 0;
-	clj_value k = CLJ_NIL;
-	sr_answer a = sr_classify(r, v, true, &field, &k);
+	sample = CLJ_NIL;
+	uint32_t               field = 0;
+	CLJ_BORROWED clj_value k = CLJ_NIL;
+	sr_answer              a = sr_classify(r, v, true, &field, &k);
 	if (a == SR_NONE) return -2;
 	return sr_answered(pp, c, bind, a, field, k, nf, vi);
 }

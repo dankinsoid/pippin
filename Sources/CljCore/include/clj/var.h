@@ -102,7 +102,7 @@ clj_value clj_var_pop_bindings(void);
 // map var → value of every binding visible on this thread, owned.
 clj_value clj_var_get_thread_bindings(void);
 // Borrowed box (a volatile) of var on this thread, nil when it has no binding here.
-clj_value clj_var_thread_binding(clj_value var);
+CLJ_BORROWED clj_value clj_var_thread_binding(clj_value var);
 // set!: stores into the thread's binding; throws "Can't change/establish root binding of: x with set" without one.
 clj_value clj_var_set(clj_value var, clj_value val);
 static inline bool clj_var_is_thread_bound(clj_value var) { return !clj_is_nil(clj_var_thread_binding(var)); }
@@ -113,7 +113,7 @@ static inline bool clj_var_is_dynamic(clj_value var) { return clj_var_of(var)->d
 static inline void clj_var_set_dynamic(clj_value var, bool dynamic) { clj_var_of(var)->dynamic = dynamic; }
 
 // Borrowed meta, nil when none. Same caveat as clj_var_root against a concurrent writer.
-clj_value clj_var_meta(clj_value var);
+CLJ_BORROWED clj_value clj_var_meta(clj_value var);
 // Shares and retains m (a map or nil), releases the previous meta.
 void clj_var_set_meta(clj_value var, clj_value m);
 // Replaces the meta only while it is still `expected`; m is shared and retained on success.

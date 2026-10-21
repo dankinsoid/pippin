@@ -259,7 +259,9 @@ static clj_value gensym_for(sq *q, clj_value sym) {
 	snprintf(text, cap, "%.*s__%llu__auto__", (int)clj_string_len(name) - 1, CLJ_STR(name).bytes, (unsigned long long)clj_next_id());
 	clj_value gs = clj_symbol_from_cstr(text);
 	free(text);
-	q->gensyms = clj_map_assoc(q->gensyms, sym, gs);
+	clj_value into = q->gensyms;
+	q->gensyms = CLJ_NIL;
+	q->gensyms = clj_map_assoc(into, sym, gs);
 	return gs;
 }
 
@@ -301,8 +303,8 @@ static clj_value apply_to(const char *fn, clj_value *args, size_t n) {
 }
 
 typedef struct {
-	clj_value *entries;
-	size_t     n;
+	CLJ_BORROWED clj_value *entries;
+	size_t                  n;
 } collect_ctx;
 
 static bool collect_entry(clj_value key, clj_value val, void *ctx) {
@@ -335,11 +337,12 @@ static clj_value *coll_items(clj_value coll, size_t *n) {
 		*n = c.n;
 		return c.entries;
 	}
-	size_t     count = clj_list_count(coll);
-	clj_value *items = calloc(count + 1, sizeof *items);
+	size_t                  count = clj_list_count(coll);
+	CLJ_BORROWED clj_value *items = calloc(count + 1, sizeof *items);
 	if (!items) clj_fatal("out of memory");
 	clj_seq_iter it = clj_seq_iter_start(coll);
 	size_t       i = 0;
+	CLJ_ROOTS(&it.held, &it.item);
 	while (clj_seq_iter_next(&it, &items[i])) i++;
 	*n = count;
 	return items;
@@ -443,8 +446,9 @@ static clj_read_status sq_form(sq *q, clj_value root, clj_value *out) {
 }
 
 // Consumes form. The gensym table is fresh per syntax-quote, so a nested one names its own x#.
-static clj_read_status syntax_quote(parser *p, const frame *f, clj_value form, clj_value *out) {
+static clj_read_status syntax_quote(parser *p, const frame *f, CLJ_OWNED clj_value form, clj_value *out) {
 	sq q = {p, clj_map_empty(), f->line, f->col};
+	CLJ_ROOTS(&form, &q.gensyms);
 	clj_read_status st = sq_form(&q, form, out);
 	clj_release(q.gensyms);
 	clj_release(form);
@@ -453,9 +457,10 @@ static clj_read_status syntax_quote(parser *p, const frame *f, clj_value form, c
 
 // ^:kw is {:kw true}, ^Sym and ^"str" are {:tag ...}, a map is itself. Consumes v; nil with the error set otherwise.
 // @ai-generated(guided)
-static clj_value meta_map_of(parser *p, const frame *f, clj_value v) {
-	clj_value m;
+static clj_value meta_map_of(parser *p, const frame *f, CLJ_OWNED clj_value v) {
 	if (is_map(v)) return v;
+	CLJ_ROOTS(&v);
+	clj_value m;
 	if (clj_is_keyword(v)) m = clj_map_assoc(clj_map_empty(), v, CLJ_TRUE);
 	else if (clj_is_symbol(v) || clj_is_string(v)) m = clj_map_assoc(clj_map_empty(), kw_tag, v);
 	else {
@@ -468,23 +473,33 @@ static clj_value meta_map_of(parser *p, const frame *f, clj_value v) {
 
 // Consumes v and m: v carrying m's entries over its own meta, as LispReader stacks ^a ^b x with a winning.
 // @ai-generated(guided)
-static clj_read_status apply_meta(parser *p, const frame *f, clj_value v, clj_value m, clj_value *out) {
+static clj_read_status apply_meta(parser *p, const frame *f, CLJ_OWNED clj_value v, CLJ_OWNED clj_value m, clj_value *out) {
 	if (!clj_is_ptr(v) || !clj_type_of(v)->with_meta) {
 		clj_release(v);
 		clj_release(m);
 		return fail(p, f->line, f->col, "Metadata can only be applied to IMetas");
 	}
-	clj_value existing = clj_meta(v);
+	clj_value existing = CLJ_NIL;
+	CLJ_ROOTS(&v, &m, &existing);
+	existing = clj_meta(v);
 	if (!clj_is_nil(existing)) {
-		size_t     n;
-		clj_value *entries = coll_items(m, &n);
-		for (size_t i = 0; i < n; i += 2) existing = clj_map_assoc(existing, entries[i], entries[i + 1]);
+		size_t                  n;
+		CLJ_BORROWED clj_value *entries = coll_items(m, &n);
+		for (size_t i = 0; i < n; i += 2) {
+			clj_value into = existing;
+			existing = CLJ_NIL;
+			existing = clj_map_assoc(into, entries[i], entries[i + 1]);
+		}
 		free(entries);
 		clj_release(m);
 		m = existing;
+		existing = CLJ_NIL;
 	}
-	*out = clj_with_meta(v, m);
+	clj_value target = v;
+	v = CLJ_NIL;
+	*out = clj_with_meta(target, m);
 	clj_release(m);
+	m = CLJ_NIL;
 	if (*out == CLJ_THROWN) {
 		clj_release(clj_take_pending());
 		return fail(p, f->line, f->col, "Metadata can only be applied to IMetas");
@@ -532,28 +547,39 @@ static clj_value fn_walk(fn_args *a, clj_value form) {
 		return fn_param(a, i);
 	}
 	if (!is_sq_coll(form)) return clj_retain(form);
-	size_t     n;
-	clj_value *items = coll_items(form, &n);
-	clj_value *out = calloc(n + 1, sizeof *out);
+	size_t                  n;
+	CLJ_BORROWED clj_value *items = coll_items(form, &n);
+	clj_value              *out = calloc(n + 1, sizeof *out);
 	if (!out) clj_fatal("out of memory");
+	clj_value v = CLJ_NIL;
+	CLJ_ROOTS(&v);
+	CLJ_ROOTS_SPAN(&out, &n);
 	bool ok = true;
 	for (size_t i = 0; i < n && ok; i++) {
 		out[i] = fn_walk(a, items[i]);
 		if (a->error[0]) ok = false;
 	}
-	clj_value v = CLJ_NIL;
 	if (ok) {
 		if (clj_is_vector(form)) {
 			v = clj_vector_from_array(out, (uint32_t)n);
 		} else if (is_map(form)) {
 			v = clj_map_empty();
-			for (size_t i = 0; i < n; i += 2) v = clj_map_assoc(v, out[i], out[i + 1]);
+			for (size_t i = 0; i < n; i += 2) {
+				clj_value into = v;
+				v = CLJ_NIL;
+				v = clj_map_assoc(into, out[i], out[i + 1]);
+			}
 		} else if (clj_is_set(form)) {
 			v = clj_set_from_array(out, n);
 		} else {
 			v = clj_list_from_array(out, n);
 			clj_value m = clj_meta(form);
-			if (!clj_is_nil(m)) v = clj_with_meta(v, m);
+			CLJ_ROOTS(&m);
+			if (!clj_is_nil(m)) {
+				clj_value bare = v;
+				v = CLJ_NIL;
+				v = clj_with_meta(bare, m);
+			}
 			clj_release(m);
 		}
 	}
@@ -564,12 +590,14 @@ static clj_value fn_walk(fn_args *a, clj_value form) {
 }
 
 // Consumes body: (fn* [p1__N# ... & rest__N#] body).
-static clj_read_status fn_literal(parser *p, const frame *f, clj_value body, clj_value *out) {
+static clj_read_status fn_literal(parser *p, const frame *f, CLJ_OWNED clj_value body, clj_value *out) {
+	CLJ_ROOTS(&body);
 	fn_args   a = {0, false, clj_next_id(), {0}};
 	clj_value walked = fn_walk(&a, body);
 	clj_release(body);
+	body = CLJ_NIL;
 	if (a.error[0]) return fail(p, f->line, f->col, "%s", a.error);
-	clj_value *params = calloc(a.max_arg + 3, sizeof *params);
+	CLJ_NO_CYCLE clj_value *params = calloc(a.max_arg + 3, sizeof *params);
 	if (!params) clj_fatal("out of memory");
 	uint32_t np = 0;
 	for (uint32_t i = 1; i <= a.max_arg; i++) params[np++] = fn_param(&a, i);
@@ -614,15 +642,16 @@ static bool in_unselected_branch(const parser *p) {
 }
 
 // Consumes body. *out is the owned chosen form, or CLJ_UNBOUND when no branch matches.
-static clj_read_status read_cond(parser *p, const frame *f, clj_value body, clj_value *out) {
+static clj_read_status read_cond(parser *p, const frame *f, CLJ_OWNED clj_value body, clj_value *out) {
 	*out = CLJ_UNBOUND;
 	if (!clj_is_list(body)) {
 		clj_release(body);
 		return fail(p, f->line, f->col, "read-cond body must be a list");
 	}
-	size_t          n;
-	clj_value      *items = coll_items(body, &n);
-	clj_read_status st = CLJ_READ_OK;
+	CLJ_ROOTS(&body);
+	size_t                  n;
+	CLJ_BORROWED clj_value *items = coll_items(body, &n);
+	clj_read_status         st = CLJ_READ_OK;
 	if (n % 2) st = fail(p, f->line, f->col, "read-cond requires an even number of forms");
 	for (size_t i = 0; st == CLJ_READ_OK && i < n; i += 2) {
 		if (!clj_is_keyword(items[i])) {
@@ -649,7 +678,7 @@ static line_col line_col_of(const parser *p) {
 }
 
 // Consumes chosen: its items join the enclosing collection.
-static clj_read_status splice(parser *p, clj_value chosen, line_col at) {
+static clj_read_status splice(parser *p, CLJ_OWNED clj_value chosen, line_col at) {
 	frame_kind enclosing = p->nframes ? p->frames[p->nframes - 1].kind : F_QUOTE;
 	if (enclosing != F_LIST && enclosing != F_VECTOR && enclosing != F_MAP && enclosing != F_SET && enclosing != F_FN) {
 		clj_release(chosen);
@@ -660,8 +689,9 @@ static clj_read_status splice(parser *p, clj_value chosen, line_col at) {
 		clj_release(chosen);
 		return st;
 	}
-	size_t     n;
-	clj_value *items = coll_items(chosen, &n);
+	CLJ_ROOTS(&chosen);
+	size_t                  n;
+	CLJ_BORROWED clj_value *items = coll_items(chosen, &n);
 	for (size_t i = 0; i < n; i++) push_raw(p, clj_retain(items[i]));
 	free(items);
 	clj_release(chosen);
@@ -678,10 +708,12 @@ clj_value clj_default_data_reader(clj_value tag, clj_value form) {
 
 // Consumes tag and form: the tag fn's value, or CLJ_UNBOUND with the error set. A throw out of the fn is a
 // reader error with the exception's message at the literal's position, so read-time evaluation stays inside clj_read.
-static clj_value read_tagged(parser *p, const frame *f, clj_value tag, clj_value form) {
+static clj_value read_tagged(parser *p, const frame *f, CLJ_OWNED clj_value tag, CLJ_OWNED clj_value form) {
+	CLJ_ROOTS(&tag, &form);
 	clj_value v = p->r->read_tag ? p->r->read_tag(tag, form, p->r->resolve_ctx) : clj_default_data_reader(tag, form);
 	if (v == CLJ_THROWN) {
 		clj_value ex = clj_take_pending();
+		CLJ_ROOTS(&ex);
 		clj_value msg = clj_ex_message(ex);
 		fail(p, f->line, f->col, "%s", clj_is_string(msg) ? CLJ_STR(msg).bytes : "tag reader threw");
 		clj_release(msg);
@@ -707,18 +739,22 @@ static clj_value namespaced_key(clj_value key, clj_value ns) {
 }
 
 // Consumes m: the map with its keys rewritten under ns; CLJ_UNBOUND with the error set on a key collision.
-static clj_value namespaced_map(parser *p, const frame *f, clj_value m, clj_value ns) {
-	size_t     n;
+static clj_value namespaced_map(parser *p, const frame *f, CLJ_OWNED clj_value m, clj_value ns) {
+	CLJ_ROOTS(&m);
+	size_t     n, owned = 0;
 	clj_value *entries = coll_items(m, &n);
-	for (size_t i = 0; i < n; i += 2) entries[i] = namespaced_key(entries[i], ns);
+	CLJ_ROOTS_SPAN(&entries, &owned);
+	// The values are retained too, so the whole array is owned and named as one span.
+	for (; owned < n; owned++) entries[owned] = owned % 2 ? clj_retain(entries[owned]) : namespaced_key(entries[owned], ns);
 	uint32_t  dup;
 	clj_value out = clj_map_from_items(entries, (uint32_t)n, &dup);
+	CLJ_ROOTS(&out);
 	if (out == CLJ_UNBOUND) {
 		clj_value text = clj_pr_str(entries[dup]);
 		fail(p, f->line, f->col, "Duplicate key: %s", CLJ_STR(text).bytes);
 		clj_release(text);
 	}
-	for (size_t i = 0; i < n; i += 2) clj_release(entries[i]);
+	for (size_t i = 0; i < n; i++) clj_release(entries[i]);
 	free(entries);
 	clj_release(m);
 	return out;
@@ -734,7 +770,8 @@ static clj_read_status push_value(parser *p, clj_value v) {
 				f->meta = meta_map_of(p, f, v);
 				return clj_is_nil(f->meta) ? CLJ_READ_ERROR : CLJ_READ_OK;
 			}
-			clj_value       tagged;
+			clj_value tagged = CLJ_NIL;
+			CLJ_ROOTS(&tagged);
 			clj_value       m = f->meta;
 			f->meta = CLJ_UNBOUND;
 			clj_read_status st = apply_meta(p, f, v, m, &tagged);
@@ -748,7 +785,8 @@ static clj_read_status push_value(parser *p, clj_value v) {
 		case F_UNQUOTE: v = wrap(clj_symbol_from_cstr("clojure.core/unquote"), v); break;
 		case F_UNQUOTE_SPLICING: v = wrap(clj_symbol_from_cstr("clojure.core/unquote-splicing"), v); break;
 		case F_SYNTAX_QUOTE: {
-			clj_value expanded;
+			clj_value expanded = CLJ_NIL;
+			CLJ_ROOTS(&expanded);
 			clj_read_status st = syntax_quote(p, f, v, &expanded);
 			p->sq_depth--;
 			if (st != CLJ_READ_OK) return st;
@@ -779,7 +817,7 @@ static clj_read_status push_value(parser *p, clj_value v) {
 			break;
 		}
 		case F_NS_MAP: {
-			clj_value ns = f->meta;
+			CLJ_NO_CYCLE clj_value ns = f->meta;
 			f->meta = CLJ_UNBOUND;
 			if (!is_map(v)) {
 				clj_release(v);
@@ -793,7 +831,8 @@ static clj_read_status push_value(parser *p, clj_value v) {
 		}
 		case F_COND:
 		case F_COND_SPLICING: {
-			clj_value       chosen;
+			clj_value chosen = CLJ_NIL;
+			CLJ_ROOTS(&chosen);
 			frame_kind      kind = f->kind;
 			clj_read_status st = read_cond(p, f, v, &chosen);
 			p->nframes--;
@@ -803,7 +842,9 @@ static clj_read_status push_value(parser *p, clj_value v) {
 				v = chosen;
 				continue;
 			}
-			return splice(p, chosen, line_col_of(p));
+			clj_value spliced = chosen;
+			chosen = CLJ_NIL;
+			return splice(p, spliced, line_col_of(p));
 		}
 		default:
 			push_raw(p, v);
@@ -852,7 +893,8 @@ static clj_read_status parse_ratio(parser *p, const char *tok, size_t n, size_t 
 		clj_release(dv);
 		return fail(p, line, col, "Invalid number: %.*s", (int)n, tok);
 	}
-	clj_value nn = clj_bigint_demote(nv), dd = clj_bigint_demote(dv);
+	CLJ_NO_CYCLE clj_value nn = clj_bigint_demote(nv);
+	CLJ_NO_CYCLE clj_value dd = clj_bigint_demote(dv);
 	clj_release(nv);
 	clj_release(dv);
 	clj_value r = clj_num_arith(nn, dd, CLJ_OP_DIV);
@@ -947,7 +989,8 @@ static clj_read_status parse_symbol(parser *p, const char *tok, size_t n, uint32
 	const char *s = tok + keyword + auto_ns;
 	size_t len = n - keyword - auto_ns;
 	if (len == 0 || !valid_symbol_text(s, len, keyword)) return fail(p, line, col, "Invalid token: %.*s", (int)n, tok);
-	clj_value ns = CLJ_NIL, name;
+	CLJ_NO_CYCLE clj_value ns = CLJ_NIL;
+	CLJ_NO_CYCLE clj_value name;
 	const char *slash = memchr(s, '/', len);
 	if (!slash || len == 1) {
 		name = clj_string_new(s, len);
@@ -1115,7 +1158,7 @@ static clj_read_status read_regex(parser *p, uint32_t line, uint32_t col, bool c
 		advance(r);
 	}
 	if (st == CLJ_READ_OK) {
-		clj_value text = clj_string_new(b.data, b.len);
+		CLJ_NO_CYCLE clj_value text = clj_string_new(b.data, b.len);
 		// A discarded #? branch may hold another dialect's pattern syntax.
 		if (!compile) {
 			st = push_value(p, text);
@@ -1126,6 +1169,7 @@ static clj_read_status read_regex(parser *p, uint32_t line, uint32_t col, bool c
 		clj_release(text);
 		if (re == CLJ_THROWN) {
 			clj_value ex = clj_take_pending();
+			CLJ_ROOTS(&ex);
 			clj_value msg = clj_ex_message(ex);
 			st = fail(p, line, col, "%s", clj_is_string(msg) ? CLJ_STR(msg).bytes : "Invalid pattern");
 			clj_release(msg);
@@ -1218,7 +1262,7 @@ static clj_read_status read_ns_map_prefix(parser *p, uint32_t line, uint32_t col
 	clj_value ns;
 	if (auto_ns) {
 		if (!r->resolve_ns) return fail(p, line, col, "Auto-resolved namespaced maps (#::) need a current namespace");
-		clj_value alias = len ? clj_string_new(name, len) : CLJ_NIL;
+		CLJ_NO_CYCLE clj_value alias = len ? clj_string_new(name, len) : CLJ_NIL;
 		ns = r->resolve_ns(alias, r->resolve_ctx);
 		clj_release(alias);
 		if (clj_is_nil(ns)) return fail(p, line, col, "Unknown auto-resolved namespace alias: %.*s", (int)len, name);
@@ -1323,6 +1367,7 @@ static clj_read_status close_map(parser *p, const frame *f, clj_value *out) {
 
 static clj_read_status close_set(parser *p, const frame *f, clj_value *out) {
 	clj_value s = clj_set_empty();
+	CLJ_ROOTS(&s);
 	for (size_t i = f->start; i < p->nvals; i++) {
 		clj_value item = p->vals[i];
 		if (clj_set_contains(s, item)) {
@@ -1332,7 +1377,9 @@ static clj_read_status close_set(parser *p, const frame *f, clj_value *out) {
 			clj_release(s);
 			return st;
 		}
-		s = clj_set_conj(s, item);
+		clj_value into = s;
+		s = CLJ_NIL;
+		s = clj_set_conj(into, item);
 	}
 	*out = s;
 	return CLJ_READ_OK;
@@ -1345,7 +1392,9 @@ static clj_read_status close_collection(parser *p, unsigned char closer, uint32_
 	frame f = p->frames[--p->nframes];
 	size_t n = p->nvals - f.start;
 	const clj_value *items = n ? p->vals + f.start : NULL;
-	clj_value v;
+	clj_value        v = CLJ_NIL;
+	// a collection's frame has no meta: f.meta is CLJ_UNBOUND
+	CLJ_ROOTS(&v, &f.meta);
 	if (f.kind == F_FN) {
 		p->fn_depth--;
 		clj_value body = n ? clj_list_from_array(items, n) : clj_list_empty();
@@ -1353,7 +1402,9 @@ static clj_read_status close_collection(parser *p, unsigned char closer, uint32_
 		p->nvals = f.start;
 		clj_read_status st = fn_literal(p, &f, body, &v);
 		if (st != CLJ_READ_OK) return st;
-		return push_value(p, v);
+		clj_value fn = v;
+		v = CLJ_NIL;
+		return push_value(p, fn);
 	}
 	if (f.kind == F_LIST && n && !p->r->no_positions) {
 		// Clojure attaches the opening paren's position to lists only; the head cell carries it. The span
@@ -1377,7 +1428,9 @@ static clj_read_status close_collection(parser *p, unsigned char closer, uint32_
 	}
 	for (size_t i = f.start; i < p->nvals; i++) clj_release(p->vals[i]);
 	p->nvals = f.start;
-	return push_value(p, v);
+	clj_value coll = v;
+	v = CLJ_NIL;
+	return push_value(p, coll);
 }
 
 static clj_read_status read_form(parser *p) {
@@ -1441,6 +1494,7 @@ const char *clj_reader_message(const clj_reader *r) { return r->message; }
 clj_read_status clj_read(clj_reader *r, clj_value *out) {
 	pthread_once(&keywords_once, intern_keywords);
 	parser p = {.r = r};
+	CLJ_ROOTS_SPAN(&p.vals, &p.nvals);
 	clj_read_status st;
 	for (;;) {
 		skip_blank(r);

@@ -62,6 +62,8 @@ _lib = None
 
 
 def library_path():
+	if os.environ.get("LIBCLANG"):
+		return os.environ["LIBCLANG"]
 	clang = subprocess.run(["xcrun", "--find", "clang"], check=True, capture_output=True, text=True).stdout.strip()
 	return os.path.normpath(os.path.join(os.path.dirname(clang), "..", "lib", "libclang.dylib"))
 
@@ -123,6 +125,7 @@ def lib():
 		"clang_disposeTokens": (None, [c_void_p, POINTER(CXToken), c_uint]),
 		"clang_Cursor_getTranslationUnit": (c_void_p, [CXCursor]),
 		"clang_isFunctionTypeVariadic": (c_uint, [CXType]),
+		"clang_Cursor_getStorageClass": (c_int, [CXCursor]),
 	}
 	for name, (res, args) in sig.items():
 		f = getattr(L, name)

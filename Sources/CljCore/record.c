@@ -95,8 +95,8 @@ static clj_value record_lookup(clj_value self, clj_value key, clj_value not_foun
 static clj_value record_count_slot(clj_value self) { return clj_fixnum(clj_record_count(self)); }
 
 typedef struct {
-	clj_value *entries;
-	size_t     n;
+	CLJ_BORROWED clj_value *entries;
+	size_t                  n;
 } collect_ctx;
 
 static bool collect_entry(clj_value key, clj_value val, void *ctx) {
@@ -109,11 +109,12 @@ static bool collect_entry(clj_value key, clj_value val, void *ctx) {
 static clj_value record_seq(clj_value self) {
 	uint32_t n = clj_record_count(self);
 	if (!n) return CLJ_NIL;
-	clj_value *entries = malloc(2 * (size_t)n * sizeof *entries);
-	clj_value *pairs = malloc((size_t)n * sizeof *pairs);
-	if (!entries || !pairs) clj_fatal("out of memory");
+	CLJ_BORROWED clj_value *entries = malloc(2 * (size_t)n * sizeof *entries);
+	if (!entries) clj_fatal("out of memory");
 	collect_ctx c = {entries, 0};
 	clj_record_each(self, collect_entry, &c);
+	clj_value *pairs = malloc((size_t)n * sizeof *pairs);
+	if (!pairs) clj_fatal("out of memory");
 	for (uint32_t i = 0; i < n; i++) pairs[i] = clj_vector_from_array(entries + 2 * (size_t)i, 2);
 	clj_value list = clj_list_from_array(pairs, n);
 	for (uint32_t i = 0; i < n; i++) clj_release(pairs[i]);
@@ -182,8 +183,9 @@ static clj_value normalized(clj_value m) {
 }
 
 // Consumes self and the slot's own reference to the extmap.
-static clj_value ext_assoc(clj_value self, clj_value key, clj_value val, bool remove) {
+static clj_value ext_assoc(CLJ_OWNED clj_value self, clj_value key, clj_value val, bool remove) {
 	clj_record *r = record_own(self);
+	CLJ_ROOTS((clj_value *)&r);
 	clj_slot   *slot = &r->slots[((const clj_user_type *)r->h.type)->nfields];
 	clj_value   base = clj_is_nil(slot->v) ? clj_map_empty() : slot->v;
 	clj_slot_clear(slot);
@@ -197,6 +199,7 @@ static clj_value ext_assoc(clj_value self, clj_value key, clj_value val, bool re
 }
 
 static clj_value record_assoc(clj_value self, clj_value key, clj_value val) {
+	CLJ_ROOTS(&self);
 	int32_t i = clj_record_basis_index(clj_type_of(self), key);
 	if (i >= 0) {
 		if (rec_of(self)->slots[i].v == val) return self;
@@ -213,12 +216,14 @@ static clj_value record_assoc(clj_value self, clj_value key, clj_value val) {
 	}
 	clj_value ext = ext_slot(self)->v;
 	if (!clj_is_nil(ext) && clj_map_get(ext, key, CLJ_UNBOUND) == val) return self;
-	return ext_assoc(self, key, val, false);
+	clj_value r = self;
+	self = CLJ_NIL;
+	return ext_assoc(r, key, val, false);
 }
 
 clj_value clj_record_to_map(clj_value r) {
-	size_t     n = 2 * (size_t)clj_record_count(r);
-	clj_value *entries = n ? malloc(n * sizeof *entries) : NULL;
+	size_t                  n = 2 * (size_t)clj_record_count(r);
+	CLJ_BORROWED clj_value *entries = n ? malloc(n * sizeof *entries) : NULL;
 	if (n && !entries) clj_fatal("out of memory");
 	collect_ctx c = {entries, 0};
 	clj_record_each(r, collect_entry, &c);
@@ -231,20 +236,27 @@ clj_value clj_record_to_map(clj_value r) {
 
 // A basis key cannot be removed from a record, so the whole content comes back as a plain map.
 static clj_value record_dissoc(clj_value self, clj_value key) {
+	CLJ_ROOTS(&self);
 	if (clj_record_basis_index(clj_type_of(self), key) >= 0) {
 		clj_value m = clj_record_to_map(self);
 		clj_release(self);
+		self = CLJ_NIL;
 		if (m == CLJ_THROWN) return m;
 		return clj_map_dissoc(m, key);
 	}
 	clj_value ext = ext_slot(self)->v;
 	if (clj_is_nil(ext) || !clj_map_contains(ext, key)) return self;
-	return ext_assoc(self, key, CLJ_NIL, true);
+	clj_value r = self;
+	self = CLJ_NIL;
+	return ext_assoc(r, key, CLJ_NIL, true);
 }
 
+// *ctx is named by the caller: it reads nil while the assoc holds the record.
 static bool conj_entry(clj_value key, clj_value val, void *ctx) {
 	clj_value *acc = ctx;
-	*acc = record_assoc(*acc, key, val);
+	clj_value  r = *acc;
+	*acc = CLJ_NIL;
+	*acc = record_assoc(r, key, val);
 	return *acc != CLJ_THROWN;
 }
 
@@ -253,6 +265,7 @@ static clj_value record_conj(clj_value self, clj_value item) {
 	if (clj_is_nil(item)) return self;
 	if (clj_is_vector(item) && clj_vector_count(item) == 2) return record_assoc(self, clj_vector_nth(item, 0), clj_vector_nth(item, 1));
 	clj_value acc = self;
+	CLJ_ROOTS(&acc);
 	if (clj_is_map(item)) {
 		clj_map_each(item, conj_entry, &acc);
 		return acc;
@@ -263,9 +276,8 @@ static clj_value record_conj(clj_value self, clj_value item) {
 			clj_release(acc);
 			return CLJ_THROWN;
 		}
-		clj_seq_iter it = clj_seq_iter_start(s);
-		clj_value    entry;
-		// not acc, which each assoc hands over
+		clj_seq_iter           it = clj_seq_iter_start(s);
+		CLJ_BORROWED clj_value entry;
 		CLJ_ROOTS(&s, &it.held, &it.item);
 		while (clj_seq_iter_next(&it, &entry) && conj_entry(clj_vector_nth(entry, 0), clj_vector_nth(entry, 1), &acc)) {
 		}
@@ -277,7 +289,8 @@ static clj_value record_conj(clj_value self, clj_value item) {
 		}
 		return acc;
 	}
-	clj_release(self);
+	clj_release(acc);
+	acc = CLJ_NIL;
 	return clj_throw_msg("Vector arg to map conj must be a pair");
 }
 
@@ -305,6 +318,7 @@ clj_value clj_record_new(clj_value type, const clj_value *vals, size_t n) {
 	const clj_user_type *ut = clj_to_ptr(type);
 	if (n != ut->nfields) return clj_throw_msg("%s has %u fields, got %zu", ut->t.name, ut->nfields, n);
 	clj_record *r = record_alloc(ut);
+	CLJ_ROOTS((clj_value *)&r);
 	for (size_t i = 0; i < n; i++) {
 		clj_value v = clj_field_admit(ut, (uint32_t)i, vals[i]);
 		if (v == CLJ_THROWN) {
@@ -326,7 +340,10 @@ static bool take_entry(clj_value key, clj_value val, void *ctx) {
 	from_map_ctx *c = ctx;
 	int32_t       i = clj_record_basis_index(c->rec->h.type, key);
 	if (i < 0) {
-		c->ext = clj_map_assoc(c->ext, key, val);
+		// c->ext is named by the caller: nil while the assoc holds the map
+		clj_value ext = c->ext;
+		c->ext = CLJ_NIL;
+		c->ext = clj_map_assoc(ext, key, val);
 		return true;
 	}
 	clj_value v = clj_field_admit((const clj_user_type *)c->rec->h.type, (uint32_t)i, val);
@@ -354,6 +371,7 @@ clj_value clj_record_from_map(clj_value type, clj_value m) {
 	if (!clj_has_core(m, CLJ_CORE_MAP)) return clj_throw_msg("map->Name expects a map, got: %s", clj_type_name(m));
 	const clj_user_type *ut = clj_to_ptr(type);
 	from_map_ctx         c = {record_alloc(ut), clj_map_empty(), false};
+	CLJ_ROOTS((clj_value *)&c.rec, &c.ext);
 	if (clj_is_map(m)) {
 		clj_map_each(m, take_entry, &c);
 	} else {
@@ -363,9 +381,8 @@ clj_value clj_record_from_map(clj_value type, clj_value m) {
 			clj_release(clj_from_ptr(c.rec));
 			return CLJ_THROWN;
 		}
-		clj_seq_iter it = clj_seq_iter_start(s);
-		clj_value    entry;
-		// not ext, which each assoc hands over
+		clj_seq_iter           it = clj_seq_iter_start(s);
+		CLJ_BORROWED clj_value entry;
 		CLJ_ROOTS(&s, &it.held, &it.item);
 		while (clj_seq_iter_next(&it, &entry) && take_entry(clj_vector_nth(entry, 0), clj_vector_nth(entry, 1), &c)) {
 		}
@@ -410,8 +427,8 @@ clj_value clj_record_type_new(clj_value name, clj_value fields, const clj_value 
 	if (!clj_is_vector(fields)) return clj_throw_msg("defrecord fields must be a vector, got: %s", clj_type_name(fields));
 	// a record is a value: assoc and = read its basis as data (design §4 «Роли конструкций»)
 	if (clj_fields_mutable(fields)) return clj_throw_msg("defrecord fields cannot be mutable: %s", clj_is_symbol(name) ? CLJ_STR(clj_symbol_name(name)).bytes : "?");
-	uint32_t         n = clj_vector_count(fields);
-	clj_record_type *rt = clj_alloc(&clj_type_type, sizeof *rt + (size_t)n * sizeof(clj_value));
+	uint32_t                      n = clj_vector_count(fields);
+	CLJ_NO_CYCLE clj_record_type *rt = clj_alloc(&clj_type_type, sizeof *rt + (size_t)n * sizeof(clj_value));
 	for (uint32_t i = 0; i < n; i++) {
 		clj_value f = clj_vector_nth(fields, i);
 		if (!clj_is_symbol(f)) break; // clj_user_type_init reports it
@@ -450,10 +467,11 @@ void clj_record_install(void) {
 	};
 	clj_value core_name = clj_symbol_name(clj_ns_name(clj_ns_core()));
 	for (size_t i = 0; i < sizeof fns / sizeof *fns; i++) {
-		clj_value name = clj_string_from_cstr(fns[i].name);
-		clj_value qualified = clj_symbol_new(core_name, name);
-		clj_value f = clj_fn_native(qualified, fns[i].fn, fns[i].min, fns[i].max);
-		clj_value sym = clj_symbol_from_cstr(fns[i].name);
+		CLJ_NO_CYCLE clj_value name = clj_string_from_cstr(fns[i].name);
+		CLJ_NO_CYCLE clj_value qualified = clj_symbol_new(core_name, name);
+		clj_value              f = clj_fn_native(qualified, fns[i].fn, fns[i].min, fns[i].max);
+		CLJ_ROOTS(&f);
+		CLJ_NO_CYCLE clj_value sym = clj_symbol_from_cstr(fns[i].name);
 		clj_var_bind_root(clj_ns_intern(clj_ns_core(), sym), f);
 		clj_release(sym);
 		clj_release(f);

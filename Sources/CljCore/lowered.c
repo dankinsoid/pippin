@@ -30,8 +30,8 @@ static clj_value roots[CLJ_LOWER_HOW_COUNT];
 void clj_lowered_install(void) {
 	clj_value core = clj_ns_core();
 	for (uint32_t k = 0; k < CLJ_LOWER_HOW_COUNT; k++) {
-		clj_value sym = clj_symbol_from_cstr(natives[k].name);
-		clj_value var = clj_ns_resolve(core, sym);
+		CLJ_NO_CYCLE clj_value sym = clj_symbol_from_cstr(natives[k].name);
+		clj_value              var = clj_ns_resolve(core, sym);
 		clj_release(sym);
 		clj_value root = clj_is_nil(var) ? CLJ_NIL : clj_var_root(var);
 		if (!clj_is_fn(root) || clj_fn_of(root)->kind != CLJ_FN_NATIVE) clj_ice("boot/lowered-table", NULL, "clojure.core/%s is no native builtin", natives[k].name);

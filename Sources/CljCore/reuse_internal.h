@@ -5,6 +5,7 @@
 
 #include "clj/coll.h"
 #include "clj/object.h"
+#include "roots_internal.h"
 
 // Frame-limited (Lorenzen and Leijen 2022): made right before its allocation, never stored, passed or held over a call.
 typedef clj_header *clj_reuse_token;
@@ -44,17 +45,19 @@ static inline clj_value clj_seq_cons_at(clj_reuse_token tok, clj_value x, clj_va
 }
 
 // next and rest of s at +1: a unique vector-seq, range or string-seq steps in its own cell.
-static inline clj_value clj_next_owned(clj_value s) {
+static inline clj_value clj_next_owned(CLJ_OWNED clj_value s) {
 	CLJ_STAT(CLJ_STAT_TOKEN_MADE);
 	if (clj_reuse_candidate(s)) return clj_next_owned_slow(s);
+	CLJ_ROOTS(&s);
 	clj_value r = clj_next(s);
 	clj_release(s);
 	return r;
 }
 
-static inline clj_value clj_rest_owned(clj_value s) {
+static inline clj_value clj_rest_owned(CLJ_OWNED clj_value s) {
 	CLJ_STAT(CLJ_STAT_TOKEN_MADE);
 	if (clj_reuse_candidate(s)) return clj_rest_owned_slow(s);
+	CLJ_ROOTS(&s);
 	clj_value r = clj_rest(s);
 	clj_release(s);
 	return r;

@@ -18,6 +18,7 @@
 #include "clj/symbol.h"
 #include "clj/var.h"
 #include "coro_internal.h"
+#include "roots_internal.h"
 
 #define pending (clj_coro_current()->pending)
 #define pending_trace (clj_coro_current()->pending_trace)
@@ -180,7 +181,7 @@ clj_value clj_ex_type(clj_value v) {
 static clj_value hierarchy_var = CLJ_NIL;
 
 void clj_isa_install(void) {
-	clj_value sym = clj_symbol_from_cstr("global-hierarchy");
+	CLJ_NO_CYCLE clj_value sym = clj_symbol_from_cstr("global-hierarchy");
 	hierarchy_var = clj_ns_resolve(clj_ns_core(), sym);
 	clj_release(sym);
 	if (clj_is_nil(hierarchy_var)) clj_ice("boot/isa", NULL, "the isa bridge names no core var");
@@ -191,8 +192,8 @@ void clj_isa_install(void) {
 }
 
 bool clj_ex_isa(clj_value thrown, clj_value k) {
-	clj_value t = clj_ex_type(thrown);
-	bool      match = t == k;
+	CLJ_NO_CYCLE clj_value t = clj_ex_type(thrown);
+	bool                   match = t == k;
 	if (!match && !clj_is_nil(t) && !clj_is_nil(hierarchy_var)) {
 		clj_value h = clj_var_root(hierarchy_var);
 		clj_value ancestors = clj_has_core(h, CLJ_CORE_MAP) ? clj_map_get(h, kw_ancestors, CLJ_NIL) : CLJ_NIL;
@@ -205,8 +206,9 @@ bool clj_ex_isa(clj_value thrown, clj_value k) {
 
 // @ai-generated(guided)
 static clj_value cancellation_new(bool deadline, clj_value cause) {
+	clj_value         data = clj_map_assoc(clj_map_empty(), kw_cancel_kind, deadline ? kw_deadline : kw_explicit);
 	clj_cancellation *c = clj_alloc(&clj_cancellation_type, sizeof *c);
-	clj_slot_init(&c->h, &c->data, clj_map_assoc(clj_map_empty(), kw_cancel_kind, deadline ? kw_deadline : kw_explicit));
+	clj_slot_init(&c->h, &c->data, data);
 	clj_slot_init(&c->h, &c->message, clj_string_from_cstr(deadline ? CLJ_DEADLINE_MESSAGE : CLJ_CANCELLED_MESSAGE));
 	clj_slot_init(&c->h, &c->cause, clj_retain(cause));
 	return clj_from_ptr(c);
@@ -226,6 +228,7 @@ static clj_value cancellation_singleton(bool deadline) {
 clj_value clj_throw_cancelled(bool deadline) {
 	pthread_once(&keywords_once, intern_keywords);
 	clj_value cause = clj_coro_cancel_cause(clj_coro_current());
+	CLJ_ROOTS(&cause);
 	if (clj_is_nil(cause)) return clj_throw_untraced(clj_retain(deadline ? cancelled_deadline : cancelled_explicit));
 	clj_value c = cancellation_new(deadline, cause);
 	clj_release(cause);
@@ -291,7 +294,7 @@ clj_value clj_error_message_v(const char *fmt, va_list ap) {
 clj_value clj_throw_msg(const char *fmt, ...) {
 	va_list ap;
 	va_start(ap, fmt);
-	clj_value message = clj_error_message_v(fmt, ap);
+	CLJ_NO_CYCLE clj_value message = clj_error_message_v(fmt, ap);
 	va_end(ap);
 	clj_value ex = clj_ex_info(message, CLJ_NIL);
 	clj_release(message);
@@ -302,7 +305,7 @@ clj_value clj_throw_msg(const char *fmt, ...) {
 clj_value clj_throw_msg_cause(clj_value cause, const char *fmt, ...) {
 	va_list ap;
 	va_start(ap, fmt);
-	clj_value message = clj_error_message_v(fmt, ap);
+	CLJ_NO_CYCLE clj_value message = clj_error_message_v(fmt, ap);
 	va_end(ap);
 	// A thrown non-error has no cause slot to sit in, as in atom.c and load.c.
 	clj_value ex = clj_ex_info_cause(message, CLJ_NIL, clj_is_exception(cause) ? cause : CLJ_NIL);
@@ -343,6 +346,7 @@ clj_value clj_take_pending(void) {
 void clj_equals_drop_pending(void) {
 	clj_value ex = clj_take_pending();
 	if (clj_is_cancellation(ex)) {
+		CLJ_ROOTS(&ex);
 		bool deadline = clj_map_get(clj_cancellation_data(ex), kw_cancel_kind, CLJ_NIL) == kw_deadline;
 		clj_coro_current()->equals_dropped = deadline ? CLJ_CANCEL_DEADLINE : CLJ_CANCEL_REQUESTED;
 	}

@@ -222,8 +222,8 @@ static frame *push_frame(frame_stack *s, frame_kind kind) {
 }
 
 typedef struct {
-	clj_value *entries;
-	size_t     n;
+	CLJ_BORROWED clj_value *entries;
+	size_t                  n;
 } collect_ctx;
 
 static bool collect_entry(clj_value key, clj_value val, void *ctx) {
@@ -274,7 +274,7 @@ static clj_value print_to_string(clj_value root, bool readably, size_t max, cons
 
 // The root of a clojure.core var, owned, or CLJ_UNBOUND before core.clj defined it.
 static clj_value core_root(const char *name) {
-	clj_value sym = clj_symbol_from_cstr(name);
+	CLJ_NO_CYCLE clj_value sym = clj_symbol_from_cstr(name);
 	clj_value var = clj_ns_resolve(clj_ns_core(), sym);
 	clj_release(sym);
 	if (clj_is_nil(var) || !clj_var_is_bound(var)) return CLJ_UNBOUND;
@@ -283,10 +283,11 @@ static clj_value core_root(const char *name) {
 
 // A user print-method for v (core.clj's print-with-method*): true when it printed, its text then in b. Only a
 // type of the program's own or a value with a keyword :type in its meta can have one that is not :default.
-static bool print_hook(buf *b, clj_value v, bool *thrown) {
+static bool print_hook(buf *b, CLJ_BORROWED clj_value v, bool *thrown) {
 	if (!clj_is_ptr(v) || clj_is_string(v) || clj_is_number(v) || clj_is_keyword(v)) return false;
 	if (!clj_is_instance(v) && !clj_is_record(v)) {
 		clj_value m = clj_meta(v);
+		CLJ_ROOTS(&m);
 		bool      typed = clj_is_map(m) && clj_is_keyword(clj_map_get(m, kw_type, CLJ_NIL));
 		clj_release(m);
 		if (!typed) return false;
@@ -312,6 +313,7 @@ static bool print_hook(buf *b, clj_value v, bool *thrown) {
 static void put_meta(buf *b, clj_value v, const limits *lim, bool *thrown) {
 	if (!clj_is_symbol(v) && !clj_is_var(v) && !(is_collection(v) && !clj_is_array(v))) return;
 	clj_value m = clj_meta(v);
+	CLJ_ROOTS(&m);
 	if (clj_is_nil(m) || !clj_has_core(m, CLJ_CORE_MAP)) {
 		clj_release(m);
 		return;
@@ -650,10 +652,10 @@ static bool next_child(buf *b, frame_stack *stack, clj_value *out, bool *thrown,
 // max > 0 stops once that many bytes are written and closes the open collections after "...", so an
 // unbounded seq realizes only what the text shows.
 static clj_value print_to_string(clj_value root, bool readably, size_t max, const limits *lim) {
-	buf         b = {0};
-	frame_stack stack = {0};
-	clj_value   v = root;
-	bool        pending = true, thrown = false, truncated = false;
+	buf                    b = {0};
+	frame_stack            stack = {0};
+	CLJ_BORROWED clj_value v = root;
+	bool                   pending = true, thrown = false, truncated = false;
 	for (;;) {
 		if (pending) emit(&b, &stack, v, readably, lim, &thrown);
 		if (!stack.count || thrown) break;
@@ -688,7 +690,7 @@ clj_value clj_print_str(clj_value v) { return print_to_string(v, false, 0, &unli
 // The var is looked up on each call until core.clj has defined it; vars are immortal, so the cache never goes stale.
 static clj_value print_var(clj_value *slot, const char *name) {
 	if (clj_is_nil(*slot)) {
-		clj_value sym = clj_symbol_from_cstr(name);
+		CLJ_NO_CYCLE clj_value sym = clj_symbol_from_cstr(name);
 		*slot = clj_ns_resolve(clj_ns_core(), sym);
 		clj_release(sym);
 	}
@@ -704,6 +706,7 @@ static bool read_limit(clj_value *slot, const char *name, bool level, int64_t *o
 	if (clj_is_nil(v)) return true;
 	int64_t n;
 	if (!clj_int64_of(v, &n)) {
+		CLJ_ROOTS(&v);
 		clj_throw_msg("%s cannot be cast to a number", clj_type_name(v));
 		clj_release(v);
 		return false;

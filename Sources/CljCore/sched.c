@@ -597,12 +597,14 @@ void clj_coro_report_uncaught(clj_coro *c) {
 	clj_value ex = c->threw ? c->result.v : c->pending;
 	if (clj_is_cancellation(ex) && atomic_load_explicit(&c->cancel, memory_order_relaxed) != CLJ_CANCEL_NONE) return;
 	clj_value trace = c->threw ? clj_ex_trace(ex) : clj_trace_realize(c->pending_trace);
+	CLJ_ROOTS(&trace);
 	if (uncaught_handler) {
 		uncaught_handler(ex, trace);
 		clj_release(trace);
+		trace = CLJ_NIL;
 		return;
 	}
-	clj_value msg = clj_ex_message(ex);
+	CLJ_NO_CYCLE clj_value msg = clj_ex_message(ex);
 	put("clj: uncaught exception in a coroutine: ");
 	if (clj_is_string(msg)) put(CLJ_STR(msg).bytes);
 	else {
@@ -624,6 +626,7 @@ void clj_coro_report_uncaught(clj_coro *c) {
 		}
 	}
 	clj_release(trace);
+	trace = CLJ_NIL;
 }
 
 void clj_coro_set_uncaught_handler(void (*fn)(clj_value ex, clj_value trace)) { uncaught_handler = fn; }
@@ -1511,10 +1514,12 @@ bool clj_debug_park_under_lock_is_error(void) {
 	clj_lock_unlock(&probe);
 	if (allowed) return false;
 	clj_value ex = clj_take_pending();
-	clj_value msg = clj_ex_message(ex);
+	CLJ_ROOTS(&ex);
+	CLJ_NO_CYCLE clj_value msg = clj_ex_message(ex);
 	bool ok = clj_is_string(msg) && strcmp(CLJ_STR(msg).bytes, "Cannot park while a runtime lock is held") == 0;
 	clj_release(msg);
 	clj_release(ex);
+	ex = CLJ_NIL;
 	return ok;
 }
 

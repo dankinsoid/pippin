@@ -15,6 +15,7 @@
 #include "ice_internal.h"
 #include "owned.h"
 #include "reuse.h"
+#include "roots_internal.h"
 #include "thunk.h"
 
 // ---- string builder
@@ -196,8 +197,8 @@ typedef struct {
 	unit          *u;
 	clj_load_form  form;    // file and name retained
 	const clj_node *node;   // retained; NULL for a failure
-	clj_value      ns;      // the current namespace at the hook
-	clj_value      message; // of a failure, retained
+	CLJ_NO_CYCLE clj_value ns;      // the current namespace at the hook
+	CLJ_NO_CYCLE clj_value message; // of a failure: a string, retained
 	bool           dropped; // the shaker left this def out of its unit
 	uint64_t       digest;  // of node at the hook: the interpreter runs it before it is emitted
 } pending_form;
@@ -342,9 +343,9 @@ static unit *unit_new(const char *file) {
 	u->embedded = strncmp(file, "<embedded>/", 11) == 0 || strcmp(file, CLJ_CORE_CLJ_PATH) == 0;
 	u->has_file = strcmp(file, "<host>") != 0;
 	if (u->has_file) {
-		clj_value str = clj_string_from_cstr(file);
-		clj_value text = clj_pr_str(str);
-		sb        init = {0};
+		CLJ_NO_CYCLE clj_value str = clj_string_from_cstr(file);
+		CLJ_NO_CYCLE clj_value text = clj_pr_str(str);
+		sb                     init = {0};
 		sb_puts(&init, "clj_c_const(");
 		sb_c_string(&init, CLJ_STR(text).bytes, clj_string_len(text));
 		sb_printf(&init, ", %u)", clj_string_len(text));
@@ -1432,6 +1433,7 @@ static bool meta_is_position_only(clj_value m) {
 
 static bool const_carries_meta(clj_value v) {
 	clj_value m = clj_meta(v);
+	CLJ_ROOTS(&m);
 	bool      carries = !meta_is_position_only(m);
 	clj_release(m);
 	return carries;
@@ -1465,8 +1467,9 @@ static bool const_expr(fnctx *f, clj_value v, sb *out) {
 		return true;
 	}
 	if (const_carries_meta(v)) {
-		clj_value m = clj_meta(v);
-		clj_value bare = clj_with_meta(clj_retain(v), CLJ_NIL);
+		clj_value m = clj_meta(v), bare = CLJ_NIL;
+		CLJ_ROOTS(&m, &bare);
+		bare = clj_with_meta(clj_retain(v), CLJ_NIL);
 		if (bare == CLJ_THROWN) {
 			clj_release(clj_take_pending());
 			clj_release(m);
@@ -1502,8 +1505,9 @@ static bool const_expr(fnctx *f, clj_value v, sb *out) {
 	else if (clj_is_map(v)) clj_map_each(v, const_entry, &c);
 	else if (clj_is_set(v)) clj_set_each(v, const_item, &c);
 	else {
-		clj_seq_iter it = clj_seq_iter_start(v);
-		clj_value    item;
+		clj_seq_iter           it = clj_seq_iter_start(v);
+		CLJ_BORROWED clj_value item;
+		CLJ_ROOTS(&it.held, &it.item);
 		while (c.ok && clj_seq_iter_next(&it, &item)) const_item(item, &c);
 		clj_seq_iter_close(&it);
 		if (it.thrown) {
@@ -1574,8 +1578,9 @@ static bool const_ok(clj_value v) {
 	else if (clj_is_map(v)) clj_map_each(v, const_ok_entry, &ok);
 	else if (clj_is_set(v)) clj_set_each(v, const_ok_item, &ok);
 	else if (clj_is_seq(v)) {
-		clj_seq_iter it = clj_seq_iter_start(v);
-		clj_value    item;
+		clj_seq_iter           it = clj_seq_iter_start(v);
+		CLJ_BORROWED clj_value item;
+		CLJ_ROOTS(&it.held, &it.item);
 		while (ok && clj_seq_iter_next(&it, &item)) ok = const_ok(item);
 		clj_seq_iter_close(&it);
 		if (it.thrown) {
@@ -2179,14 +2184,14 @@ static clj_value user_type_var(const clj_type *t) {
 	const char *name = t->name;
 	const char *dot = strrchr(name, '.');
 	if (!dot) return CLJ_NIL;
-	clj_value nsname = clj_string_new(name, (size_t)(dot - name));
-	clj_value nssym = clj_symbol_new(CLJ_NIL, nsname);
+	CLJ_NO_CYCLE clj_value nsname = clj_string_new(name, (size_t)(dot - name));
+	CLJ_NO_CYCLE clj_value nssym = clj_symbol_new(CLJ_NIL, nsname);
 	clj_value ns = clj_ns_find(nssym);
 	clj_release(nssym);
 	clj_release(nsname);
 	if (clj_is_nil(ns)) return CLJ_NIL;
-	clj_value sym = clj_symbol_from_cstr(dot + 1);
-	clj_value var = clj_ns_resolve(ns, sym);
+	CLJ_NO_CYCLE clj_value sym = clj_symbol_from_cstr(dot + 1);
+	clj_value              var = clj_ns_resolve(ns, sym);
 	clj_release(sym);
 	if (clj_is_nil(var) || clj_var_of(var)->dynamic || clj_var_root(var) != clj_from_ptr((void *)t)) return CLJ_NIL;
 	return var;
@@ -2350,7 +2355,7 @@ static void mark_impl_candidates(fnctx *f, const clj_node *n) {
 	}
 }
 
-static clj_value protocol_method_root(const clj_node *head) {
+static CLJ_BORROWED clj_value protocol_method_root(const clj_node *head) {
 	if (head->kind != CLJ_NODE_VAR || clj_var_of(head->u.var.v)->dynamic) return CLJ_NIL;
 	clj_value root = clj_var_root(head->u.var.v);
 	return clj_is_protocol_method(root) ? root : CLJ_NIL;
@@ -5452,8 +5457,9 @@ static void shake_const(clj_value v, shake_ctx *w) {
 	else if (clj_is_map(v)) clj_map_each(v, shake_const_entry, w);
 	else if (clj_is_set(v)) clj_set_each(v, shake_const_item, w);
 	else if (clj_is_seq(v)) {
-		clj_seq_iter it = clj_seq_iter_start(v);
-		clj_value    item;
+		clj_seq_iter           it = clj_seq_iter_start(v);
+		CLJ_BORROWED clj_value item;
+		CLJ_ROOTS(&it.held, &it.item);
 		while (clj_seq_iter_next(&it, &item)) shake_const(item, w);
 		clj_seq_iter_close(&it);
 		if (it.thrown) clj_release(clj_take_pending());

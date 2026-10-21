@@ -85,16 +85,18 @@ static void leave(clj_atom *a) {
 static clj_value value_of(const clj_atom *a) { return clj_slot_load(&a->value, memory_order_relaxed); }
 
 // Consumes cause.
-static clj_value invalid_state(clj_value cause) {
-	clj_value msg = clj_string_from_cstr("Invalid reference state");
-	clj_value ex = clj_ex_info_cause(msg, CLJ_NIL, clj_is_exception(cause) ? cause : CLJ_NIL);
+static clj_value invalid_state(CLJ_OWNED clj_value cause) {
+	CLJ_ROOTS(&cause);
+	CLJ_NO_CYCLE clj_value msg = clj_string_from_cstr("Invalid reference state");
+	clj_value              ex = clj_ex_info_cause(msg, CLJ_NIL, clj_is_exception(cause) ? cause : CLJ_NIL);
 	clj_release(msg);
 	clj_release(cause);
+	cause = CLJ_NIL;
 	return clj_throw(ex);
 }
 
 // false with the exception pending. Runs under the lock: the validator sees the value before anyone else.
-static bool validate_with(clj_value validator, clj_value v) {
+static bool validate_with(clj_value validator, CLJ_BORROWED clj_value v) {
 	if (clj_is_nil(validator)) return true;
 	clj_value r = clj_invoke(validator, &v, 1);
 	if (r == CLJ_THROWN) {
@@ -108,8 +110,8 @@ static bool validate_with(clj_value validator, clj_value v) {
 }
 
 typedef struct {
-	clj_value atom, old, new;
-	bool      ok;
+	CLJ_BORROWED clj_value atom, old, new;
+	bool                   ok;
 } notify_ctx;
 
 // old and new are commit's.
@@ -132,7 +134,7 @@ static bool notify(clj_value atom, clj_value watches, clj_value old, clj_value n
 
 clj_value clj_atom_new(clj_value value, clj_value meta, clj_value validator) {
 	if (!validate_with(validator, value)) return CLJ_THROWN;
-	clj_atom *a = clj_alloc(&clj_atom_type, sizeof *a);
+	clj_atom *a = clj_alloc(&clj_atom_type, sizeof(clj_atom));
 	clj_cmutex_init(&a->lock);
 	atomic_init(&a->owner, 0);
 	// Born shared, as a var: every value stored into it is published by the store itself.
@@ -203,9 +205,9 @@ clj_value clj_atom_reset_vals(clj_value atom, clj_value value) {
 // f sees the value at +0 while the atom keeps its reference: a throw from f or a validator leaves the
 // state as it was, the JVM's contract.
 static clj_value apply_under_lock(clj_value atom, clj_value f, const clj_value *args, size_t nargs, clj_value *old, const char *op) {
-	clj_atom  *a = clj_atom_of(atom);
-	clj_value  small[8];
-	clj_value *call = nargs + 1 <= sizeof small / sizeof *small ? small : malloc((nargs + 1) * sizeof *call);
+	clj_atom               *a = clj_atom_of(atom);
+	clj_value               small[8];
+	CLJ_BORROWED clj_value *call = nargs + 1 <= sizeof small / sizeof *small ? small : malloc((nargs + 1) * sizeof *call);
 	if (!call) clj_fatal("out of memory");
 	memcpy(call + 1, args, nargs * sizeof *call);
 	clj_call  c = clj_call_prepare(f, nargs + 1);
@@ -338,9 +340,9 @@ clj_value clj_atom_reset_meta(clj_value atom, clj_value m) {
 }
 
 clj_value clj_atom_alter_meta(clj_value atom, clj_value f, const clj_value *args, size_t nargs) {
-	clj_atom  *a = clj_atom_of(atom);
-	clj_value  small[8];
-	clj_value *call = nargs + 1 <= sizeof small / sizeof *small ? small : malloc((nargs + 1) * sizeof *call);
+	clj_atom               *a = clj_atom_of(atom);
+	clj_value               small[8];
+	CLJ_BORROWED clj_value *call = nargs + 1 <= sizeof small / sizeof *small ? small : malloc((nargs + 1) * sizeof *call);
 	if (!call) clj_fatal("out of memory");
 	memcpy(call + 1, args, nargs * sizeof *call);
 	if (!enter(a, "alter-meta!")) {
@@ -349,6 +351,7 @@ clj_value clj_atom_alter_meta(clj_value atom, clj_value f, const clj_value *args
 	}
 	call[0] = a->meta.v;
 	clj_value m = clj_invoke(f, call, nargs + 1);
+	CLJ_ROOTS(&m);
 	if (call != small) free(call);
 	if (m != CLJ_THROWN && !clj_is_nil(m) && !clj_has_core(m, CLJ_CORE_MAP)) {
 		clj_value e = clj_throw_msg("alter-meta! fn must return a map, got: %s", clj_type_name(m));

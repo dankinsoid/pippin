@@ -15,6 +15,7 @@
 #include "clj/printer.h"
 #include "clj/string.h"
 #include "clj/vector.h"
+#include "roots_internal.h"
 
 static pthread_once_t keywords_once = PTHREAD_ONCE_INIT;
 static clj_value      kw_file, kw_line, kw_column, kw_end_line, kw_end_column, kw_form_line, kw_form_column, kw_suggestion;
@@ -84,18 +85,24 @@ clj_value clj_diagnostic_position(clj_value ex, bool with_file) {
 	pthread_once(&keywords_once, intern_keywords);
 	clj_value best = CLJ_NIL;
 	clj_value cur = clj_retain(ex);
+	clj_value data = CLJ_NIL;
+	CLJ_ROOTS(&best, &cur, &data);
 	while (!clj_is_nil(cur)) {
-		clj_value data = clj_ex_data(cur);
+		data = clj_ex_data(cur);
 		if (clj_is_map(data) && number(data, kw_line) > 0 && (!with_file || clj_is_string(clj_map_get(data, kw_file, CLJ_NIL)))) {
 			clj_release(best);
 			best = clj_map_empty();
 			clj_value keys[5] = {kw_file, kw_line, kw_column, kw_end_line, kw_end_column};
 			for (int i = 0; i < 5; i++) {
 				clj_value v = clj_map_get(data, keys[i], CLJ_NIL);
-				if (!clj_is_nil(v)) best = clj_map_assoc(best, keys[i], v);
+				if (clj_is_nil(v)) continue;
+				clj_value into = best;
+				best = CLJ_NIL;
+				best = clj_map_assoc(into, keys[i], v);
 			}
 		}
 		clj_release(data);
+		data = CLJ_NIL;
 		clj_value next = clj_ex_cause(cur);
 		clj_release(cur);
 		cur = next;
@@ -114,12 +121,16 @@ static bool wraps(clj_value outer, clj_value inner) {
 // The link whose message is the diagnostic's, retained; nil when no link has one.
 static clj_value message_link(clj_value ex) {
 	clj_value cur = clj_retain(ex);
+	clj_value message = CLJ_NIL;
+	clj_value cause = CLJ_NIL;
+	CLJ_ROOTS(&cur, &message, &cause);
 	while (!clj_is_nil(cur)) {
-		clj_value message = clj_ex_message(cur);
-		clj_value cause = clj_ex_cause(cur);
+		message = clj_ex_message(cur);
+		cause = clj_ex_cause(cur);
 		clj_value inner = clj_ex_message(cause);
 		bool      step = !clj_is_string(message) || wraps(message, inner);
 		clj_release(message);
+		message = CLJ_NIL;
 		clj_release(inner);
 		if (!step) {
 			clj_release(cause);
@@ -127,12 +138,14 @@ static clj_value message_link(clj_value ex) {
 		}
 		clj_release(cur);
 		cur = cause;
+		cause = CLJ_NIL;
 	}
 	return CLJ_NIL;
 }
 
 clj_value clj_diagnostic_cause_message(clj_value ex) {
 	clj_value link = message_link(ex);
+	CLJ_ROOTS(&link);
 	clj_value message = clj_ex_message(link);
 	clj_release(link);
 	return message;
@@ -142,6 +155,7 @@ clj_value clj_diagnostic_cause_message(clj_value ex) {
 static clj_value innermost_data(clj_value ex) {
 	clj_value best = CLJ_NIL;
 	clj_value cur = clj_retain(ex);
+	CLJ_ROOTS(&best, &cur);
 	while (!clj_is_nil(cur)) {
 		clj_value data = clj_ex_data(cur);
 		if (clj_is_map(data)) {
@@ -248,17 +262,19 @@ static void put_excerpt(out *o, clj_value file, int64_t line, int64_t col, int64
 
 clj_value clj_diagnostic_render(clj_value ex) {
 	pthread_once(&keywords_once, intern_keywords);
-	clj_value message = clj_diagnostic_cause_message(ex);
+	CLJ_NO_CYCLE clj_value message = clj_diagnostic_cause_message(ex);
 	if (clj_is_nil(message)) {
 		// A thrown non-error, or an error without a message: its printed form is all there is to say.
 		clj_release(message);
 		message = clj_pr_str(ex);
 		if (message == CLJ_THROWN) return CLJ_THROWN;
 	}
-	clj_value quotable = clj_diagnostic_position(ex, true);
-	clj_value any = clj_diagnostic_position(ex, false);
-	clj_value data = innermost_data(ex);
-	clj_value pos = clj_is_nil(quotable) ? any : quotable;
+	clj_value quotable = CLJ_NIL, any = CLJ_NIL, data = CLJ_NIL, link = CLJ_NIL, below = CLJ_NIL, top = CLJ_NIL;
+	CLJ_ROOTS(&quotable, &any, &data, &link, &below, &top);
+	quotable = clj_diagnostic_position(ex, true);
+	any = clj_diagnostic_position(ex, false);
+	data = innermost_data(ex);
+	CLJ_BORROWED clj_value pos = clj_is_nil(quotable) ? any : quotable;
 
 	out o = {0};
 	put_fmt(&o, "error: %.*s\n", (int)clj_string_len(message), CLJ_STR(message).bytes);
@@ -284,10 +300,11 @@ clj_value clj_diagnostic_render(clj_value ex) {
 		put_fmt(&o, " = note: raised at %lld:%lld\n", (long long)number(any, kw_line), (long long)number(any, kw_column));
 	// Every message below the one shown, so a cause is never lost (design §3 «Диагностика»); a link that
 	// only wraps the next one adds nothing, and two links wording it the same say it once.
-	clj_value link = message_link(ex);
-	clj_value below = clj_is_nil(link) ? CLJ_NIL : clj_ex_cause(link);
+	link = message_link(ex);
+	below = clj_is_nil(link) ? CLJ_NIL : clj_ex_cause(link);
 	clj_release(link);
-	clj_value shown = clj_retain(message);
+	link = CLJ_NIL;
+	CLJ_NO_CYCLE clj_value shown = clj_retain(message);
 	while (!clj_is_nil(below)) {
 		clj_value note = clj_ex_message(below);
 		if (clj_is_string(note) && !wraps(shown, note) && !wraps(note, shown)) {
@@ -301,7 +318,7 @@ clj_value clj_diagnostic_render(clj_value ex) {
 		below = next;
 	}
 	clj_release(shown);
-	clj_value top = clj_ex_data(ex);
+	top = clj_ex_data(ex);
 	if (clj_is_map(top) && number(top, kw_form_line) > 0 && number(top, kw_form_line) != number(pos, kw_line))
 		put_fmt(&o, " = note: in the top-level form at %lld:%lld\n", (long long)number(top, kw_form_line), (long long)number(top, kw_form_column));
 	clj_release(top);

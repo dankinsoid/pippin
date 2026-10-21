@@ -203,6 +203,9 @@ def owned_paths(h, prefix=()):
 				continue
 			out += owned_paths(fh, prefix + (name,))
 		return out
+	# An array of structs: its elements own what the struct's fields do; a name of any element field path covers all.
+	if h[0] == "array" and h[1][0] == "struct":
+		return owned_paths(h[1], prefix)
 	return [prefix]
 
 
@@ -266,10 +269,9 @@ class Fn:
 		return (C.spelling(d), off)
 
 	def declare(self, d, param):
-		if d.kind == C.VAR_DECL:
-			toks = head_text(d)
-			if re.search(r"\b(static|extern)\b", toks):
-				return None
+		# CX_SC_Extern, CX_SC_Static: no stack slot
+		if d.kind == C.VAR_DECL and C.lib().clang_Cursor_getStorageClass(d) in (2, 3):
+			return None
 		h = self.types.holder(C.ctype(d))
 		if not h:
 			return None
@@ -409,7 +411,8 @@ class Fn:
 			for x in C.children(c):
 				front = self.st(x, front)
 			return front
-		if k == C.BLOCK_EXPR:
+		# CXCursor_UnaryExpr is sizeof, alignof and the like: an unevaluated operand reads nothing
+		if k in (C.BLOCK_EXPR, 136):
 			return front
 		for x in C.children(c):
 			front = self.ex(x, front) if 100 <= x.kind < 300 else front
@@ -718,11 +721,11 @@ class Fn:
 		if len(semis) == 2 and len(set(C.extent(x)[0] for x in ch)) == len(ch):
 			for x in ch:
 				xb, xe = C.extent(x)
-				if xe <= semis[0]:
+				if xb < semis[0]:
 					parts["init"] = x
-				elif xb > semis[0] and xe <= semis[1]:
+				elif xb < semis[1]:
 					parts["cond"] = x
-				elif xb > semis[1] and xe <= rparen:
+				elif xb < rparen:
 					parts["inc"] = x
 				else:
 					parts["body"] = x

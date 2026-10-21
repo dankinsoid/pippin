@@ -46,8 +46,8 @@ static uint32_t set_hash(void *self) {
 }
 
 typedef struct {
-	clj_value other;
-	bool      equal;
+	CLJ_BORROWED clj_value other;
+	bool                   equal;
 } equals_ctx;
 
 static bool equals_item(clj_value item, void *ctx) {
@@ -80,8 +80,8 @@ static bool set_equals(void *self, clj_value other) {
 }
 
 typedef struct {
-	clj_value *items;
-	size_t     n;
+	CLJ_BORROWED clj_value *items;
+	size_t                  n;
 } collect_ctx;
 
 static bool collect_item(clj_value item, void *ctx) {
@@ -187,7 +187,8 @@ clj_value clj_set_get(clj_value set, clj_value x, clj_value not_found) { return 
 
 // The wrapper's own reference to the trie goes to the map op, so uniqueness propagates into it.
 static clj_value set_update(clj_value set, clj_value x, bool add) {
-	clj_set  *s = set_own(set);
+	clj_set *s = set_own(set);
+	CLJ_ROOTS((clj_value *)&s);
 	clj_value impl = s->impl.v;
 	clj_slot_clear(&s->impl);
 	clj_value updated = add ? clj_hash_map_assoc(impl, x, x) : clj_hash_map_dissoc(impl, x);

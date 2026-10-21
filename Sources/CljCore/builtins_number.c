@@ -8,6 +8,7 @@
 #include "clj/core.h"
 #include "clj/fn.h"
 #include "clj/intrinsics.h"
+#include "roots_internal.h"
 
 // ---- promoting operators: only a 64-bit overflow reaches the bigint, everything else is the plain tower
 
@@ -34,7 +35,7 @@ static clj_value fold(const clj_value *args, size_t n, clj_num_op op, intptr_t i
 		if (!clj_is_number(args[0])) return clj_throw_msg("%s cannot be cast to a number", clj_type_name(args[0]));
 		return unary_is_self ? clj_retain(args[0]) : promote2(clj_fixnum(identity), args[0], op);
 	}
-	clj_value acc = promote2(args[0], args[1], op);
+	CLJ_NO_CYCLE clj_value acc = promote2(args[0], args[1], op);
 	for (size_t i = 2; i < n && acc != CLJ_THROWN; i++) {
 		clj_value next = promote2(acc, args[i], op);
 		clj_release(acc);
@@ -111,7 +112,7 @@ static clj_value b_infinite_p(const clj_value *args, size_t n) {
 // ---- coercions
 
 static clj_value range_error(const char *what, clj_value v) {
-	clj_value text = clj_pr_str_max(v, CLJ_ERROR_PRINT_MAX);
+	CLJ_NO_CYCLE clj_value text = clj_pr_str_max(v, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
 	clj_value r = clj_throw_msg("Value out of range for %s: %s", what, CLJ_STR(text).bytes);
 	clj_release(text);
@@ -454,8 +455,8 @@ static clj_value unchecked_int1(const clj_value *args, int32_t delta, bool negat
 
 clj_value clj_unchecked_add_int(clj_value a, clj_value b) { return unchecked_int2((const clj_value[]){a, b}, '+'); }
 clj_value clj_unchecked_subtract_int(clj_value a, clj_value b) { return unchecked_int2((const clj_value[]){a, b}, '-'); }
-clj_value clj_unchecked_inc_int(clj_value v) { return unchecked_int1(&v, 1, false); }
-clj_value clj_unchecked_dec_int(clj_value v) { return unchecked_int1(&v, -1, false); }
+clj_value clj_unchecked_inc_int(CLJ_BORROWED clj_value v) { return unchecked_int1(&v, 1, false); }
+clj_value clj_unchecked_dec_int(CLJ_BORROWED clj_value v) { return unchecked_int1(&v, -1, false); }
 
 static clj_value b_unchecked_add_int(const clj_value *args, size_t n) { (void)n; return clj_unchecked_add_int(args[0], args[1]); }
 static clj_value b_unchecked_subtract_int(const clj_value *args, size_t n) { (void)n; return clj_unchecked_subtract_int(args[0], args[1]); }
@@ -554,10 +555,11 @@ static const struct {
 // ---- the boxed number classes as namespaces of vars (the shape Thread/sleep has, docs/jvm-differences.md)
 
 // A class a static resolves through is a namespace, so Long/MAX_VALUE reads as any ns/var does.
-static void bind_static(const char *ns_name, const char *name, clj_value val) {
-	clj_value ns_sym = clj_symbol_from_cstr(ns_name);
-	clj_value ns = clj_ns_find_or_create(ns_sym);
-	clj_value sym = clj_symbol_from_cstr(name);
+static void bind_static(const char *ns_name, const char *name, CLJ_OWNED clj_value val) {
+	CLJ_ROOTS(&val);
+	CLJ_NO_CYCLE clj_value ns_sym = clj_symbol_from_cstr(ns_name);
+	clj_value              ns = clj_ns_find_or_create(ns_sym);
+	CLJ_NO_CYCLE clj_value sym = clj_symbol_from_cstr(name);
 	clj_var_bind_root(clj_ns_intern(ns, sym), val);
 	// A root bound at boot outlives the process, as core's do (runtime.c, immortalize_root).
 	if (clj_is_ptr(val)) clj_header_of(val)->flags |= CLJ_FLAG_IMMORTAL;
@@ -671,9 +673,9 @@ static clj_value b_math_sqrt(const clj_value *args, size_t n) {
 }
 
 static void bind_static_fn(const char *ns_name, const char *name, clj_native_fn fn, uint32_t min, uint32_t max) {
-	clj_value ns_sym = clj_symbol_from_cstr(ns_name);
-	clj_value sym = clj_symbol_from_cstr(name);
-	clj_value qualified = clj_symbol_new(clj_symbol_name(ns_sym), clj_symbol_name(sym));
+	CLJ_NO_CYCLE clj_value ns_sym = clj_symbol_from_cstr(ns_name);
+	CLJ_NO_CYCLE clj_value sym = clj_symbol_from_cstr(name);
+	CLJ_NO_CYCLE clj_value qualified = clj_symbol_new(clj_symbol_name(ns_sym), clj_symbol_name(sym));
 	bind_static(ns_name, name, clj_fn_native(qualified, fn, min, max));
 	clj_release(qualified);
 	clj_release(sym);

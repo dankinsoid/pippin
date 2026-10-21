@@ -66,7 +66,7 @@ Compiler and tools
 Process
 - [Corpus](docs/notes/corpus.md) — the vendored libraries, the harness, the watchdog, `make api-diff`.
 - [Benchmarks](docs/notes/benchmarks.md) — how to compare numbers, what is not yet measured.
-- [Fuzzing](docs/notes/fuzzing.md) — the differential fuzzer: case files, the JVM oracle, the canonical text one outcome is, the exclusion list and its citations, the shrinker, what the pass covers; the libFuzzer harnesses of the C parsers (`make fuzz-parsers`).
+- [Fuzzing](docs/notes/fuzzing.md) — the differential fuzzer: case files, the JVM oracle, the canonical text one outcome is, the exclusion list and its citations, the shrinker, what the pass covers; the libFuzzer harnesses of the C parsers (`make fuzz-parsers`); the leak fuzzer of abandoned parks.
 - [Model tests](docs/notes/model-tests.md) — random operation sequences over every collection kind against a Swift model, old versions kept alive, both backends, the shrinker.
 - [iOS](docs/notes/ios.md) — building and running the runtime for iOS, what iOS lacks, the binary-size baseline, the app bundle and its Clojure screen.
 - [Gates](docs/notes/gates.md) — `make gates` and `gates-full`, build directories, measured gate times.

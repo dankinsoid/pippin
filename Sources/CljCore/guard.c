@@ -12,6 +12,7 @@
 #include "clj/string.h"
 #include "coro_internal.h"
 #include "guard_internal.h"
+#include "roots_internal.h"
 
 #if defined(__has_feature)
 #if __has_feature(address_sanitizer)
@@ -250,8 +251,9 @@ clj_value clj_recovery_throw(clj_recovery *r) {
 	clj_var_bindings_unwind(r->bindings);
 	clj_release(clj_take_pending());
 	clj_value trace = clj_trace_vector(s->overflow, s->noverflow);
+	CLJ_ROOTS(&trace);
 	s->noverflow = 0;
-	clj_value message = clj_string_from_cstr("Stack overflow");
+	CLJ_NO_CYCLE clj_value message = clj_string_from_cstr("Stack overflow");
 	clj_value ex = clj_ex_info(message, CLJ_NIL);
 	clj_release(message);
 	return clj_throw_traced(ex, trace);

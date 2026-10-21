@@ -6,6 +6,7 @@
 #include "clj/error.h"
 #include "clj/ice.h"
 #include "clj/number.h"
+#include "roots_internal.h"
 
 // -0.0 is folded into 0.0 first: they are equal, so they must hash alike.
 static uint32_t double_hash(void *self) {
@@ -216,10 +217,15 @@ static clj_value long_arith(clj_value a, clj_value b, clj_num_op op) {
 }
 
 static clj_value ratio_arith(clj_value a, clj_value b, clj_num_op op) {
-	clj_value an, ad, bn, bd;
+	CLJ_NO_CYCLE clj_value an;
+	CLJ_NO_CYCLE clj_value ad;
+	CLJ_NO_CYCLE clj_value bn;
+	CLJ_NO_CYCLE clj_value bd;
 	clj_num_as_fraction(a, &an, &ad);
 	clj_num_as_fraction(b, &bn, &bd);
-	clj_value num = CLJ_NIL, den = CLJ_NIL, r = CLJ_THROWN;
+	CLJ_NO_CYCLE clj_value num = CLJ_NIL;
+	CLJ_NO_CYCLE clj_value den = CLJ_NIL;
+	clj_value              r = CLJ_THROWN;
 	switch (op) {
 	case CLJ_OP_ADD:
 	case CLJ_OP_SUB: {
@@ -286,7 +292,7 @@ static bool math_context(clj_math_context *mc) {
 	mc->rounding = CLJ_ROUND_HALF_UP;
 	// Vars are immortal, so a racing second lookup stores the same var.
 	if (clj_is_nil(var)) {
-		clj_value sym = clj_symbol_from_cstr("*math-context*");
+		CLJ_NO_CYCLE clj_value sym = clj_symbol_from_cstr("*math-context*");
 		var = clj_ns_resolve(clj_ns_core(), sym);
 		clj_release(sym);
 		if (clj_is_nil(var)) return true;
@@ -294,7 +300,9 @@ static bool math_context(clj_math_context *mc) {
 	if (!clj_var_is_bound(var)) return true;
 	clj_value ctx = clj_var_deref(var);
 	if (clj_is_nil(ctx)) return true;
-	clj_value p = clj_get(ctx, clj_keyword_from_cstr("precision"), CLJ_NIL);
+	clj_value p = CLJ_NIL;
+	CLJ_ROOTS(&ctx, &p);
+	p = clj_get(ctx, clj_keyword_from_cstr("precision"), CLJ_NIL);
 	clj_value m = p == CLJ_THROWN ? CLJ_THROWN : clj_get(ctx, clj_keyword_from_cstr("rounding"), CLJ_NIL);
 	if (m == CLJ_THROWN) {
 		clj_release(p);
@@ -311,12 +319,13 @@ static bool math_context(clj_math_context *mc) {
 	}
 	bool ok = clj_int64_of(p, &digits) && digits >= 0 && digits <= INT32_MAX && mode >= 0;
 	clj_release(p);
+	p = CLJ_NIL;
 	clj_release(m);
 	if (!ok) {
-		clj_value text = clj_pr_str_max(ctx, 200);
-		clj_release(ctx);
+		CLJ_NO_CYCLE clj_value text = clj_pr_str_max(ctx, 200);
 		clj_throw_msg("*math-context* must be nil or {:precision n :rounding mode}, not %s", CLJ_STR(text).bytes);
 		clj_release(text);
+		clj_release(ctx);
 		return false;
 	}
 	clj_release(ctx);
@@ -329,8 +338,9 @@ static bool math_context(clj_math_context *mc) {
 static clj_value as_decimal(clj_value v, const clj_math_context *mc) {
 	if (clj_is_decimal(v)) return clj_retain(v);
 	if (!clj_is_ratio(v)) return clj_decimal_new(v, 0);
-	clj_value n = clj_decimal_new(clj_ratio_num(v), 0), d = clj_decimal_new(clj_ratio_den(v), 0);
-	clj_value r = clj_decimal_div_mc(n, d, mc);
+	CLJ_NO_CYCLE clj_value n = clj_decimal_new(clj_ratio_num(v), 0);
+	CLJ_NO_CYCLE clj_value d = clj_decimal_new(clj_ratio_den(v), 0);
+	clj_value              r = clj_decimal_div_mc(n, d, mc);
 	clj_release(n);
 	clj_release(d);
 	return r;
@@ -345,7 +355,8 @@ clj_value clj_num_ratio_to_decimal(clj_value ratio) {
 clj_value clj_num_decimal_negate(clj_value v) {
 	clj_math_context mc;
 	if (!math_context(&mc)) return CLJ_THROWN;
-	clj_value neg = clj_decimal_neg(v), r = clj_decimal_round(neg, &mc);
+	CLJ_NO_CYCLE clj_value neg = clj_decimal_neg(v);
+	clj_value              r = clj_decimal_round(neg, &mc);
 	clj_release(neg);
 	return r;
 }
@@ -353,9 +364,9 @@ clj_value clj_num_decimal_negate(clj_value v) {
 static clj_value decimal_arith(clj_value a, clj_value b, clj_num_op op) {
 	clj_math_context mc;
 	if (!math_context(&mc)) return CLJ_THROWN;
-	clj_value x = as_decimal(a, &mc);
+	CLJ_NO_CYCLE clj_value x = as_decimal(a, &mc);
 	if (x == CLJ_THROWN) return x;
-	clj_value y = as_decimal(b, &mc);
+	CLJ_NO_CYCLE clj_value y = as_decimal(b, &mc);
 	if (y == CLJ_THROWN) {
 		clj_release(x);
 		return y;
@@ -364,13 +375,14 @@ static clj_value decimal_arith(clj_value a, clj_value b, clj_num_op op) {
 	switch (op) {
 	case CLJ_OP_SUB: {
 		// Numbers.minus is add(x, negate(y)), and negate rounds y first: (with-precision 2 (- 100M 99.99M)) is 0M.
-		clj_value neg = clj_decimal_neg(y), negr = clj_decimal_round(neg, &mc);
+		CLJ_NO_CYCLE clj_value neg = clj_decimal_neg(y);
+		clj_value              negr = clj_decimal_round(neg, &mc);
 		clj_release(neg);
 		if (negr == CLJ_THROWN) {
 			r = negr;
 			break;
 		}
-		clj_value exact = clj_decimal_add(x, negr);
+		CLJ_NO_CYCLE clj_value exact = clj_decimal_add(x, negr);
 		clj_release(negr);
 		r = clj_decimal_round(exact, &mc);
 		clj_release(exact);
@@ -378,7 +390,7 @@ static clj_value decimal_arith(clj_value a, clj_value b, clj_num_op op) {
 	}
 	case CLJ_OP_ADD:
 	case CLJ_OP_MUL: {
-		clj_value exact = op == CLJ_OP_ADD ? clj_decimal_add(x, y) : clj_decimal_mul(x, y);
+		CLJ_NO_CYCLE clj_value exact = op == CLJ_OP_ADD ? clj_decimal_add(x, y) : clj_decimal_mul(x, y);
 		r = clj_decimal_round(exact, &mc);
 		clj_release(exact);
 		break;
@@ -397,8 +409,8 @@ static clj_value decimal_arith(clj_value a, clj_value b, clj_num_op op) {
 		clj_value xn, xd, yn, yd;
 		clj_decimal_as_fraction(x, &xn, &xd);
 		clj_decimal_as_fraction(y, &yn, &yd);
-		clj_value p = clj_bigint_mul(xn, yd), q = clj_bigint_mul(xd, yn);
-		clj_value whole = clj_bigint_quot(p, q, NULL);
+		clj_value              p = clj_bigint_mul(xn, yd), q = clj_bigint_mul(xd, yn);
+		CLJ_NO_CYCLE clj_value whole = clj_bigint_quot(p, q, NULL);
 		clj_release(p);
 		clj_release(q);
 		clj_release(xn);

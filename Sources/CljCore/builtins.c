@@ -98,7 +98,7 @@ static clj_value arith_fold(const clj_value *args, size_t n, clj_intrinsic_2 op,
 		if (!clj_is_number(args[0])) return not_a_number(args[0]);
 		return unary_is_self ? clj_retain(args[0]) : op(clj_fixnum(identity), args[0]);
 	}
-	clj_value acc = op(args[0], args[1]);
+	CLJ_NO_CYCLE clj_value acc = op(args[0], args[1]);
 	for (size_t i = 2; i < n && acc != CLJ_THROWN; i++) {
 		clj_value next = op(acc, args[i]);
 		clj_release(acc);
@@ -205,9 +205,9 @@ static clj_value hash_coll(clj_value coll, bool ordered) {
 	clj_value s = clj_seq(coll);
 	if (s == CLJ_THROWN) return CLJ_THROWN;
 	clj_equals_watch();
-	uint32_t     h = ordered ? 1 : 0, n = 0;
-	clj_seq_iter it = clj_seq_iter_start(s);
-	clj_value    item;
+	uint32_t               h = ordered ? 1 : 0, n = 0;
+	clj_seq_iter           it = clj_seq_iter_start(s);
+	CLJ_BORROWED clj_value item;
 	CLJ_ROOTS(&s, &it.held, &it.item);
 	while (clj_seq_iter_next(&it, &item)) {
 		h = ordered ? 31 * h + clj_hash(item) : h + clj_hash(item);
@@ -253,7 +253,7 @@ static clj_value b_hash_combine(const clj_value *args, size_t n) {
 
 static clj_value int_arg(clj_value v, intptr_t *out) {
 	if (!clj_is_fixnum(v)) {
-		clj_value text = clj_pr_str_max(v, CLJ_ERROR_PRINT_MAX);
+		CLJ_NO_CYCLE clj_value text = clj_pr_str_max(v, CLJ_ERROR_PRINT_MAX);
 		if (text == CLJ_THROWN) return CLJ_THROWN;
 		clj_value r = clj_throw_msg("Argument must be an integer: %s", CLJ_STR(text).bytes);
 		clj_release(text);
@@ -370,7 +370,7 @@ static clj_value b_vector_pop(const clj_value *args, size_t n) {
 }
 
 // Consumes coll (+1 in), as clj_conj does.
-static clj_value assoc_one(clj_value coll, clj_value key, clj_value val) {
+static clj_value assoc_one(CLJ_OWNED clj_value coll, clj_value key, clj_value val) {
 	const clj_type *t = clj_is_ptr(coll) ? clj_type_of(coll) : NULL;
 	if (t && t->assoc) return t->assoc(coll, key, val);
 	if (clj_is_vector(coll)) {
@@ -386,12 +386,13 @@ static clj_value assoc_one(clj_value coll, clj_value key, clj_value val) {
 		}
 		return clj_vector_assoc(coll, (uint32_t)idx, val);
 	}
+	CLJ_ROOTS(&coll);
 	clj_value e = clj_throw_msg("assoc not supported on this type: %s", clj_type_name(coll));
 	clj_release(coll);
 	return e;
 }
 
-clj_value clj_assoc_owned(clj_value coll, clj_value key, clj_value val) {
+clj_value clj_assoc_owned(CLJ_OWNED clj_value coll, clj_value key, clj_value val) {
 	return assoc_one(clj_is_nil(coll) ? clj_map_empty() : coll, key, val);
 }
 
@@ -406,9 +407,10 @@ static clj_value b_assoc(const clj_value *args, size_t n) {
 
 static clj_value dissoc_type_error(clj_value coll) { return clj_throw_msg("dissoc not supported on this type: %s", clj_type_name(coll)); }
 
-clj_value clj_dissoc_owned(clj_value coll, clj_value key) {
+clj_value clj_dissoc_owned(CLJ_OWNED clj_value coll, clj_value key) {
 	if (clj_is_nil(coll)) return CLJ_NIL;
 	if (clj_has_core(coll, CLJ_CORE_MAP)) return clj_type_of(coll)->dissoc(coll, key);
+	CLJ_ROOTS(&coll);
 	clj_value e = dissoc_type_error(coll);
 	clj_release(coll);
 	return e;
@@ -452,9 +454,10 @@ static clj_value b_contains(const clj_value *args, size_t n) {
 
 static clj_value disj_type_error(clj_value coll) { return clj_throw_msg("disj not supported on this type: %s", clj_type_name(coll)); }
 
-clj_value clj_disj_owned(clj_value coll, clj_value key) {
+clj_value clj_disj_owned(CLJ_OWNED clj_value coll, clj_value key) {
 	if (clj_is_nil(coll)) return CLJ_NIL;
 	if (clj_has_core(coll, CLJ_CORE_SET)) return clj_type_of(coll)->dissoc(coll, key);
+	CLJ_ROOTS(&coll);
 	clj_value e = disj_type_error(coll);
 	clj_release(coll);
 	return e;
@@ -477,8 +480,9 @@ static clj_value b_set(const clj_value *args, size_t n) {
 	if (clj_is_set(args[0])) return clj_with_meta(clj_retain(args[0]), CLJ_NIL);
 	clj_value s = clj_seq(args[0]);
 	if (s == CLJ_THROWN) return CLJ_THROWN;
-	clj_seq_iter it = clj_seq_iter_start(s);
-	clj_value    item, r = clj_set_empty();
+	clj_seq_iter           it = clj_seq_iter_start(s);
+	CLJ_BORROWED clj_value item;
+	clj_value              r = clj_set_empty();
 	CLJ_ROOTS(&s, &it.held, &it.item, &r);
 	while (r != CLJ_THROWN && clj_seq_iter_next(&it, &item)) {
 		clj_value acc = r;
@@ -511,9 +515,13 @@ static clj_value b_empty_coll(const clj_value *args, size_t n) {
 	else if (clj_is_queue(coll)) e = clj_queue_empty();
 	else if (clj_has_core(coll, CLJ_CORE_COLL)) e = clj_list_empty();
 	else return CLJ_NIL;
-	clj_value m = clj_meta(coll);
+	clj_value m = CLJ_NIL;
+	CLJ_ROOTS(&e, &m);
+	m = clj_meta(coll);
 	if (clj_is_nil(m)) return e;
-	clj_value r = clj_with_meta(e, m);
+	clj_value o = e;
+	e = CLJ_NIL;
+	clj_value r = clj_with_meta(o, m);
 	clj_release(m);
 	return r;
 }
@@ -546,7 +554,7 @@ static clj_value b_vector(const clj_value *args, size_t n) {
 
 static clj_value b_hash_map(const clj_value *args, size_t n) {
 	if (n % 2) {
-		clj_value text = clj_pr_str_max(args[n - 1], CLJ_ERROR_PRINT_MAX);
+		CLJ_NO_CYCLE clj_value text = clj_pr_str_max(args[n - 1], CLJ_ERROR_PRINT_MAX);
 		if (text == CLJ_THROWN) return CLJ_THROWN;
 		clj_value r = clj_throw_msg("No value supplied for key: %s", CLJ_STR(text).bytes);
 		clj_release(text);
@@ -569,7 +577,7 @@ static clj_value b_range_star(const clj_value *args, size_t n) {
 	int64_t v[3];
 	for (size_t i = 0; i < 3; i++) {
 		if (!clj_int64_of(args[i], &v[i])) {
-			clj_value text = clj_pr_str_max(args[i], CLJ_ERROR_PRINT_MAX);
+			CLJ_NO_CYCLE clj_value text = clj_pr_str_max(args[i], CLJ_ERROR_PRINT_MAX);
 			if (text == CLJ_THROWN) return CLJ_THROWN;
 			clj_value e = clj_throw_msg("range bound outside the 64-bit long: %s", CLJ_STR(text).bytes);
 			clj_release(text);
@@ -581,11 +589,11 @@ static clj_value b_range_star(const clj_value *args, size_t n) {
 }
 
 // (cons a (cons b ... coll)): the last argument is the tail as a seq and stays unrealized.
-// Its conses are onto seqs, whose seq runs nothing.
 static clj_value b_list_star(const clj_value *args, size_t n) {
 	clj_value tail = args[n - 1];
 	clj_value r = clj_is_seq(tail) ? clj_retain(tail) : clj_seq(tail);
 	if (r == CLJ_THROWN) return CLJ_THROWN;
+	CLJ_ROOTS(&r);
 	for (size_t i = n - 1; i > 0; i--) {
 		clj_value c = clj_seq_cons(args[i - 1], r);
 		clj_release(r);
@@ -617,8 +625,9 @@ static clj_value b_last(const clj_value *args, size_t n) {
 	(void)n;
 	clj_value s = clj_seq(args[0]);
 	if (s == CLJ_THROWN) return CLJ_THROWN;
-	clj_seq_iter it = clj_seq_iter_start(s);
-	clj_value    item, last = CLJ_NIL;
+	clj_seq_iter           it = clj_seq_iter_start(s);
+	CLJ_BORROWED clj_value item;
+	clj_value              last = CLJ_NIL;
 	CLJ_ROOTS(&s, &it.held, &it.item, &last);
 	// An item the iterator owns dies at the next step, so each one is retained as it arrives.
 	while (clj_seq_iter_next(&it, &item)) {
@@ -634,12 +643,12 @@ static clj_value b_last(const clj_value *args, size_t n) {
 	return last;
 }
 
-// keep arrives after the walk, which is clj_seq_items' own.
 static clj_value b_butlast(const clj_value *args, size_t n) {
 	(void)n;
-	size_t     count;
-	clj_value  keep;
-	clj_value *items = clj_seq_items(args[0], &count, &keep);
+	size_t                  count;
+	clj_value               keep = CLJ_NIL;
+	CLJ_ROOTS(&keep);
+	CLJ_BORROWED clj_value *items = clj_seq_items(args[0], &count, &keep);
 	if (!items) return CLJ_THROWN;
 	clj_value r = count > 1 ? clj_list_from_array(items, count - 1) : CLJ_NIL;
 	free(items);
@@ -651,8 +660,9 @@ static clj_value b_reverse(const clj_value *args, size_t n) {
 	(void)n;
 	clj_value s = clj_seq(args[0]);
 	if (s == CLJ_THROWN) return CLJ_THROWN;
-	clj_seq_iter it = clj_seq_iter_start(s);
-	clj_value    item, r = clj_list_empty();
+	clj_seq_iter           it = clj_seq_iter_start(s);
+	CLJ_BORROWED clj_value item;
+	clj_value              r = clj_list_empty();
 	CLJ_ROOTS(&s, &it.held, &it.item, &r);
 	while (clj_seq_iter_next(&it, &item)) {
 		clj_value c = clj_list_new(item, r);
@@ -673,7 +683,6 @@ static clj_value b_sequence_xform(const clj_value *args, size_t n) {
 }
 
 // rseq of a vector? value: an O(1) view of the core vector; any other IPersistentVector is reversed eagerly.
-// The seq of the list b_reverse made runs nothing.
 static clj_value b_rvec_seq(const clj_value *args, size_t n) {
 	if (clj_is_vector(args[0])) {
 		uint32_t count = clj_vector_count(args[0]);
@@ -681,6 +690,7 @@ static clj_value b_rvec_seq(const clj_value *args, size_t n) {
 	}
 	clj_value r = b_reverse(args, n);
 	if (r == CLJ_THROWN) return r;
+	CLJ_ROOTS(&r);
 	clj_value s = clj_seq(r);
 	clj_release(r);
 	return s;
@@ -707,8 +717,9 @@ static clj_value into(const clj_value *args, size_t n) {
 	}
 	clj_value s = clj_seq(args[1]);
 	if (s == CLJ_THROWN) return CLJ_THROWN;
-	clj_seq_iter it = clj_seq_iter_start(s);
-	clj_value    item, r = clj_retain(args[0]);
+	clj_seq_iter           it = clj_seq_iter_start(s);
+	CLJ_BORROWED clj_value item;
+	clj_value              r = clj_retain(args[0]);
 	CLJ_ROOTS(&s, &it.held, &it.item, &r);
 	while (r != CLJ_THROWN && clj_seq_iter_next(&it, &item)) {
 		clj_value acc = r;
@@ -808,7 +819,7 @@ static clj_value reference_method(const char *what, const char *method, const cl
 // (atom x & {:keys [meta validator]}): other keys are ignored, as Clojure's setup-reference does.
 static clj_value b_atom(const clj_value *args, size_t n) {
 	if (n % 2 == 0) {
-		clj_value text = clj_pr_str_max(args[n - 1], CLJ_ERROR_PRINT_MAX);
+		CLJ_NO_CYCLE clj_value text = clj_pr_str_max(args[n - 1], CLJ_ERROR_PRINT_MAX);
 		if (text == CLJ_THROWN) return CLJ_THROWN;
 		clj_value r = clj_throw_msg("No value supplied for key: %s", CLJ_STR(text).bytes);
 		clj_release(text);
@@ -832,7 +843,7 @@ static clj_value b_monitor_enter(const clj_value *args, size_t n) {
 }
 
 static clj_value b_find_keyword(const clj_value *args, size_t n) {
-	clj_value sym;
+	CLJ_NO_CYCLE clj_value sym;
 	if (n == 2) {
 		if (!(clj_is_nil(args[0]) || clj_is_string(args[0])) || !clj_is_string(args[1])) return clj_throw_msg("find-keyword expects a namespace and a name as strings");
 		sym = clj_symbol_new(args[0], args[1]);
@@ -869,12 +880,13 @@ static void install_system_ns(void) {
 		const char   *name;
 		clj_native_fn fn;
 	} statics[] = {{"currentTimeMillis", b_current_time_millis}, {"nanoTime", b_nano_time}};
-	clj_value ns_name = clj_symbol_from_cstr("System");
-	clj_value ns = clj_ns_find_or_create(ns_name);
+	CLJ_NO_CYCLE clj_value ns_name = clj_symbol_from_cstr("System");
+	clj_value              ns = clj_ns_find_or_create(ns_name);
 	for (size_t i = 0; i < sizeof statics / sizeof *statics; i++) {
-		clj_value name = clj_symbol_from_cstr(statics[i].name);
-		clj_value qualified = clj_symbol_new(clj_symbol_name(ns_name), clj_symbol_name(name));
-		clj_value f = clj_fn_native(qualified, statics[i].fn, 0, 0);
+		CLJ_NO_CYCLE clj_value name = clj_symbol_from_cstr(statics[i].name);
+		CLJ_NO_CYCLE clj_value qualified = clj_symbol_new(clj_symbol_name(ns_name), clj_symbol_name(name));
+		clj_value              f = clj_fn_native(qualified, statics[i].fn, 0, 0);
+		CLJ_ROOTS(&f);
 		clj_var_bind_root(clj_ns_intern(ns, name), f);
 		clj_release(f);
 		clj_release(qualified);
@@ -999,7 +1011,8 @@ static clj_value name_parts(const clj_value *args, size_t n, clj_value *ns, clj_
 
 static clj_value b_make_symbol(const clj_value *args, size_t n) {
 	if (n == 1 && clj_is_symbol(args[0])) return clj_retain(args[0]);
-	clj_value ns, name;
+	CLJ_NO_CYCLE clj_value ns;
+	CLJ_NO_CYCLE clj_value name;
 	if (name_parts(args, n, &ns, &name) == CLJ_THROWN) return CLJ_THROWN;
 	clj_value r = clj_symbol_new(ns, name);
 	clj_release(ns);
@@ -1010,7 +1023,8 @@ static clj_value b_make_symbol(const clj_value *args, size_t n) {
 static clj_value b_make_keyword(const clj_value *args, size_t n) {
 	if (n == 1 && clj_is_keyword(args[0])) return args[0];
 	if (n == 1 && clj_is_nil(args[0])) return CLJ_NIL; // (keyword nil) is nil, as Clojure's is
-	clj_value ns, name;
+	CLJ_NO_CYCLE clj_value ns;
+	CLJ_NO_CYCLE clj_value name;
 	if (name_parts(args, n, &ns, &name) == CLJ_THROWN) return CLJ_THROWN;
 	clj_value r = clj_keyword_intern(ns, name);
 	clj_release(ns);
@@ -1107,7 +1121,7 @@ static clj_value b_host_type(const clj_value *args, size_t n) {
 	(void)n;
 	clj_value name = args[0];
 	if (clj_is_symbol(name)) {
-		clj_value text = clj_pr_str(name);
+		CLJ_NO_CYCLE clj_value text = clj_pr_str(name);
 		if (text == CLJ_THROWN) return CLJ_THROWN;
 		clj_value r = b_host_type(&text, 1);
 		clj_release(text);
@@ -1318,7 +1332,7 @@ static clj_value b_str(const clj_value *args, size_t n) {
 	return s;
 }
 
-clj_value clj_str_value(clj_value v) { return b_str(&v, 1); }
+clj_value clj_str_value(clj_value v) { return b_str((const clj_value[]){v}, 1); }
 
 clj_value clj_str2(clj_value a, clj_value b) {
 	clj_value in[2] = {a, b};
@@ -1339,22 +1353,26 @@ static bool inert_text(clj_value x, clj_str_buf *sb, char tmp[24], clj_str *out)
 // @ai-generated(solo)
 // (str s x) with s at +1. A unique unshared string is the caller's alone, so x's text, whatever code making it runs,
 // goes onto its end in place (string.c clj_string_append); anything else is the copy (str s x) makes.
-clj_value clj_str_owned(clj_value s, clj_value x) {
+clj_value clj_str_owned(CLJ_OWNED clj_value s, clj_value x) {
 	if (clj_is_string(s) && s != x && !clj_opt_off(CLJ_NO_OPT_GROW) && clj_is_unique_unshared(s)) {
 		clj_str_buf sb;
 		char        tmp[24];
 		clj_str     t;
 		if (inert_text(x, &sb, tmp, &t)) return clj_string_append(s, t.bytes, t.len);
+		CLJ_ROOTS(&s);
 		buf text = {0};
 		if (!put_str(&text, x)) {
 			free(text.data);
 			clj_release(s);
 			return CLJ_THROWN;
 		}
-		clj_value r = clj_string_append(s, text.data, text.len);
+		clj_value own = s;
+		s = CLJ_NIL;
+		clj_value r = clj_string_append(own, text.data, text.len);
 		free(text.data);
 		return r;
 	}
+	CLJ_ROOTS(&s);
 	clj_value r = clj_str2(s, x);
 	clj_release(s);
 	return r;
@@ -1404,9 +1422,9 @@ static clj_value b_str_escape(const clj_value *args, size_t n) {
 	buf         b = {0};
 	CLJ_ROOTS(&r);
 	for (size_t pos = 0; pos < len;) {
-		uint32_t  cp;
-		size_t    w = clj_utf8_decode(bytes, len, pos, &cp);
-		clj_value ch = clj_char(cp);
+		uint32_t               cp;
+		size_t                 w = clj_utf8_decode(bytes, len, pos, &cp);
+		CLJ_BORROWED clj_value ch = clj_char(cp);
 		r = clj_invoke(cmap, &ch, 1);
 		if (r == CLJ_THROWN) {
 			free(b.data);
@@ -1469,8 +1487,8 @@ static clj_value b_resolve(const clj_value *args, size_t n) {
 
 // A core.clj protocol method (clojure.core/name) applied to v, for a builtin's fallback on user types.
 static clj_value core_method_n(const char *name, const clj_value *args, size_t n) {
-	clj_value sym = clj_symbol_from_cstr(name);
-	clj_value var = clj_ns_resolve(clj_ns_core(), sym);
+	CLJ_NO_CYCLE clj_value sym = clj_symbol_from_cstr(name);
+	clj_value              var = clj_ns_resolve(clj_ns_core(), sym);
 	clj_release(sym);
 	if (clj_is_nil(var) || !clj_var_is_bound(var)) return CLJ_UNBOUND;
 	clj_value f = clj_var_deref(var);
@@ -1480,7 +1498,7 @@ static clj_value core_method_n(const char *name, const clj_value *args, size_t n
 	return r;
 }
 
-static clj_value core_method(const char *name, clj_value v) { return core_method_n(name, &v, 1); }
+static clj_value core_method(const char *name, clj_value v) { return core_method_n(name, (const clj_value[]){v}, 1); }
 
 // (deref x), (deref x ms timeout-val): the timed form is for what can wait — a promise, a future, a channel.
 static clj_value b_deref(const clj_value *args, size_t n) {
@@ -1515,20 +1533,25 @@ static clj_value b_vswap_take(const clj_value *args, size_t n) {
 	clj_value vol = args[0], f = args[1], x = args[2];
 	if (clj_is_volatile(vol) && clj_is_fn(f) && clj_fn_of(f)->kind == CLJ_FN_NATIVE) {
 		const clj_intrinsic *op = clj_intrinsic_consuming(f, 2);
-		clj_value            r;
-		if (op && op->consume.f2 == clj_conj && clj_volatile_conj_take(vol, x, &r)) return r;
+		if (op && op->consume.f2 == clj_conj) {
+			clj_value r = CLJ_NIL;
+			CLJ_ROOTS(&r);
+			if (clj_volatile_conj_take(vol, x, &r)) return r;
+		}
 		if (op && op->consume.f2 == clj_str_owned) {
 			clj_str_buf sb;
 			char        tmp[24];
 			clj_str     t;
+			clj_value   r;
 			if (inert_text(x, &sb, tmp, &t) && clj_volatile_append_take(vol, t.bytes, t.len, &r)) return r;
 		}
 	}
-	clj_value cur = b_deref(&vol, 1);
+	clj_value cur = b_deref(args, 1);
 	if (cur == CLJ_THROWN) return cur;
-	CLJ_ROOTS(&cur);
+	clj_value r = CLJ_NIL;
+	CLJ_ROOTS(&cur, &r);
 	clj_value in[2] = {cur, x};
-	clj_value r = clj_invoke(f, in, 2);
+	r = clj_invoke(f, in, 2);
 	clj_release(cur);
 	cur = CLJ_NIL;
 	if (r == CLJ_THROWN) return r;
@@ -1578,8 +1601,8 @@ static clj_value b_reset_meta(const clj_value *args, size_t n) {
 // A namespace's meta is written under the namespace lock, so f runs once and a concurrent alter-meta! is lost.
 // The meta it passes is the namespace's, borrowed.
 static clj_value ns_alter_meta(clj_value ns, clj_value f, const clj_value *args, size_t n) {
-	clj_value  small[8];
-	clj_value *call = n + 1 <= sizeof small / sizeof *small ? small : malloc((n + 1) * sizeof *call);
+	clj_value               small[8];
+	CLJ_BORROWED clj_value *call = n + 1 <= sizeof small / sizeof *small ? small : malloc((n + 1) * sizeof *call);
 	if (!call) clj_fatal("out of memory");
 	call[0] = clj_ns_meta(ns);
 	memcpy(call + 1, args, n * sizeof *call);
@@ -1587,6 +1610,7 @@ static clj_value ns_alter_meta(clj_value ns, clj_value f, const clj_value *args,
 	if (call != small) free(call);
 	if (m == CLJ_THROWN) return m;
 	if (!clj_is_nil(m) && !clj_has_core(m, CLJ_CORE_MAP)) {
+		CLJ_ROOTS(&m);
 		clj_value e = clj_throw_msg("alter-meta! fn must return a map, got: %s", clj_type_name(m));
 		clj_release(m);
 		return e;
@@ -1611,8 +1635,8 @@ static clj_value b_alter_meta(const clj_value *args, size_t n) {
 		}
 		return not_a_reference("alter-meta!", args[0]);
 	}
-	clj_value  small[8];
-	clj_value *call = n <= sizeof small / sizeof *small ? small : malloc(n * sizeof *call);
+	clj_value               small[8];
+	CLJ_BORROWED clj_value *call = n <= sizeof small / sizeof *small ? small : malloc(n * sizeof *call);
 	if (!call) clj_fatal("out of memory");
 	memcpy(call + 1, args + 2, (n - 2) * sizeof *call);
 	clj_value m;
@@ -1622,6 +1646,7 @@ static clj_value b_alter_meta(const clj_value *args, size_t n) {
 		m = clj_invoke(args[1], call, n - 1);
 		if (m == CLJ_THROWN) break;
 		if (!clj_is_nil(m) && !clj_has_core(m, CLJ_CORE_MAP)) {
+			CLJ_ROOTS(&m);
 			clj_value e = clj_throw_msg("alter-meta! fn must return a map, got: %s", clj_type_name(m));
 			clj_release(m);
 			m = e;
@@ -1765,8 +1790,8 @@ static clj_value b_rand_star(const clj_value *args, size_t n) {
 // cmp nil is the C comparator (compare.h), which is what sorted-map and sorted-set build with.
 static clj_value sorted_from_args(bool map, clj_value cmp, const clj_value *args, size_t n) {
 	if (map && n % 2) {
-		clj_value text = clj_pr_str(args[n - 1]);
-		clj_value e = clj_throw_msg("No value supplied for key: %s", CLJ_STR(text).bytes);
+		CLJ_NO_CYCLE clj_value text = clj_pr_str(args[n - 1]);
+		clj_value              e = clj_throw_msg("No value supplied for key: %s", CLJ_STR(text).bytes);
 		clj_release(text);
 		return e;
 	}
@@ -1887,11 +1912,12 @@ static const entry entries[] = {
 };
 
 void clj_builtin_bind(const char *name_text, clj_native_fn fn, uint32_t min, uint32_t max) {
-	clj_value core = clj_ns_core();
-	clj_value name = clj_string_from_cstr(name_text);
-	clj_value sym = clj_symbol_new(CLJ_NIL, name);
-	clj_value qualified = clj_symbol_new(clj_symbol_name(clj_ns_name(core)), name);
-	clj_value f = clj_fn_native(qualified, fn, min, max);
+	clj_value              core = clj_ns_core();
+	CLJ_NO_CYCLE clj_value name = clj_string_from_cstr(name_text);
+	CLJ_NO_CYCLE clj_value sym = clj_symbol_new(CLJ_NIL, name);
+	CLJ_NO_CYCLE clj_value qualified = clj_symbol_new(clj_symbol_name(clj_ns_name(core)), name);
+	clj_value              f = clj_fn_native(qualified, fn, min, max);
+	CLJ_ROOTS(&f);
 	clj_fn_of(f)->leaf = clj_facts_core_leaf(name_text);
 	clj_var_bind_root(clj_ns_intern(core, sym), f);
 	clj_release(f);
@@ -1908,9 +1934,9 @@ static clj_value extension_meta(void) {
 }
 
 void clj_core_mark_extension(const char *name_text) {
-	clj_value name = clj_string_from_cstr(name_text);
-	clj_value sym = clj_symbol_new(CLJ_NIL, name);
-	clj_value var = clj_ns_resolve(clj_ns_core(), sym);
+	CLJ_NO_CYCLE clj_value name = clj_string_from_cstr(name_text);
+	CLJ_NO_CYCLE clj_value sym = clj_symbol_new(CLJ_NIL, name);
+	clj_value              var = clj_ns_resolve(clj_ns_core(), sym);
 	// Interning here instead would give the parity report an unbound public var under a misspelled name.
 	CLJ_ASSERT(!clj_is_nil(var), "no clojure.core var of that name to mark an extension");
 	clj_var_set_meta(var, extension_meta());

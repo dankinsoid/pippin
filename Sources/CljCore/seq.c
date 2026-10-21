@@ -269,8 +269,8 @@ static clj_value range_reduce(clj_value self, clj_value f, clj_value init) {
 	clj_reducer      red = clj_reducer_start(f, init, 2);
 	CLJ_ROOTS(&red.acc);
 	for (int64_t at = r->start;;) {
-		clj_value item = clj_long_new(at);
-		bool      more = clj_reducer_step(&red, item);
+		CLJ_NO_CYCLE clj_value item = clj_long_new(at);
+		bool                   more = clj_reducer_step(&red, item);
 		clj_release(item);
 		int64_t next;
 		if (!more || !clj_range_step(at, r->step, &next) || (r->step > 0 ? next >= r->end : next <= r->end)) break;
@@ -328,6 +328,7 @@ static clj_value lazy_seq_meta(clj_value self) { return clj_view_meta(self, size
 // LazySeq.withMeta realizes the head: a thunk is forced once per object, so a copy may share the realized
 // value but never the thunk. Once forced nothing writes `state` again, so the copy's memcpy of it is safe.
 static clj_value lazy_seq_with_meta(clj_value self, clj_value m) {
+	CLJ_ROOTS(&self);
 	if (clj_lazy_seq_force(self) == CLJ_THROWN) {
 		clj_release(self);
 		return CLJ_THROWN;
@@ -566,9 +567,9 @@ static clj_value run_thunk(clj_coro *co, clj_value v) {
 }
 
 typedef struct {
-	clj_value *items;
-	size_t     n, cap;
-	clj_value  small[16];
+	clj_value             *items;
+	size_t                 n, cap;
+	CLJ_BORROWED clj_value small[16]; // named through items
 } chain;
 
 static void chain_push(chain *c, clj_value v) {
@@ -592,11 +593,12 @@ clj_value clj_lazy_seq_force(clj_value ls) {
 	if (!claim(co, ls, &thrown)) return thrown ? CLJ_THROWN : s->value.v;
 	CLJ_STAT(CLJ_STAT_LAZY_FORCE);
 
-	// Nested lazy seqs are unwrapped in a loop, so nesting depth costs no C stack (LazySeq.seq()).
-	chain inner = {.n = 0, .cap = 16};
-	inner.items = inner.small;
 	clj_value r = run_thunk(co, ls);
+	CLJ_ROOTS(&r);
 	if (r != CLJ_THROWN && clj_is_lazy_seq(r)) {
+		// Nested lazy seqs are unwrapped in a loop, so nesting depth costs no C stack (LazySeq.seq()).
+		chain inner = {.n = 0, .cap = 16};
+		inner.items = inner.small;
 		// the cells claimed so far are this force's while the next one's thunk runs
 		CLJ_ROOTS_SPAN(&inner.items, &inner.n);
 		while (r != CLJ_THROWN && clj_is_lazy_seq(r)) {
@@ -611,33 +613,25 @@ clj_value clj_lazy_seq_force(clj_value ls) {
 			chain_push(&inner, cell);
 			r = run_thunk(co, cell);
 		}
-	}
-	// A thunk may return any seqable, an empty one included; the cache holds its seq, so () becomes nil (RT.seq).
-	if (r != CLJ_THROWN && !clj_is_nil(r)) {
-		clj_value v;
-		if (clj_is_instance(r)) {
-			// a program's seqable: its seq is a call of its own
-			CLJ_ROOTS(&r);
-			v = clj_seq(r);
-		} else {
-			v = clj_seq(r);
+		// A thunk may return any seqable, an empty one included; the cache holds its seq, so () becomes nil (RT.seq).
+		if (r != CLJ_THROWN && !clj_is_nil(r)) {
+			clj_value v = clj_seq(r);
+			clj_release(r);
+			r = v;
 		}
+		for (; inner.n > 0; inner.n--) {
+			clj_value cell = inner.items[inner.n - 1];
+			if (r == CLJ_THROWN) unclaim(co, cell);
+			else publish(co, cell, clj_retain(r));
+			clj_release(cell);
+		}
+		if (inner.items != inner.small) free(inner.items);
+	} else if (r != CLJ_THROWN && !clj_is_nil(r)) {
+		clj_value v = clj_seq(r);
 		clj_release(r);
 		r = v;
 	}
-	if (r == CLJ_THROWN) {
-		for (size_t i = inner.n; i > 0; i--) {
-			unclaim(co, inner.items[i - 1]);
-			clj_release(inner.items[i - 1]);
-		}
-		unclaim(co, ls);
-	} else {
-		for (size_t i = inner.n; i > 0; i--) {
-			publish(co, inner.items[i - 1], clj_retain(r));
-			clj_release(inner.items[i - 1]);
-		}
-		publish(co, ls, r);
-	}
-	if (inner.items != inner.small) free(inner.items);
+	if (r == CLJ_THROWN) unclaim(co, ls);
+	else publish(co, ls, r);
 	return r == CLJ_THROWN ? CLJ_THROWN : s->value.v;
 }

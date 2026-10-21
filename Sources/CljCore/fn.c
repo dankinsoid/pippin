@@ -229,6 +229,7 @@ static clj_value arity_data(clj_value f, size_t n, uint32_t bits, uint32_t varia
 		for (uint32_t i = 0; i <= CLJ_FN_MAX_FIXED; i++) {
 			if ((bits >> i) & 1) arities = clj_vector_conj(arities, clj_fixnum(i));
 		}
+		CLJ_ROOTS(&arities);
 		data = clj_map_assoc(data, kw_arities, arities);
 		clj_release(arities);
 	}
@@ -247,12 +248,13 @@ static clj_value arity_error(clj_value f, const char *over, size_t n) {
 	// bound and names no count.
 	CLJ_ASSERT(*over || !((variadic != CLJ_ARITY_ANY && n >= variadic) || (n <= CLJ_FN_MAX_FIXED && ((bits >> n) & 1))),
 	           "an arity refused where clj_fn_accepts takes it");
-	char      takes[256];
-	clj_value message = arities_text(bits, variadic, takes, sizeof takes)
-	                        ? clj_error_message("Wrong number of args (%s%zu) passed to: %s, which takes %s", over, n, CLJ_STR(text).bytes, takes)
-	                        : clj_error_message("Wrong number of args (%s%zu) passed to: %s", over, n, CLJ_STR(text).bytes);
+	char                   takes[256];
+	CLJ_NO_CYCLE clj_value message = arities_text(bits, variadic, takes, sizeof takes)
+	                                     ? clj_error_message("Wrong number of args (%s%zu) passed to: %s, which takes %s", over, n, CLJ_STR(text).bytes, takes)
+	                                     : clj_error_message("Wrong number of args (%s%zu) passed to: %s", over, n, CLJ_STR(text).bytes);
 	clj_release(text);
 	clj_value data = arity_data(f, n, bits, variadic);
+	CLJ_ROOTS(&data);
 	clj_value ex = clj_ex_info(message, data);
 	clj_release(message);
 	clj_release(data);
@@ -280,7 +282,7 @@ bool clj_fn_accepts(clj_value f, size_t n) {
 clj_value clj_invoke(clj_value f, const clj_value *args, size_t n) {
 	CLJ_STAT(CLJ_STAT_INVOKE);
 	if (clj_is_ptr(f) && clj_type_of(f)->invoke) return clj_type_of(f)->invoke(f, args, n);
-	clj_value text = clj_pr_str_max(f, CLJ_ERROR_PRINT_MAX);
+	CLJ_NO_CYCLE clj_value text = clj_pr_str_max(f, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
 	clj_value r = clj_throw_msg("%s cannot be invoked", CLJ_STR(text).bytes);
 	clj_release(text);
@@ -309,6 +311,8 @@ clj_value clj_apply(clj_value f, const clj_value *args, size_t n) {
 	// A var invokes its value, so its value answers for the shape; the call still names the var in an error.
 	clj_value held = clj_is_var(f) ? clj_var_deref(f) : CLJ_NIL;
 	if (held == CLJ_THROWN) return CLJ_THROWN;
+	clj_value tail = CLJ_NIL;
+	CLJ_ROOTS(&held, &tail);
 	clj_value shape = clj_is_var(f) ? held : f;
 	size_t fixed = n - 1;
 	size_t over = rest_at(shape);
@@ -318,16 +322,16 @@ clj_value clj_apply(clj_value f, const clj_value *args, size_t n) {
 	                                                             : CLJ_FN_MAX_FIXED;
 	// One argument past the bound: that one tells a whole spread from an arity error.
 	size_t probe = bound == SIZE_MAX ? SIZE_MAX : (bound >= fixed ? bound - fixed : 0) + 1;
-	clj_value tail = clj_seq(args[n - 1]);
+	tail = clj_seq(args[n - 1]);
 	if (tail == CLJ_THROWN) {
 		clj_release(held);
 		return CLJ_THROWN;
 	}
 
 	// fixed args then the spread, contiguous: the common call never touches malloc (group-freq: 3M an iteration).
-	clj_value  local[CLJ_FN_MAX_FIXED + 2];
-	size_t     cap = sizeof local / sizeof *local, taken = 0;
-	clj_value *all = local;
+	clj_value               local[CLJ_FN_MAX_FIXED + 2];
+	size_t                  cap = sizeof local / sizeof *local, taken = 0;
+	CLJ_BORROWED clj_value *all = local;
 	if (fixed + 1 > cap) {
 		cap = fixed + 8;
 		all = malloc(cap * sizeof *all);
@@ -336,7 +340,6 @@ clj_value clj_apply(clj_value f, const clj_value *args, size_t n) {
 	memcpy(all, args, fixed * sizeof *all);
 	clj_value *spread = all + fixed;
 	bool       failed = false;
-	CLJ_ROOTS(&held, &tail);
 	CLJ_ROOTS_SPAN(&spread, &taken);
 	while (!clj_is_nil(tail) && taken < probe) {
 		clj_value x = clj_first(tail);

@@ -27,6 +27,7 @@
 #include "ice_internal.h"
 #include "libs_clj.inc"
 #include "load_internal.h"
+#include "roots_internal.h"
 
 static const char embedded_prefix[] = "<embedded>/";
 
@@ -223,7 +224,7 @@ clj_compiled_init clj_compiled_find(const char *path) {
 }
 
 static void make_file_var(void) {
-	clj_value sym = clj_symbol_from_cstr("*file*");
+	CLJ_NO_CYCLE clj_value sym = clj_symbol_from_cstr("*file*");
 	file_var = clj_ns_intern(clj_ns_core(), sym);
 	clj_release(sym);
 	clj_var_set_dynamic(file_var, true);
@@ -240,7 +241,7 @@ static clj_value load_bindings(clj_value file) {
 	clj_value bindings = clj_map_empty();
 	bindings = clj_map_assoc(bindings, clj_ns_var(), clj_ns_current());
 	bindings = clj_map_assoc(bindings, clj_load_file_var(), file);
-	clj_value name = CLJ_NIL;
+	CLJ_NO_CYCLE clj_value name = CLJ_NIL;
 	if (clj_is_string(file)) {
 		const char *s = CLJ_STR(file).bytes, *slash = strrchr(s, '/');
 		name = clj_string_from_cstr(slash ? slash + 1 : s);
@@ -365,21 +366,26 @@ static void record_failure(clj_value file, uint32_t line, uint32_t col, clj_valu
 // The position is the innermost one the cause chain carries, not the top-level form Clojure reports
 // (design §3 «Диагностика»); the form's own position stays under :form-line/:form-column. The message is
 // built to its length — truncating a diagnostic to a buffer is a defect there, not a compromise.
-static clj_value wrap_pending(clj_value file, uint32_t line, uint32_t col) {
+CLJ_BORROWED static clj_value wrap_pending(clj_value file, uint32_t line, uint32_t col) {
 	clj_value trace = clj_take_pending_trace();
 	clj_value cause = clj_take_pending();
-	clj_value cause_msg = clj_ex_message(cause);
-	clj_value inner = clj_diagnostic_position(cause, true);
+	clj_value cause_msg = CLJ_NIL, inner = CLJ_NIL;
+	CLJ_ROOTS(&trace, &cause, &cause_msg, &inner);
+	cause_msg = clj_ex_message(cause);
+	inner = clj_diagnostic_position(cause, true);
 	clj_value at_file = clj_is_nil(inner) ? file : clj_map_get(inner, clj_keyword_from_cstr("file"), CLJ_NIL);
 	uint32_t  at_line = clj_is_nil(inner) ? line : (uint32_t)clj_fixnum_val(clj_map_get(inner, clj_keyword_from_cstr("line"), clj_fixnum(line)));
 	uint32_t  at_col = clj_is_nil(inner) ? col : (uint32_t)clj_fixnum_val(clj_map_get(inner, clj_keyword_from_cstr("column"), clj_fixnum(col)));
-	clj_value msg = clj_error_message("Syntax error compiling at (%s:%u:%u).%s%s", clj_is_string(at_file) ? CLJ_STR(at_file).bytes : "NO_SOURCE_PATH",
+	CLJ_NO_CYCLE clj_value msg = clj_error_message("Syntax error compiling at (%s:%u:%u).%s%s", clj_is_string(at_file) ? CLJ_STR(at_file).bytes : "NO_SOURCE_PATH",
 	                                  at_line, at_col, clj_is_string(cause_msg) ? " " : "", clj_is_string(cause_msg) ? CLJ_STR(cause_msg).bytes : "");
 	clj_release(cause_msg);
+	cause_msg = CLJ_NIL;
 	clj_value data = clj_is_nil(inner) ? position_data(file, line, col) : clj_retain(inner);
 	data = clj_map_assoc(data, clj_keyword_from_cstr("form-line"), clj_fixnum(line));
 	data = clj_map_assoc(data, clj_keyword_from_cstr("form-column"), clj_fixnum(col));
+	CLJ_ROOTS(&data);
 	clj_release(inner);
+	inner = CLJ_NIL;
 	clj_value ex = clj_is_exception(cause) ? clj_ex_info_cause(msg, data, cause) : clj_ex_info(msg, data);
 	clj_release(msg);
 	clj_release(data);
@@ -394,7 +400,8 @@ bool clj_load_form_failed(clj_value file, uint32_t line, uint32_t col, clj_value
 		return false;
 	}
 	clj_value ex = clj_take_pending();
-	clj_value msg = clj_ex_message(ex);
+	CLJ_ROOTS(&ex);
+	CLJ_NO_CYCLE clj_value msg = clj_ex_message(ex);
 	if (!clj_is_string(msg)) {
 		clj_release(msg);
 		msg = clj_pr_str(ex);
@@ -408,9 +415,9 @@ bool clj_load_form_failed(clj_value file, uint32_t line, uint32_t col, clj_value
 
 // *lazy-defs* :after-load: the defs this load deferred are forced in def order, and the first failure is the load's
 // own, at its def's position as an eager def's would be (design §4 «Var и ленивые def», the dev flag).
-static clj_value force_deferred(uint64_t mark, clj_value file) {
+CLJ_BORROWED static clj_value force_deferred(uint64_t mark, clj_value file) {
 	if (clj_lazy_defs_mode_now() != CLJ_LAZY_DEFS_AFTER_LOAD) return CLJ_NIL;
-	clj_value var;
+	CLJ_NO_CYCLE clj_value var;
 	// a failed def no longer counts as deferred, so a lenient load goes on with the next one
 	while (clj_lazy_defs_force_since(mark, &var) == CLJ_THROWN) {
 		if (clj_is_cancellation(clj_pending())) return CLJ_THROWN;
@@ -427,8 +434,10 @@ static clj_value force_deferred(uint64_t mark, clj_value file) {
 // A registered unit runs under the bindings a source load has: its init sees the same *ns* and *file*.
 static clj_value run_unit(clj_compiled_init init, clj_value file) {
 	clj_value bindings = load_bindings(file);
+	CLJ_ROOTS(&bindings);
 	clj_value pushed = clj_var_push_bindings(bindings);
 	clj_release(bindings);
+	bindings = CLJ_NIL;
 	if (pushed == CLJ_THROWN) return CLJ_THROWN;
 	clj_release(pushed);
 	// The unit's forms run outside clj_eval, so the recovery point of guard.h is here.
@@ -439,32 +448,34 @@ static clj_value run_unit(clj_compiled_init init, clj_value file) {
 	if (sigsetjmp(rec.buf, 0)) r = clj_recovery_throw(&rec);
 	else r = init();
 	clj_recovery_pop(&rec);
-	if (r != CLJ_THROWN) {
+	bool ok = r != CLJ_THROWN;
+	if (ok) {
 		clj_release(r);
-		r = force_deferred(mark, file);
+		ok = force_deferred(mark, file) != CLJ_THROWN;
 	}
 	if (clj_var_pop_bindings() == CLJ_THROWN) clj_ice("load/bindings", NULL, "the load bindings vanished");
-	if (r == CLJ_THROWN) return r;
-	clj_release(r);
-	return CLJ_NIL;
+	return ok ? CLJ_NIL : CLJ_THROWN;
 }
 
 clj_value clj_load_source(const char *bytes, size_t len, clj_value file) {
 	clj_value bindings = load_bindings(file);
+	CLJ_ROOTS(&bindings);
 	clj_value pushed = clj_var_push_bindings(bindings);
 	clj_release(bindings);
+	bindings = CLJ_NIL;
 	if (pushed == CLJ_THROWN) return CLJ_THROWN;
 	clj_reader r;
 	clj_reader_init(&r, bytes, len);
 	clj_reader_use_namespaces(&r);
 	clj_value result = CLJ_NIL;
 	uint64_t  mark = clj_lazy_defs_mark();
+	clj_value form = CLJ_NIL;
+	CLJ_ROOTS(&form);
 	for (;;) {
-		clj_value       form;
 		clj_read_status st = clj_read(&r, &form);
 		if (st == CLJ_READ_EOF) break;
 		if (st == CLJ_READ_ERROR) {
-			clj_value msg = clj_string_from_cstr(clj_reader_message(&r));
+			CLJ_NO_CYCLE clj_value msg = clj_string_from_cstr(clj_reader_message(&r));
 			if (lenient) {
 				record_failure(file, r.error_line, r.error_col, CLJ_NIL, msg);
 				if (hook_set && hook.failed) {
@@ -475,6 +486,7 @@ clj_value clj_load_source(const char *bytes, size_t len, clj_value file) {
 				break;
 			}
 			clj_value data = position_data(file, r.error_line, r.error_col);
+			CLJ_ROOTS(&data);
 			clj_value ex = clj_ex_info(msg, data);
 			clj_release(msg);
 			clj_release(data);
@@ -489,7 +501,8 @@ clj_value clj_load_source(const char *bytes, size_t len, clj_value file) {
 		if (v == CLJ_THROWN) {
 			if (lenient) {
 				clj_value ex = clj_take_pending();
-				clj_value msg = clj_ex_message(ex);
+				CLJ_ROOTS(&ex);
+				CLJ_NO_CYCLE clj_value msg = clj_ex_message(ex);
 				if (!clj_is_string(msg)) {
 					clj_release(msg);
 					msg = clj_pr_str(ex);
@@ -500,15 +513,18 @@ clj_value clj_load_source(const char *bytes, size_t len, clj_value file) {
 				clj_release(msg);
 				clj_release(ex);
 				clj_release(form);
+				form = CLJ_NIL;
 				continue;
 			}
 			clj_release(form);
+			form = CLJ_NIL;
 			// A cancellation is not a compile error: wrapping it here would misidentify it (design.md §4).
 			result = clj_is_cancellation(clj_pending()) ? CLJ_THROWN : wrap_pending(file, r.form_line, r.form_col);
 			break;
 		}
 		clj_release(v);
 		clj_release(form);
+		form = CLJ_NIL;
 	}
 	if (result != CLJ_THROWN) result = force_deferred(mark, file);
 	if (clj_var_pop_bindings() == CLJ_THROWN) clj_ice("load/bindings", NULL, "the load bindings vanished");

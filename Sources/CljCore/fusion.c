@@ -109,8 +109,8 @@ bool clj_fusion_guard(const clj_fusion_var *const *fvs, uint32_t n) {
 void clj_fusion_install(void) {
 	clj_value core = clj_ns_core();
 	for (size_t i = 0; i < N; i++) {
-		clj_value sym = clj_symbol_from_cstr(strchr(table[i].name, '/') + 1);
-		clj_value var = clj_ns_resolve(core, sym);
+		CLJ_NO_CYCLE clj_value sym = clj_symbol_from_cstr(strchr(table[i].name, '/') + 1);
+		clj_value              var = clj_ns_resolve(core, sym);
 		clj_release(sym);
 		if (clj_is_nil(var)) clj_ice("boot/fusion-table", NULL, "%s names no core var", table[i].name);
 		clj_value root = clj_var_root(var);
@@ -245,7 +245,7 @@ static clj_value drive(bottom *b, clj_value coll, clj_value xfs) {
 	bool      ok;
 	{
 		// b lives while bot does, which it outlives here
-		CLJ_ROOTS(&b->acc);
+		CLJ_ROOTS(&b->acc, &bot, &done);
 		ok = run(bot, coll, xfs, &done);
 	}
 	b->done = true;
@@ -286,6 +286,7 @@ clj_value clj_fused_into(const clj_value *args, size_t n) {
 clj_value clj_into_xform(clj_value to, clj_value xform, clj_value coll) {
 	bottom   *b = bottom_new(BOTTOM_INTO);
 	clj_value xfs = clj_vector_from_array(&xform, 1);
+	CLJ_ROOTS(&xfs);
 	b->acc = clj_retain(to);
 	clj_value r = drive(b, coll, xfs);
 	clj_release(xfs);
@@ -296,8 +297,9 @@ clj_value clj_fused_count(const clj_value *args, size_t n) {
 	(void)n;
 	bottom   *b = bottom_new(BOTTOM_COUNT);
 	clj_value bot = clj_fn_native_ctx(CLJ_NIL, bottom_fn, b, free, 1, 2);
-	clj_value done;
-	bool      ok = run(bot, args[0], args[1], &done);
+	clj_value done = CLJ_NIL;
+	CLJ_ROOTS(&bot, &done);
+	bool ok = run(bot, args[0], args[1], &done);
 	b->done = true;
 	int64_t count = b->count;
 	clj_release(bot);
@@ -311,18 +313,19 @@ typedef struct cat_rf cat_rf;
 
 // The driver's sink; a step's sink pointer is this, so clj_fused_cat finds the walk's state behind it.
 typedef struct {
-	clj_fused_sink sink;
-	clj_fused_mode mode;
-	clj_call       call; // reduce's f
-	clj_value      f;    // borrowed
-	clj_value      acc;  // owned; CLJ_UNBOUND while a seedless reduce awaits its first value
-	int64_t        count;
-	bool           halted; // the consumer is done
-	clj_value     *buf;    // the seq modes: the current input's outputs, owned
-	size_t         nbuf, cap;
-	cat_rf        *cat; // the rf a mapcat hands a reduce over a coll that is no vector, kept for the walk
-	clj_value      catfn;
-	bool           boot; // frequencies and group-by: every fn their bodies call holds its boot root
+	clj_fused_sink         sink;
+	clj_fused_mode         mode;
+	clj_call               call; // reduce's f
+	CLJ_BORROWED clj_value f;
+	clj_value              acc;  // owned; CLJ_UNBOUND while a seedless reduce awaits its first value
+	int64_t                count;
+	bool                   halted; // the consumer is done
+	clj_value             *buf;    // the seq modes: the current input's outputs, owned
+	size_t                 nbuf, cap;
+	cat_rf                *cat; // the rf a mapcat hands a reduce over a coll that is no vector, kept for the walk
+	clj_value              catfn;
+	bool                   boot; // frequencies and group-by: every fn their bodies call holds its boot root
+	clj_value              key, cur, val; // body_step's, owned or nil
 } out;
 
 // (name args…) as frequencies' or group-by's body calls it: the var's root, whatever it holds now.
@@ -354,34 +357,47 @@ static int body_assoc(out *o, clj_value k, clj_value v) {
 
 // frequencies: (assoc! counts x (inc (get counts x 0))); group-by: (let [k (f x)] (assoc! ret k (conj (get ret k []) x)))
 // The key fn runs before it holds anything; what follows are the body's core fns over the walk's own map.
-static int body_step(out *o, clj_value y) {
-	clj_value k = y;
-	if (o->mode == CLJ_FUSED_MODE_GROUP_BY && (k = clj_call_invoke(&o->call, &y)) == CLJ_THROWN) return CLJ_FUSED_THROWN;
-	clj_value none = o->mode == CLJ_FUSED_MODE_GROUP_BY ? clj_vector_empty() : clj_fixnum(0);
+// What it holds is in o->key, o->cur and o->val, which clj_fused_run_step names: owned or nil at each call.
+static int body_step(out *o, CLJ_BORROWED clj_value y) {
+	bool                   group = o->mode == CLJ_FUSED_MODE_GROUP_BY;
+	CLJ_BORROWED clj_value k = y;
+	if (group) {
+		if ((o->key = clj_call_invoke(&o->call, &y)) == CLJ_THROWN) {
+			o->key = CLJ_NIL;
+			return CLJ_FUSED_THROWN;
+		}
+		k = o->key;
+	}
+	clj_value none = group ? clj_vector_empty() : clj_fixnum(0);
 	clj_value in[3] = {o->acc, k, none};
 	// group-by's vector moves out of the walk's own transient and back with the assoc, so conj grows it in place, as the
 	// compiled core's take-out get does; nothing between reads the map
-	bool      taken = false;
-	clj_value cur = !o->boot                          ? body_call(BODY_GET, in, 3)
-	                : o->mode == CLJ_FUSED_MODE_GROUP_BY ? clj_get_take(o->acc, k, none, &taken)
-	                                                    : clj_get(o->acc, k, none),
-	          v;
+	bool taken = false;
+	o->cur = !o->boot ? body_call(BODY_GET, in, 3) : group ? clj_get_take(o->acc, k, none, &taken) : clj_get(o->acc, k, none);
 	(void)taken;
-	if (cur == CLJ_THROWN) {
-		if (k != y) clj_release(k);
-		return CLJ_FUSED_THROWN;
-	}
-	if (o->mode == CLJ_FUSED_MODE_GROUP_BY) {
-		clj_value pair[2] = {cur, y};
-		v = o->boot ? clj_conj(cur, y) : body_call(BODY_CONJ, pair, 2);
-		if (!o->boot) clj_release(cur);
+	int r = CLJ_FUSED_THROWN;
+	if (o->cur == CLJ_THROWN) {
+		o->cur = CLJ_NIL;
 	} else {
-		v = o->boot ? clj_inc(cur) : body_call(BODY_INC, &cur, 1);
-		clj_release(cur);
+		CLJ_BORROWED clj_value cur = o->cur;
+		if (group && o->boot) {
+			o->cur = CLJ_NIL;
+			o->val = clj_conj(cur, y);
+		} else if (group) {
+			clj_value pair[2] = {cur, y};
+			o->val = body_call(BODY_CONJ, pair, 2);
+		} else {
+			o->val = o->boot ? clj_inc(cur) : body_call(BODY_INC, &cur, 1);
+		}
+		clj_release(o->cur);
+		o->cur = CLJ_NIL;
+		if (o->val == CLJ_THROWN) o->val = CLJ_NIL;
+		else r = body_assoc(o, k, o->val);
 	}
-	int r = v == CLJ_THROWN ? CLJ_FUSED_THROWN : body_assoc(o, k, v);
-	if (v != CLJ_THROWN) clj_release(v);
-	if (k != y) clj_release(k);
+	clj_release(o->val);
+	o->val = CLJ_NIL;
+	clj_release(o->key);
+	o->key = CLJ_NIL;
 	return r;
 }
 
@@ -493,8 +509,8 @@ static int walk_one(out *o, const clj_fused_site *site, clj_value coll) {
 		for (uint32_t i = 0, n = clj_vector_count(coll), start, end; i < n;) {
 			const clj_slot *run = clj_vector_run(coll, i, &start, &end);
 			for (; i < end; i++) {
-				clj_value x = run[i - start].v;
-				int       r = input(o, site, &x);
+				CLJ_BORROWED clj_value x = run[i - start].v;
+				int                    r = input(o, site, &x);
 				if (r != CLJ_FUSED_GO) return r;
 			}
 		}
@@ -505,6 +521,7 @@ static int walk_one(out *o, const clj_fused_site *site, clj_value coll) {
 	if (!s) clj_fatal("out of memory");
 	*s = (source_rf){o, site, CLJ_FUSED_GO, true};
 	clj_value fn = clj_fn_native_ctx(CLJ_NIL, source_fn, s, free, 2, 2);
+	CLJ_ROOTS(&fn);
 	clj_value r = clj_reduce(fn, CLJ_NIL, coll);
 	int       status = r == CLJ_THROWN ? CLJ_FUSED_THROWN : s->status;
 	s->alive = false;
@@ -517,13 +534,13 @@ enum { SOURCES_MAX = 3 };
 
 // As map's 2- and 3-coll arities: each coll seq'd per step before the check, so a longer one realizes one item more.
 static int walk_many(out *o, const clj_fused_site *site, const clj_value *colls, size_t n) {
-	clj_value    seqs[SOURCES_MAX], *sp = seqs;
+	clj_value    held[SOURCES_MAX], *seqs = held;
 	clj_seq_iter it[SOURCES_MAX] = {{0}};
 	size_t       k = 0;
 	int          r = CLJ_FUSED_GO;
 	_Static_assert(SOURCES_MAX == 3, "the walk names three iterators");
 	CLJ_ROOTS(&it[0].held, &it[0].item, &it[1].held, &it[1].item, &it[2].held, &it[2].item);
-	CLJ_ROOTS_SPAN(&sp, &k);
+	CLJ_ROOTS_SPAN(&seqs, &k);
 	for (; k < n; k++) {
 		seqs[k] = clj_seq(colls[k]);
 		if (seqs[k] == CLJ_THROWN) {
@@ -533,7 +550,7 @@ static int walk_many(out *o, const clj_fused_site *site, const clj_value *colls,
 		it[k] = clj_seq_iter_start(seqs[k]);
 	}
 	for (bool more = r == CLJ_FUSED_GO; more;) {
-		clj_value xs[SOURCES_MAX];
+		CLJ_BORROWED clj_value xs[SOURCES_MAX];
 		for (size_t i = 0; i < n; i++) {
 			if (clj_seq_iter_next(&it[i], &xs[i])) continue;
 			more = false;
@@ -590,8 +607,8 @@ CLJ_UNIT_ENTRY int clj_fused_cat(void *ctx, clj_value coll, clj_fused_step cont,
 		for (uint32_t i = 0, n = clj_vector_count(coll), start, end; i < n;) {
 			const clj_slot *run = clj_vector_run(coll, i, &start, &end);
 			for (; i < end; i++) {
-				clj_value x = run[i - start].v;
-				int       r = cont ? cont(ctx, &x, sink) : sink->emit(sink, x);
+				CLJ_BORROWED clj_value x = run[i - start].v;
+				int                    r = cont ? cont(ctx, &x, sink) : sink->emit(sink, x);
 				if (r != CLJ_FUSED_GO) return r;
 			}
 		}
@@ -609,6 +626,7 @@ CLJ_UNIT_ENTRY int clj_fused_cat(void *ctx, clj_value coll, clj_fused_step cont,
 	}
 	cat_rf   *c = o->cat;
 	clj_value fn = clj_retain(o->catfn);
+	CLJ_ROOTS(&fn);
 	c->status = CLJ_FUSED_GO;
 	clj_value r = clj_reduce(fn, CLJ_NIL, coll);
 	int       status = r == CLJ_THROWN ? CLJ_FUSED_THROWN : c->status;
@@ -621,8 +639,9 @@ CLJ_UNIT_ENTRY clj_value clj_fused_run_step(clj_fused_mode mode, const clj_value
                                             const clj_fused_site *site) {
 	if (clj_deadline_tick()) return CLJ_THROWN;
 	bool seq = seq_mode(mode);
-	out  o = {.sink = {seq ? emit_buffered : emit_direct}, .mode = mode, .f = CLJ_NIL, .acc = CLJ_NIL, .catfn = CLJ_NIL};
-	CLJ_ROOTS(&o.acc, &o.catfn);
+	out  o = {.sink = {seq ? emit_buffered : emit_direct}, .mode = mode, .f = CLJ_NIL, .acc = CLJ_NIL, .catfn = CLJ_NIL,
+	          .key = CLJ_NIL, .cur = CLJ_NIL, .val = CLJ_NIL};
+	CLJ_ROOTS(&o.acc, &o.catfn, &o.key, &o.cur, &o.val);
 	CLJ_ROOTS_SPAN(&o.buf, &o.nbuf);
 	switch (mode) {
 	case CLJ_FUSED_MODE_REDUCE:
@@ -647,7 +666,7 @@ CLJ_UNIT_ENTRY clj_value clj_fused_run_step(clj_fused_mode mode, const clj_value
 		if (mode == CLJ_FUSED_MODE_GROUP_BY) o.call = clj_call_prepare(lead[0], 1);
 		// once read, the walk keeps to it: a body fn rebound by the walk's own code is seen from the next call on
 		o.boot = clj_fusion_guard(body, BODY_ALL);
-		clj_value empty = clj_map_empty();
+		CLJ_BORROWED clj_value empty = clj_map_empty();
 		if ((o.acc = o.boot ? clj_map_transient(empty) : body_call(BODY_TRANSIENT, &empty, 1)) == CLJ_THROWN) return CLJ_THROWN;
 		break;
 	}
@@ -712,8 +731,8 @@ static clj_value xf_bottom_fn(void *ctx, const clj_value *args, size_t n) {
 }
 
 typedef struct {
-	clj_value rf;
-	uint32_t  nin;
+	CLJ_BORROWED clj_value rf;
+	uint32_t               nin;
 } xf_site;
 
 static int xf_step(void *ctx, const clj_value *xs, clj_fused_sink *sink) {
@@ -731,8 +750,8 @@ static int xf_step(void *ctx, const clj_value *xs, clj_fused_sink *sink) {
 static int xf_flush(void *ctx, clj_fused_sink *sink) {
 	(void)sink;
 	const xf_site *x = ctx;
-	clj_value      nil = CLJ_NIL;
-	clj_value      r = clj_invoke(x->rf, &nil, 1);
+	CLJ_BORROWED clj_value nil = CLJ_NIL;
+	clj_value              r = clj_invoke(x->rf, &nil, 1);
 	if (r == CLJ_THROWN) return CLJ_FUSED_THROWN;
 	clj_release(r);
 	return CLJ_FUSED_GO;

@@ -150,7 +150,7 @@ typedef struct frame {
 
 static frame *top_frame(void) { return frames; }
 
-clj_value clj_var_thread_binding(clj_value var) {
+CLJ_BORROWED clj_value clj_var_thread_binding(clj_value var) {
 	clj_coro *c = clj_coro_here();
 	frame    *f = c ? c->bindings : NULL;
 	if (!f) return CLJ_NIL;
@@ -158,8 +158,8 @@ clj_value clj_var_thread_binding(clj_value var) {
 }
 
 typedef struct {
-	clj_value merged, pushed;
-	clj_value error;
+	clj_value              merged, pushed;
+	CLJ_BORROWED clj_value error;
 } push_ctx;
 
 static bool push_entry(clj_value key, clj_value val, void *ctx) {
@@ -174,8 +174,13 @@ static bool push_entry(clj_value key, clj_value val, void *ctx) {
 		return false;
 	}
 	clj_value box = clj_volatile_new(val);
-	c->merged = clj_map_assoc(c->merged, key, box);
-	c->pushed = clj_map_assoc(c->pushed, key, box);
+	CLJ_ROOTS(&box);
+	clj_value m = c->merged;
+	c->merged = CLJ_NIL;
+	c->merged = clj_map_assoc(m, key, box);
+	m = c->pushed;
+	c->pushed = CLJ_NIL;
+	c->pushed = clj_map_assoc(m, key, box);
 	clj_release(box);
 	return true;
 }
@@ -203,6 +208,7 @@ clj_value clj_var_push_bindings(clj_value bindings) {
 	if (!clj_is_map(bindings)) return clj_throw_msg("push-thread-bindings expects a map, got: %s", clj_type_name(bindings));
 	frame   *top = top_frame();
 	push_ctx c = {clj_retain(top ? top->bindings : clj_map_empty()), clj_map_empty(), CLJ_NIL};
+	CLJ_ROOTS(&c.merged, &c.pushed);
 	clj_map_each(bindings, push_entry, &c);
 	if (c.error == CLJ_THROWN) {
 		clj_release(c.merged);
@@ -213,6 +219,7 @@ clj_value clj_var_push_bindings(clj_value bindings) {
 	if (!f) clj_fatal("out of memory");
 	f->bindings = c.merged;
 	f->pushed = c.pushed;
+	c.merged = c.pushed = CLJ_NIL;
 	f->prev = top;
 	atomic_init(&f->rc, 1);
 	f->owner = clj_coro_current()->id;
@@ -254,13 +261,16 @@ void clj_var_bindings_release(void *chain) { frame_release(chain); }
 
 static bool collect_value(clj_value key, clj_value box, void *ctx) {
 	clj_value *m = ctx;
-	*m = clj_map_assoc(*m, key, clj_volatile_value(box));
+	clj_value  into = *m;
+	*m = CLJ_NIL;
+	*m = clj_map_assoc(into, key, clj_volatile_value(box));
 	return true;
 }
 
 clj_value clj_var_get_thread_bindings(void) {
 	clj_value m = clj_map_empty();
 	frame    *f = top_frame();
+	CLJ_ROOTS(&m);
 	if (f) clj_map_each(f->bindings, collect_value, &m);
 	return m;
 }
@@ -331,8 +341,8 @@ static void drop_inputs(clj_lazy_def *t) {
 
 // The claim is held: runs the init, publishes the value as the root or the exception as the thunk's own.
 static clj_value run_lazy(clj_value var, clj_lazy_def *t) {
-	clj_value   tv = clj_from_ptr(t);
-	clj_forcing frame;
+	CLJ_BORROWED clj_value tv = clj_from_ptr(t);
+	clj_forcing            frame;
 	clj_force_claimed();
 	clj_force_push(&frame, tv);
 	clj_value r = t->fn(t->code, t->env.v);
@@ -474,8 +484,8 @@ static clj_value *lazy_collect(uint64_t since, clj_value except, size_t *n) {
 // it, so each sees what an eager load would have shown it (design §4 «Var и ленивые def», the barrier).
 static void redefinition_barrier(clj_value except) {
 	if (!atomic_load_explicit(&lazy_count, memory_order_acquire)) return;
-	size_t     n;
-	clj_value *vars = lazy_collect(0, except, &n);
+	size_t                  n;
+	CLJ_NO_CYCLE clj_value *vars = lazy_collect(0, except, &n);
 	for (size_t i = 0; i < n; i++) {
 		if (!pending_thunk(clj_var_root(vars[i]), true)) continue;
 		clj_value v = clj_var_root_value(vars[i]);
@@ -493,7 +503,9 @@ void clj_var_bind_lazy(clj_value var, clj_lazy_def_fn fn, const void *code, clj_
 		redefinition_barrier(var);
 		prev = clj_slot_load(&v->root, memory_order_acquire);
 	}
-	clj_lazy_def *t = clj_alloc(&clj_lazy_def_type, sizeof *t);
+	clj_value tv = clj_from_ptr(clj_alloc(&clj_lazy_def_type, sizeof(clj_lazy_def)));
+	CLJ_ROOTS(&tv);
+	clj_lazy_def *t = clj_lazy_def_of(tv);
 	t->h.flags |= CLJ_FLAG_MUTABLE;
 	atomic_init(&t->state, CLJ_FORCE_UNFORCED);
 	t->inferred = inferred;
@@ -505,7 +517,6 @@ void clj_var_bind_lazy(clj_value var, clj_lazy_def_fn fn, const void *code, clj_
 	clj_slot_init(&t->h, &t->trace, CLJ_NIL);
 	// ^:lazy is a delay: its init reading its own var is the recursion, as in (def x (delay @x))
 	clj_slot_init(&t->h, &t->prev, inferred ? clj_retain(prev) : CLJ_UNBOUND);
-	clj_value tv = clj_from_ptr(t);
 	bind_unbarriered(var, tv, tv);
 	clj_release(tv);
 	if (inferred) {
@@ -525,9 +536,9 @@ uint64_t clj_lazy_defs_mark(void) {
 
 clj_value clj_lazy_defs_force_since(uint64_t mark, clj_value *failed) {
 	*failed = CLJ_NIL;
-	size_t     n;
-	clj_value *vars = lazy_collect(mark, CLJ_NIL, &n);
-	clj_value  r = CLJ_NIL;
+	size_t                  n;
+	CLJ_NO_CYCLE clj_value *vars = lazy_collect(mark, CLJ_NIL, &n);
+	clj_value               r = CLJ_NIL;
 	for (size_t i = 0; i < n && r == CLJ_NIL; i++) {
 		if (!pending_thunk(clj_var_root(vars[i]), true)) continue;
 		clj_value v = clj_var_root_value(vars[i]);
@@ -552,7 +563,7 @@ void clj_lazy_defs_install(void) {
 	kw_lazy = clj_keyword_from_cstr("lazy");
 	kw_after_load = clj_keyword_from_cstr("after-load");
 	kw_eager = clj_keyword_from_cstr("eager");
-	clj_value sym = clj_symbol_from_cstr("*lazy-defs*");
+	CLJ_NO_CYCLE clj_value sym = clj_symbol_from_cstr("*lazy-defs*");
 	lazy_defs_var = clj_ns_intern(clj_ns_core(), sym);
 	clj_release(sym);
 	clj_var_set_dynamic(lazy_defs_var, true);

@@ -167,7 +167,7 @@ static clj_value node_find(clj_value node, clj_value key, const clj_call *call) 
 // ---- insert and delete
 
 static clj_value bad_key(clj_value key) {
-	clj_value text = clj_pr_str_max(key, CLJ_ERROR_PRINT_MAX);
+	CLJ_NO_CYCLE clj_value text = clj_pr_str_max(key, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
 	clj_value r = clj_throw_msg("Default comparator requires nil, Number, or Comparable: %s", CLJ_STR(text).bytes);
 	clj_release(text);
@@ -180,7 +180,8 @@ typedef struct {
 } tedit;
 
 // Consumes node; owned result or CLJ_THROWN, which released it.
-static clj_value node_assoc(clj_value node, clj_value key, clj_value val, const clj_call *call, tedit *e) {
+static clj_value node_assoc(CLJ_OWNED clj_value node, clj_value key, clj_value val, const clj_call *call, tedit *e) {
+	CLJ_ROOTS(&node);
 	if (clj_is_nil(node)) {
 		// PersistentTreeMap.add: a fresh leaf has no sibling to compare against, so the default comparator
 		// refuses here what it could never order. A fn comparator is the user's and takes any key.
@@ -202,11 +203,12 @@ static clj_value node_assoc(clj_value node, clj_value key, clj_value val, const 
 		e->changed = true;
 		return clj_from_ptr(h);
 	}
-	tnode    *h = node_own(node);
-	bool      left = c < 0;
-	clj_value nc = node_assoc(take_child(h, left), key, val, call, e);
+	node = clj_from_ptr(node_own(node));
+	CLJ_BORROWED tnode *h = tnode_of(node);
+	bool                left = c < 0;
+	clj_value           nc = node_assoc(take_child(h, left), key, val, call, e);
 	if (nc == CLJ_THROWN) {
-		clj_release(clj_from_ptr(h));
+		clj_release(node);
 		return CLJ_THROWN;
 	}
 	set_child(h, left, nc);
@@ -240,7 +242,8 @@ static clj_value node_delete_min(clj_value node) {
 // Consumes node; key is known to be in this subtree. Owned result, nil, or CLJ_THROWN.
 static clj_value node_delete(clj_value node, clj_value key, const clj_call *call) {
 	tnode *h = node_own(node);
-	int    c;
+	CLJ_ROOTS((clj_value *)&h);
+	int c;
 	if (!clj_compare_with(call, key, h->key.v, &c)) {
 		clj_release(clj_from_ptr(h));
 		return CLJ_THROWN;
@@ -382,6 +385,7 @@ static clj_value blacken(clj_value root) {
 }
 
 clj_value clj_sorted_assoc(clj_value map, clj_value key, clj_value val) {
+	CLJ_ROOTS(&map);
 	clj_sorted *s = clj_sorted_of(map);
 	clj_call    call = clj_call_prepare(s->cmp.v, 2);
 	bool        unique = clj_is_unique(map);
@@ -402,6 +406,7 @@ clj_value clj_sorted_assoc(clj_value map, clj_value key, clj_value val) {
 }
 
 clj_value clj_sorted_dissoc(clj_value coll, clj_value key) {
+	CLJ_ROOTS(&coll);
 	clj_sorted *s = clj_sorted_of(coll);
 	clj_call    call = clj_call_prepare(s->cmp.v, 2);
 	clj_value   found = node_find(s->root.v, key, &call);
@@ -452,8 +457,8 @@ clj_value clj_sorted_contains(clj_value c, clj_value key) {
 // ---- seqs
 
 typedef struct {
-	clj_value *items;
-	size_t     n;
+	CLJ_BORROWED clj_value *items;
+	size_t                  n;
 } collect_ctx;
 
 static bool collect_entry(clj_value key, clj_value val, void *ctx) {
@@ -534,16 +539,20 @@ clj_value clj_sorted_conj(clj_value coll, clj_value x) {
 	if (clj_is_nil(x)) return coll;
 	if (clj_is_vector(x) && clj_vector_count(x) == 2) return clj_sorted_assoc(coll, clj_vector_nth(x, 0), clj_vector_nth(x, 1));
 	if (clj_has_core(x, CLJ_CORE_MAP)) {
+		CLJ_ROOTS(&coll);
 		clj_value s = clj_seq(x);
 		if (s == CLJ_THROWN) {
 			clj_release(coll);
 			return CLJ_THROWN;
 		}
-		clj_seq_iter it = clj_seq_iter_start(s);
-		clj_value    item;
-		// not coll, which each conj hands over
+		clj_seq_iter           it = clj_seq_iter_start(s);
+		CLJ_BORROWED clj_value item;
 		CLJ_ROOTS(&s, &it.held, &it.item);
-		while (coll != CLJ_THROWN && clj_seq_iter_next(&it, &item)) coll = clj_sorted_conj(coll, item);
+		while (coll != CLJ_THROWN && clj_seq_iter_next(&it, &item)) {
+			clj_value acc = coll;
+			coll = CLJ_NIL;
+			coll = clj_sorted_conj(acc, item);
+		}
 		clj_seq_iter_close(&it);
 		clj_release(s);
 		if (it.thrown && coll != CLJ_THROWN) {
@@ -616,13 +625,14 @@ static uint32_t sorted_hash(void *self) {
 }
 
 typedef struct {
-	clj_value other;
-	bool      equal;
+	CLJ_BORROWED clj_value other;
+	bool                   equal;
 } equals_ctx;
 
 static bool equals_entry(clj_value key, clj_value val, void *ctx) {
 	equals_ctx *ec = ctx;
 	clj_value   found = clj_equals_lookup(ec->other, key, CLJ_UNBOUND);
+	CLJ_ROOTS(&found);
 	ec->equal = found != CLJ_UNBOUND && clj_equals(found, val);
 	clj_release(found);
 	return ec->equal;

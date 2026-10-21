@@ -257,7 +257,7 @@ gates-full:
 
 # ---- the differential fuzzer (fuzz/, docs/notes/fuzzing.md)
 
-.PHONY: fuzz fuzz-long
+.PHONY: fuzz fuzz-long leak-fuzz-long
 
 # Random expressions over core functions and generated collections against JVM Clojure as the oracle, compared
 # through one canonical text per value. Seeded: a finding prints its seed and the form it shrank to.
@@ -288,6 +288,15 @@ fuzz-long:
 	swift build --scratch-path $(BUILD_ROOT)/noreuse -Xcc -DCLJ_NO_REUSE --product clj-fuzz
 	$(FUZZ) run --seeds 1-64 --forms 1000 $(FUZZ_INTERP) $(FUZZ_NOREUSE) $(FUZZ_NOOPT) $(FUZZ_UNIT)
 	$(FUZZ) run --seeds 1-4 --forms 300 --group 25 $(FUZZ_INTERP) $(FUZZ_COMPILED)
+	$(MAKE) leak-fuzz-long
+
+# The leak fuzzer at length (docs/notes/fuzzing.md, "Leak fuzzing"): LEAK_FUZZ programs an interpreted run, half as many
+# a compiled one, from LEAK_FUZZ_SEED; the gate's test suite runs six.
+LEAK_FUZZ ?= 400
+LEAK_FUZZ_SEED ?= 1
+leak-fuzz-long: TEST_TIMEOUT = 7200
+leak-fuzz-long:
+	CLJ_LEAK_FUZZ=$(LEAK_FUZZ) CLJ_LEAK_FUZZ_SEED=$(LEAK_FUZZ_SEED) CLJ_SYSTEM_ALLOC=1 $(TEST) --scratch-path $(ASAN) --sanitize=address --filter LeakFuzzTests
 
 # ---- the parser fuzzers (fuzz/parsers/, docs/notes/fuzzing.md "Parser fuzzing")
 include fuzz/parsers/fuzz.mk

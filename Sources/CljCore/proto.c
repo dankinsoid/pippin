@@ -221,7 +221,7 @@ static const clj_type *designated_type(clj_value type) {
 	if (clj_is_nil(type)) return &nil_type;
 	if (clj_is_type(type)) return clj_to_ptr(type);
 	if (clj_is_protocol(type) && clj_protocol_of(type)->core_bits) return &interface_of(type)->type;
-	clj_value text = clj_pr_str(type);
+	CLJ_NO_CYCLE clj_value text = clj_pr_str(type);
 	if (text == CLJ_THROWN) return NULL;
 	clj_throw_msg("%s is not a type", CLJ_STR(text).bytes);
 	clj_release(text);
@@ -332,8 +332,8 @@ clj_value clj_instance_send(clj_value target, clj_value selector, const clj_valu
 	clj_value f = method_named(&ut->t, sel, strcspn(sel, ":"));
 	if (clj_is_nil(f)) return CLJ_UNBOUND;
 	CLJ_ROOTS(&f);
-	clj_value  small[8];
-	clj_value *call = nargs + 1 <= sizeof small / sizeof *small ? small : malloc((nargs + 1) * sizeof *call);
+	clj_value               small[8];
+	CLJ_BORROWED clj_value *call = nargs + 1 <= sizeof small / sizeof *small ? small : malloc((nargs + 1) * sizeof *call);
 	if (!call) clj_fatal("out of memory");
 	call[0] = target;
 	memcpy(call + 1, args, nargs * sizeof *call);
@@ -416,7 +416,7 @@ static clj_value qualify(clj_value name) {
 static bool is_unqualified_symbol(clj_value v) { return clj_is_symbol(v) && clj_is_nil(clj_symbol_ns(v)); }
 
 static clj_value bad_sigs(clj_value sigs) {
-	clj_value text = clj_pr_str(sigs);
+	CLJ_NO_CYCLE clj_value text = clj_pr_str(sigs);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
 	clj_value r = clj_throw_msg("protocol* expects [[method [params...]] ...], got: %s", CLJ_STR(text).bytes);
 	clj_release(text);
@@ -438,11 +438,13 @@ clj_value clj_protocol_new(clj_value name, clj_value sigs) {
 	if (!clj_is_vector(sigs)) return bad_sigs(sigs);
 	uint32_t  n = clj_vector_count(sigs);
 	clj_value methods = clj_vector_empty(), arities = clj_vector_empty();
+	CLJ_ROOTS(&methods, &arities);
 	for (uint32_t i = 0; i < n; i++) {
 		clj_value sig = clj_vector_nth(sigs, i);
 		if (!clj_is_vector(sig) || clj_vector_count(sig) != 2 || !is_unqualified_symbol(clj_vector_nth(sig, 0)) || !clj_is_vector(clj_vector_nth(sig, 1))) {
 			clj_release(methods);
 			clj_release(arities);
+			methods = arities = CLJ_NIL;
 			return bad_sigs(sigs);
 		}
 		clj_value method = clj_vector_nth(sig, 0), params = clj_vector_nth(sig, 1);
@@ -450,6 +452,7 @@ clj_value clj_protocol_new(clj_value name, clj_value sigs) {
 			if (!clj_is_vector(clj_vector_nth(params, j))) {
 				clj_release(methods);
 				clj_release(arities);
+				methods = arities = CLJ_NIL;
 				return bad_sigs(sigs);
 			}
 		}
@@ -457,6 +460,7 @@ clj_value clj_protocol_new(clj_value name, clj_value sigs) {
 			if (clj_equals(clj_vector_nth(methods, j), method)) {
 				clj_release(methods);
 				clj_release(arities);
+				methods = arities = CLJ_NIL;
 				return clj_throw_msg("Duplicate method %s in protocol %s", CLJ_STR(clj_symbol_name(method)).bytes, CLJ_STR(clj_symbol_name(name)).bytes);
 			}
 		}
@@ -592,10 +596,10 @@ static side_table *side_with(const side_table *old, const clj_type *key, proto_t
 }
 
 typedef struct {
-	const clj_protocol *proto;
-	clj_value          *fns;
-	clj_value           bad_key; // the first key that names no method, or CLJ_UNBOUND
-	clj_value           bad_val; // the first value that is neither nil nor invokable, or CLJ_UNBOUND
+	CLJ_BORROWED const clj_protocol *proto;
+	CLJ_BORROWED clj_value          *fns;
+	CLJ_BORROWED clj_value           bad_key; // the first key that names no method, or CLJ_UNBOUND
+	CLJ_BORROWED clj_value           bad_val; // the first value that is neither nil nor invokable, or CLJ_UNBOUND
 } collect_ctx;
 
 static bool collect_method(clj_value key, clj_value val, void *ctx) {
@@ -616,15 +620,15 @@ static bool collect_method(clj_value key, clj_value val, void *ctx) {
 
 // Owned vector of impls in method order; unknown keys are errors, as a silent miss is the classic extend typo.
 static clj_value impl_vector(clj_value proto, clj_value method_map) {
-	const clj_protocol *p = clj_protocol_of(proto);
-	uint32_t            n = clj_vector_count(p->methods.v);
-	clj_value          *fns = calloc(n ? n : 1, sizeof *fns);
+	const clj_protocol     *p = clj_protocol_of(proto);
+	uint32_t                n = clj_vector_count(p->methods.v);
+	CLJ_BORROWED clj_value *fns = calloc(n ? n : 1, sizeof *fns);
 	if (!fns) clj_fatal("out of memory");
 	collect_ctx c = {p, fns, CLJ_UNBOUND, CLJ_UNBOUND};
 	if (!clj_is_nil(method_map)) clj_map_each(method_map, collect_method, &c);
 	clj_value r;
 	if (c.bad_key != CLJ_UNBOUND || c.bad_val != CLJ_UNBOUND) {
-		clj_value text = clj_pr_str_max(c.bad_key != CLJ_UNBOUND ? c.bad_key : c.bad_val, CLJ_ERROR_PRINT_MAX);
+		CLJ_NO_CYCLE clj_value text = clj_pr_str_max(c.bad_key != CLJ_UNBOUND ? c.bad_key : c.bad_val, CLJ_ERROR_PRINT_MAX);
 		if (text == CLJ_THROWN) r = CLJ_THROWN;
 		else if (c.bad_key != CLJ_UNBOUND) r = clj_throw_msg("No method %s in protocol %s", CLJ_STR(text).bytes, CLJ_STR(clj_symbol_name(p->name.v)).bytes);
 		else r = clj_throw_msg("Method implementation must be a fn, got: %s", CLJ_STR(text).bytes);
@@ -805,10 +809,12 @@ static clj_value call_core(clj_value self, clj_core_method m, const clj_value *r
 }
 
 // A method result that the slot contract types: seq/next yield a seq or nil, more a seq, ex-* their field types.
-static clj_value checked(clj_value self, clj_core_method m, clj_value r, bool ok, const char *expected) {
+static clj_value checked(clj_value self, clj_core_method m, CLJ_OWNED clj_value r, bool ok, const char *expected) {
 	if (r == CLJ_THROWN || ok) return r;
+	CLJ_ROOTS(&r);
 	clj_value e = clj_throw_msg("%s of %s must return %s, got: %s", core_method_names[m], clj_type_name(self), expected, clj_type_name(r));
 	clj_release(r);
+	r = CLJ_NIL;
 	return e;
 }
 
@@ -852,9 +858,11 @@ static clj_value user_lookup(clj_value self, clj_value key, clj_value not_found)
 	return clj_invoke(f, args, !clj_is_nil(not_found) || clj_fn_accepts(f, 3) ? 3 : 2);
 }
 
-static clj_value user_conj(clj_value self, clj_value x) {
+static clj_value user_conj(CLJ_OWNED clj_value self, CLJ_BORROWED clj_value x) {
+	CLJ_ROOTS(&self);
 	clj_value r = call_core(self, CLJ_CM_CONJ, &x, 1);
 	clj_release(self);
+	self = CLJ_NIL;
 	return r;
 }
 
@@ -862,8 +870,8 @@ static clj_value user_invoke(clj_value self, const clj_value *args, size_t n) {
 	clj_value f = user_type_of(self)->core_fns[CLJ_CM_INVOKE].v;
 	if (clj_is_nil(f)) return no_core_impl(self, CLJ_CM_INVOKE);
 	if (!clj_fn_accepts(f, n + 1)) return clj_throw_msg("Wrong number of args (%zu) passed to: %s", n, clj_type_name(self));
-	clj_value  small[8];
-	clj_value *all = n + 1 <= sizeof small / sizeof *small ? small : malloc((n + 1) * sizeof *all);
+	clj_value               small[8];
+	CLJ_BORROWED clj_value *all = n + 1 <= sizeof small / sizeof *small ? small : malloc((n + 1) * sizeof *all);
 	if (!all) clj_fatal("out of memory");
 	all[0] = self;
 	for (size_t i = 0; i < n; i++) all[i + 1] = args[i];
@@ -892,9 +900,11 @@ static clj_value user_meta(clj_value self) {
 	return checked(self, CLJ_CM_META, r, clj_is_nil(r) || clj_is_map(r), "a map or nil");
 }
 
-static clj_value user_with_meta(clj_value self, clj_value m) {
+static clj_value user_with_meta(CLJ_OWNED clj_value self, CLJ_BORROWED clj_value m) {
+	CLJ_ROOTS(&self);
 	clj_value r = call_core(self, CLJ_CM_WITH_META, &m, 1);
 	clj_release(self);
+	self = CLJ_NIL;
 	return r;
 }
 
@@ -931,7 +941,7 @@ static uint32_t user_hash(void *self) {
 	return h;
 }
 
-static bool user_equals(void *self, clj_value other) {
+static bool user_equals(void *self, CLJ_BORROWED clj_value other) {
 	clj_value r = call_core(clj_from_ptr(self), CLJ_CM_EQUALS, &other, 1);
 	if (r == CLJ_THROWN) {
 		clj_equals_drop_pending();
@@ -973,13 +983,13 @@ static void fill_slots(clj_user_type *ut) {
 }
 
 typedef struct {
-	clj_user_type      *ut;
-	const clj_protocol *iface;
-	clj_value           thrown; // CLJ_THROWN once an entry was refused
+	clj_user_type                   *ut;
+	CLJ_BORROWED const clj_protocol *iface;
+	CLJ_BORROWED clj_value           thrown; // CLJ_THROWN once an entry was refused
 } core_collect_ctx;
 
 static clj_value refuse_method(const core_collect_ctx *c, clj_value key, const char *why) {
-	clj_value text = clj_pr_str_max(key, CLJ_ERROR_PRINT_MAX);
+	CLJ_NO_CYCLE clj_value text = clj_pr_str_max(key, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
 	clj_value r = clj_throw_msg("%s %s in interface %s", why, CLJ_STR(text).bytes, CLJ_STR(clj_symbol_name(c->iface->name.v)).bytes);
 	clj_release(text);
@@ -1054,6 +1064,7 @@ static clj_value kw_tag;
 clj_field_hint clj_field_hint_of(clj_value field) {
 	if (!clj_is_symbol(field)) return CLJ_HINT_NONE;
 	clj_value m = clj_meta(field);
+	CLJ_ROOTS(&m);
 	clj_value tag = clj_is_nil(m) || m == CLJ_THROWN ? CLJ_NIL : clj_map_get(m, kw_tag, CLJ_NIL);
 	clj_field_hint h = CLJ_HINT_NONE;
 	// A qualified tag (clojure.core/long) names no class; the reader leaves a class name unqualified.
@@ -1088,8 +1099,10 @@ static bool meta_flag(clj_value m, clj_value kw) { return clj_is_map(m) && clj_t
 static clj_value field_mut_of(clj_value field, uint8_t hint) {
 	clj_value m = clj_meta(field);
 	if (m == CLJ_THROWN) return CLJ_THROWN;
+	CLJ_ROOTS(&m);
 	bool unsync = meta_flag(m, kw_unsync), vol = meta_flag(m, kw_volatile);
 	clj_release(m);
+	m = CLJ_NIL;
 	if (unsync && vol) return clj_throw_msg("Field %s is both ^:unsynchronized-mutable and ^:volatile-mutable", CLJ_STR(clj_symbol_name(field)).bytes);
 	if (!unsync && !vol) return clj_fixnum(0);
 	uint8_t bits = unsync ? CLJ_FIELD_UNSYNC : CLJ_FIELD_VOLATILE;
@@ -1124,10 +1137,13 @@ static bool field_muts(clj_user_type *ut, clj_value fields) {
 }
 
 bool clj_fields_mutable(clj_value fields) {
+	clj_value m = CLJ_NIL;
+	CLJ_ROOTS(&m);
 	for (uint32_t i = 0; clj_is_vector(fields) && i < clj_vector_count(fields); i++) {
-		clj_value m = clj_meta(clj_vector_nth(fields, i));
-		bool      mut = m != CLJ_THROWN && (meta_flag(m, kw_unsync) || meta_flag(m, kw_volatile));
+		m = clj_meta(clj_vector_nth(fields, i));
+		bool mut = m != CLJ_THROWN && (meta_flag(m, kw_unsync) || meta_flag(m, kw_volatile));
 		if (m != CLJ_THROWN) clj_release(m);
+		m = CLJ_NIL;
 		if (mut) return true;
 	}
 	return false;
@@ -1195,7 +1211,7 @@ clj_value clj_user_type_init(clj_user_type *ut, clj_value name, clj_value fields
 	ut->t.each_child = instance_each_child;
 	ut->t.hash = identity_hash;
 	ut->t.equals = identity_equals;
-	clj_value type = clj_from_ptr(ut);
+	CLJ_NO_CYCLE clj_value type = clj_from_ptr(ut);
 	for (size_t i = 0; i < nimpls; i += 2) {
 		clj_value p = impls[i], mm = impls[i + 1];
 		clj_value r;
@@ -1230,6 +1246,7 @@ clj_value clj_instance_new(clj_value type, const clj_value *fields, size_t n) {
 	clj_value *vals = n <= 8 ? small : malloc(n * sizeof *vals);
 	if (!vals) clj_fatal("out of memory");
 	size_t k = 0;
+	CLJ_ROOTS_SPAN(&vals, &k);
 	for (; k < n; k++) {
 		vals[k] = clj_field_admit(ut, (uint32_t)k, fields[k]);
 		if (vals[k] == CLJ_THROWN) break;
@@ -1354,28 +1371,30 @@ static clj_value mutable_write(clj_instance *o, uint32_t i, clj_value v, bool ch
 }
 
 clj_value clj_mutable_field(clj_value x, clj_value i) {
-	clj_instance *o;
-	uint32_t      k;
+	CLJ_BORROWED clj_instance *o;
+	uint32_t                   k;
 	return mutable_at(x, i, "mutable-field*", &o, &k) ? mutable_read(o, k) : CLJ_THROWN;
 }
 
 clj_value clj_set_field(clj_value x, clj_value i, clj_value v) {
-	clj_instance *o;
-	uint32_t      k;
+	CLJ_BORROWED clj_instance *o;
+	uint32_t                   k;
 	return mutable_at(x, i, "set-field!*", &o, &k) ? mutable_write(o, k, v, true) : CLJ_THROWN;
 }
 
 CLJ_UNIT_ENTRY clj_value clj_set_field_closed(clj_value x, clj_value i, clj_value v) {
-	clj_instance *o;
-	uint32_t      k;
+	CLJ_BORROWED clj_instance *o;
+	uint32_t                   k;
 	return mutable_at(x, i, "set-field!*", &o, &k) ? mutable_write(o, k, v, false) : CLJ_THROWN;
 }
 
 clj_value clj_catch_instance(clj_value var, clj_value ex) {
 	clj_value type = clj_var_deref(var);
 	if (type == CLJ_THROWN) return CLJ_THROWN;
+	CLJ_ROOTS(&type);
 	clj_value r = clj_is_instance_of(type, ex);
 	clj_release(type);
+	type = CLJ_NIL;
 	return r;
 }
 
@@ -1445,8 +1464,8 @@ static clj_lock reify_lock = CLJ_LOCK_INIT;
 static clj_value       reify_types; // map symbol -> type; nil until the first site
 
 typedef struct {
-	clj_value map; // owned: {:method trampoline}
-	clj_value thrown;
+	clj_value              map; // owned: {:method trampoline}
+	CLJ_BORROWED clj_value thrown;
 } trampoline_ctx;
 
 static bool add_trampoline(clj_value key, clj_value val, void *ctx) {
@@ -1456,37 +1475,51 @@ static bool add_trampoline(clj_value key, clj_value val, void *ctx) {
 		return false;
 	}
 	clj_value f = clj_fn_native_ctx(CLJ_NIL, trampoline_invoke, (void *)(uintptr_t)clj_fixnum_val(val), NULL, 1, CLJ_ARITY_ANY);
-	c->map = clj_map_assoc(c->map, key, f);
+	CLJ_ROOTS(&f);
+	// The caller names c->map: it is cleared before the consuming assoc, which may park.
+	clj_value m = c->map;
+	c->map = CLJ_NIL;
+	c->map = clj_map_assoc(m, key, f);
 	clj_release(f);
+	f = CLJ_NIL;
 	return true;
 }
 
 // impls alternate protocol and {:method field-index}; owned type, or CLJ_THROWN.
 static clj_value reify_type_new(clj_value name, clj_value fields, const clj_value *impls, size_t nimpls) {
 	if (nimpls % 2) return clj_throw_msg("reify-type* expects protocol and method-map pairs");
-	clj_value *with_fns = calloc(nimpls ? nimpls : 1, sizeof *with_fns);
-	if (!with_fns) clj_fatal("out of memory");
-	clj_value type = CLJ_NIL;
-	size_t    made = 0;
-	for (; made < nimpls; made += 2) {
-		clj_value mm = impls[made + 1];
+	size_t                  npairs = nimpls / 2;
+	clj_value              *maps = calloc(npairs ? npairs : 1, sizeof *maps);
+	CLJ_BORROWED clj_value *with_fns = calloc(nimpls ? nimpls : 1, sizeof *with_fns);
+	if (!maps || !with_fns) clj_fatal("out of memory");
+	CLJ_NO_CYCLE clj_value type = CLJ_NIL;
+	size_t                 made = 0;
+	trampoline_ctx         c = {CLJ_NIL, CLJ_NIL};
+	CLJ_ROOTS_SPAN(&maps, &made);
+	CLJ_ROOTS(&c.map);
+	for (; made < npairs; made++) {
+		clj_value mm = impls[2 * made + 1];
 		if (!clj_is_nil(mm) && !clj_is_map(mm)) {
 			type = clj_throw_msg("reify-type* expects a map of field indices, got: %s", clj_type_name(mm));
 			break;
 		}
-		trampoline_ctx c = {clj_map_empty(), CLJ_NIL};
+		c.map = clj_map_empty();
 		if (!clj_is_nil(mm)) clj_map_each(mm, add_trampoline, &c);
 		if (c.thrown == CLJ_THROWN) {
 			clj_release(c.map);
+			c.map = CLJ_NIL;
 			type = CLJ_THROWN;
 			break;
 		}
-		with_fns[made] = impls[made];
-		with_fns[made + 1] = c.map;
+		maps[made] = c.map;
+		c.map = CLJ_NIL;
+		with_fns[2 * made] = impls[2 * made];
+		with_fns[2 * made + 1] = maps[made];
 	}
 	if (type != CLJ_THROWN) type = clj_user_type_new(name, fields, with_fns, nimpls);
 	if (type != CLJ_THROWN) ((clj_user_type *)clj_to_ptr(type))->reified = true;
-	for (size_t i = 1; i < made; i += 2) clj_release(with_fns[i]);
+	while (made) clj_release(maps[--made]);
+	free(maps);
 	free(with_fns);
 	return type;
 }
@@ -1505,7 +1538,7 @@ static clj_value reify_type(clj_value name, clj_value fields, const clj_value *i
 	if (!is_unqualified_symbol(name)) return clj_throw_msg("reify-type* expects a symbol, got: %s", clj_type_name(name));
 	if (!clj_is_vector(fields)) return clj_throw_msg("reify-type* expects a field vector, got: %s", clj_type_name(fields));
 	clj_lock_lock(&reify_lock);
-	clj_value type = clj_is_nil(reify_types) ? CLJ_NIL : clj_map_get(reify_types, name, CLJ_NIL);
+	CLJ_NO_CYCLE clj_value type = clj_is_nil(reify_types) ? CLJ_NIL : clj_map_get(reify_types, name, CLJ_NIL);
 	// A protocol redefined since the type was made leaves it implementing the old one: the site gets a new type.
 	if (!clj_is_nil(type) && !reify_type_current(type, impls, nimpls)) type = CLJ_NIL;
 	if (!clj_is_nil(type)) {
@@ -1557,7 +1590,7 @@ static clj_value b_proto_epoch(const clj_value *args, size_t n) {
 }
 
 static void bind_core(const char *name, clj_value val) {
-	clj_value sym = clj_symbol_from_cstr(name);
+	CLJ_NO_CYCLE clj_value sym = clj_symbol_from_cstr(name);
 	clj_var_bind_root(clj_ns_intern(clj_ns_core(), sym), val);
 	clj_release(sym);
 }
@@ -1579,12 +1612,15 @@ void clj_proto_install(void) {
 		{"mutable-field*", b_mutable_field, 2, 2}, {"set-field!*", b_set_field, 3, 3},
 	};
 	clj_value core_name = clj_symbol_name(clj_ns_name(clj_ns_core()));
+	clj_value f = CLJ_NIL;
+	CLJ_ROOTS(&f);
 	for (size_t i = 0; i < sizeof fns / sizeof *fns; i++) {
-		clj_value name = clj_string_from_cstr(fns[i].name);
-		clj_value qualified = clj_symbol_new(core_name, name);
-		clj_value f = clj_fn_native(qualified, fns[i].fn, fns[i].min, fns[i].max);
+		CLJ_NO_CYCLE clj_value name = clj_string_from_cstr(fns[i].name);
+		CLJ_NO_CYCLE clj_value qualified = clj_symbol_new(core_name, name);
+		f = clj_fn_native(qualified, fns[i].fn, fns[i].min, fns[i].max);
 		bind_core(fns[i].name, f);
 		clj_release(f);
+		f = CLJ_NIL;
 		clj_release(qualified);
 		clj_release(name);
 	}
@@ -1613,8 +1649,8 @@ void clj_proto_install(void) {
 	}
 	clj_value empty = clj_vector_empty();
 	for (size_t i = 0; i < NINTERFACES; i++) {
-		clj_value name = clj_string_from_cstr(interfaces[i].name);
-		clj_value qualified = clj_symbol_new(core_name, name);
+		CLJ_NO_CYCLE clj_value name = clj_string_from_cstr(interfaces[i].name);
+		CLJ_NO_CYCLE clj_value qualified = clj_symbol_new(core_name, name);
 		interfaces[i].proto = protocol_alloc(qualified, empty, empty, interfaces[i].bits);
 		bind_core(interfaces[i].name, interfaces[i].proto);
 		clj_core_mark_extension(interfaces[i].name);

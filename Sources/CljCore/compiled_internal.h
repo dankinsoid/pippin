@@ -37,6 +37,7 @@
 #include "profile_internal.h"
 #include "proto_internal.h"
 #include "reuse_internal.h"
+#include "roots_internal.h"
 #include "shadow_internal.h"
 #include "shape_internal.h"
 #include "stats_internal.h"
@@ -562,6 +563,7 @@ static inline clj_value clj_c_invoke(clj_value f, const clj_value *args, size_t 
 static inline clj_value clj_c_intrinsic_fallback(clj_value var, const clj_value *args, size_t n) {
 	clj_value fn = clj_var_deref(var);
 	if (fn == CLJ_THROWN) return CLJ_THROWN;
+	CLJ_ROOTS(&fn);
 	clj_value r = clj_invoke(fn, args, n);
 	clj_release(fn);
 	return r;

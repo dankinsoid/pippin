@@ -359,10 +359,10 @@ static clj_value format_text(buf *b, const spec *s, clj_value v) {
 
 static clj_value b_format(const clj_value *args, size_t n) {
 	if (!clj_is_string(args[0])) return clj_throw_msg("format expects a string, got: %s", clj_type_name(args[0]));
-	const char *p = CLJ_STR(args[0]).bytes, *end = p + clj_string_len(args[0]);
-	buf         b = {0};
-	size_t      next = 1; // the ordinary argument index, independent of explicit ones as in Formatter
-	clj_value   err = CLJ_NIL;
+	const char            *p = CLJ_STR(args[0]).bytes, *end = p + clj_string_len(args[0]);
+	buf                    b = {0};
+	size_t                 next = 1; // the ordinary argument index, independent of explicit ones as in Formatter
+	CLJ_BORROWED clj_value err = CLJ_NIL;
 	while (p < end && err != CLJ_THROWN) {
 		const char *pct = memchr(p, '%', (size_t)(end - p));
 		if (!pct) {

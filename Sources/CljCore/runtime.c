@@ -127,7 +127,7 @@ static void print_trace(clj_value trace) {
 	clj_value kw_fn = clj_keyword_from_cstr("fn"), kw_line = clj_keyword_from_cstr("line"), kw_column = clj_keyword_from_cstr("column");
 	for (uint32_t i = 0; i < clj_vector_count(trace); i++) {
 		clj_value frame = clj_vector_nth(trace, i), fn = clj_map_get(frame, kw_fn, CLJ_NIL);
-		clj_value name = clj_is_nil(fn) ? clj_string_from_cstr("fn") : clj_pr_str(fn);
+		CLJ_NO_CYCLE clj_value name = clj_is_nil(fn) ? clj_string_from_cstr("fn") : clj_pr_str(fn);
 		fprintf(stderr, "  at %s (%ld:%ld)\n", CLJ_STR(name).bytes, (long)clj_fixnum_val(clj_map_get(frame, kw_line, clj_fixnum(0))),
 		        (long)clj_fixnum_val(clj_map_get(frame, kw_column, clj_fixnum(0))));
 		clj_release(name);
@@ -140,10 +140,11 @@ static void load_core(void) {
 	clj_reader r;
 	clj_reader_init(&r, (const char *)core_clj, core_clj_len);
 	clj_reader_use_namespaces(&r);
-	bool      hooked = clj_load_hook_get() != NULL;
-	clj_value file = hooked ? clj_string_from_cstr(CLJ_CORE_CLJ_PATH) : CLJ_NIL;
+	bool                   hooked = clj_load_hook_get() != NULL;
+	CLJ_NO_CYCLE clj_value file = hooked ? clj_string_from_cstr(CLJ_CORE_CLJ_PATH) : CLJ_NIL;
+	clj_value              form = CLJ_NIL;
+	CLJ_ROOTS(&form);
 	for (;;) {
-		clj_value form;
 		clj_read_status st = clj_read(&r, &form);
 		if (st == CLJ_READ_EOF) break;
 		if (st == CLJ_READ_ERROR) boot_failed("reader error", r.error_line, r.error_col, clj_reader_message(&r));
@@ -152,14 +153,17 @@ static void load_core(void) {
 		clj_value v = clj_eval(form, &env);
 		clj_load_arm_tls.armed = false;
 		clj_release(form);
-		if (v == CLJ_THROWN) {
-			clj_value trace = clj_take_pending_trace();
-			clj_value ex = clj_take_pending();
-			clj_value text = clj_pr_str(ex);
-			print_trace(trace);
-			boot_failed("exception", r.form_line, r.form_col, CLJ_STR(text).bytes);
+		form = CLJ_NIL;
+		if (v != CLJ_THROWN) {
+			clj_release(v);
+			continue;
 		}
-		clj_release(v);
+		clj_value trace = clj_take_pending_trace();
+		CLJ_ROOTS(&trace);
+		clj_value ex = clj_take_pending();
+		clj_value text = clj_pr_str(ex);
+		print_trace(trace);
+		boot_failed("exception", r.form_line, r.form_col, CLJ_STR(text).bytes);
 	}
 	clj_release(file);
 }
@@ -384,7 +388,7 @@ clj_value clj_syntax_quote_resolve(clj_value sym, void *ctx) {
 	if (clj_is_special_symbol(sym)) return clj_retain(sym);
 	clj_value ns = clj_ns_current();
 	if (!clj_is_nil(clj_symbol_ns(sym))) {
-		clj_value alias = clj_symbol_new(CLJ_NIL, clj_symbol_ns(sym));
+		CLJ_NO_CYCLE clj_value alias = clj_symbol_new(CLJ_NIL, clj_symbol_ns(sym));
 		clj_value target = clj_ns_resolve_ns(ns, alias);
 		clj_release(alias);
 		if (clj_is_nil(target) || clj_equals(clj_symbol_name(clj_ns_name(target)), clj_symbol_ns(sym))) return clj_retain(sym);
@@ -402,15 +406,15 @@ clj_value clj_reader_resolve_ns(clj_value alias, void *ctx) {
 	(void)ctx;
 	clj_value ns = clj_ns_current();
 	if (clj_is_nil(alias)) return clj_retain(clj_symbol_name(clj_ns_name(ns)));
-	clj_value sym = clj_symbol_new(CLJ_NIL, alias);
-	clj_value target = clj_ns_resolve_ns(ns, sym);
+	CLJ_NO_CYCLE clj_value sym = clj_symbol_new(CLJ_NIL, alias);
+	clj_value              target = clj_ns_resolve_ns(ns, sym);
 	clj_release(sym);
 	return clj_is_nil(target) ? CLJ_NIL : clj_retain(clj_symbol_name(clj_ns_name(target)));
 }
 
 // Owned value of a clojure.core var, nil while core.clj has not defined it yet.
 static clj_value core_var_value(const char *name) {
-	clj_value sym = clj_symbol_from_cstr(name);
+	CLJ_NO_CYCLE clj_value sym = clj_symbol_from_cstr(name);
 	clj_value var = clj_ns_resolve(clj_ns_core(), sym);
 	clj_release(sym);
 	return clj_is_nil(var) || !clj_var_is_bound(var) ? CLJ_NIL : clj_var_deref(var);
@@ -421,12 +425,12 @@ static clj_value core_var_value(const char *name) {
 static clj_value read_record_literal(clj_value tag, clj_value form) {
 	const char *text = CLJ_STR(clj_symbol_name(tag)).bytes;
 	const char *dot = strrchr(text, '.');
-	clj_value   ns_name = clj_string_new(text, (size_t)(dot - text));
-	clj_value   ns_sym = clj_symbol_new(CLJ_NIL, ns_name);
-	clj_value   ns = clj_ns_find(ns_sym);
-	clj_value   var = CLJ_NIL;
+	CLJ_NO_CYCLE clj_value ns_name = clj_string_new(text, (size_t)(dot - text));
+	CLJ_NO_CYCLE clj_value ns_sym = clj_symbol_new(CLJ_NIL, ns_name);
+	clj_value              ns = clj_ns_find(ns_sym);
+	clj_value              var = CLJ_NIL;
 	if (!clj_is_nil(ns)) {
-		clj_value name = clj_symbol_from_cstr(dot + 1);
+		CLJ_NO_CYCLE clj_value name = clj_symbol_from_cstr(dot + 1);
 		var = clj_ns_resolve(ns, name);
 		clj_release(name);
 	}
@@ -436,9 +440,10 @@ static clj_value read_record_literal(clj_value tag, clj_value form) {
 	clj_value type = clj_var_root(var);
 	if (clj_is_map(form)) return clj_record_from_map(type, form);
 	if (clj_is_vector(form)) {
-		size_t     n;
-		clj_value  keep;
-		clj_value *items = clj_seq_items(form, &n, &keep);
+		size_t                  n;
+		clj_value               keep = CLJ_NIL;
+		CLJ_ROOTS(&keep);
+		CLJ_BORROWED clj_value *items = clj_seq_items(form, &n, &keep);
 		if (!items) return CLJ_THROWN;
 		clj_value r = clj_record_new(type, items, n);
 		free(items);
@@ -449,12 +454,14 @@ static clj_value read_record_literal(clj_value tag, clj_value form) {
 }
 
 // LispReader's order: a dotted tag is a constructor, then *data-readers*, default-data-readers, *default-data-reader-fn*.
-clj_value clj_reader_read_tag(clj_value tag, clj_value form, void *ctx) {
+clj_value clj_reader_read_tag(clj_value tag, CLJ_BORROWED clj_value form, void *ctx) {
 	(void)ctx;
 	if (clj_is_nil(clj_symbol_ns(tag)) && strchr(CLJ_STR(clj_symbol_name(tag)).bytes, '.')) return read_record_literal(tag, form);
 	clj_value readers = core_var_value("*data-readers*");
+	CLJ_ROOTS(&readers);
 	clj_value f = clj_is_nil(readers) ? CLJ_NIL : clj_get(readers, tag, CLJ_NIL);
 	clj_release(readers);
+	readers = CLJ_NIL;
 	if (f == CLJ_THROWN) return CLJ_THROWN;
 	if (!clj_is_nil(f)) {
 		CLJ_ROOTS(&f);
@@ -484,7 +491,8 @@ void clj_reader_use_namespaces(clj_reader *r) {
 static bool out_is_err(void) {
 	static clj_value out_var = CLJ_NIL, err_var = CLJ_NIL;
 	if (clj_is_nil(out_var) || clj_is_nil(err_var)) {
-		clj_value o = clj_symbol_from_cstr("*out*"), e = clj_symbol_from_cstr("*err*");
+		CLJ_NO_CYCLE clj_value o = clj_symbol_from_cstr("*out*");
+		CLJ_NO_CYCLE clj_value e = clj_symbol_from_cstr("*err*");
 		out_var = clj_ns_resolve(clj_ns_core(), o);
 		err_var = clj_ns_resolve(clj_ns_core(), e);
 		clj_release(o);
