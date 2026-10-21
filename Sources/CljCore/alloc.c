@@ -165,7 +165,7 @@ const clj_header *clj_debug_object_at(uintptr_t w) {
 		if (off < SLAB_HEADER || off + sizeof(clj_header) > s->bump || (off - SLAB_HEADER) % s->cell) return NULL;
 	} else {
 #if defined(__has_feature) && (__has_feature(address_sanitizer) || __has_feature(thread_sanitizer))
-		if (!__sanitizer_get_ownership((const void *)w)) return NULL;
+		if (!__sanitizer_get_ownership((const void *)w) || __sanitizer_get_allocated_size((const void *)w) < sizeof(clj_header)) return NULL;
 #elif defined(__APPLE__)
 		if (malloc_size((const void *)w) < sizeof(clj_header)) return NULL;
 #else
