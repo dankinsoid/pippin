@@ -74,7 +74,8 @@ private struct LeakProgram {
 	private mutating func spawn() -> String {
 		let body = park(2)
 		switch rng.below(5) {
-		case 0: return "(go-loop [n 0] \(body) (recur (inc n)))"
+		// Bounded: two loops that serve each other's channel would run for ever and never be abandoned.
+		case 0: return "(go-loop [n 0] (when (< n 3) \(body) (recur (inc n))))"
 		case 1: return "(let [m (mult \(chan())) t (chan)] (tap m t) (go (try (<! t) \(body) (catch :default _ nil))))"
 		case 2: return "(let [out (chan) mx (mix out) in \(chan())] (admix mx in) (go (try \(body) (catch :default _ nil))))"
 		case 3: return "(let [a (atom nil)] (go (reset! a [\(chan())]) (try \(body) (catch :default _ nil)) @a))"
@@ -115,6 +116,7 @@ extension CoreTests {
 			let def = { _ = try cljEvalScoped("(in-ns 'leak-fuzz-tests) " + src) }
 			if backend == "interp" { try def() } else { try compiledEval(closed: backend == "closed", def) }
 			let base = CoroBaseline()
+			let census = LiveCensus()
 			_ = try cljEvalScoped("(in-ns 'leak-fuzz-tests) (\(name))")
 			let gone = eventually(ms: 10_000) {
 				clj_cc_collect()
@@ -122,7 +124,7 @@ extension CoreTests {
 			}
 			#expect(gone, "seed \(seed): parked coroutines left after collection of \(src)")
 			let objects = settledLiveObjects("after \(name)")
-			#expect(objects == base.objects, "seed \(seed): \(objects - base.objects) objects left after \(src)")
+			#expect(objects == base.objects, "seed \(seed): \(objects - base.objects) objects left (\(LiveCensus().moves(since: census).joined(separator: ", "))) after \(src)")
 		}
 
 		@Test(arguments: ["interp", "dev", "closed"])
