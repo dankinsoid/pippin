@@ -11,13 +11,13 @@
 
 #if CLJ_DEBUG
 
-enum { ORACLE_SLOTS = 1 << 14, ORACLE_MAX = ORACLE_SLOTS / 2, FRAMES_MAX = 4096 };
+enum { ORACLE_SLOTS = 1 << 14, ORACLE_MAX = ORACLE_SLOTS / 2, FRAMES_MAX = 4096, WORDS_MAX = 4 };
 
 typedef struct {
 	const clj_header *h;
 	uint32_t          named; // references the frames' enumeration named
 	uint32_t          held;  // edges of the coroutine's unshared objects and its own fields
-	uintptr_t         at;    // a stack word naming it, 0 when none
+	uintptr_t         at[WORDS_MAX]; // stack words naming it: the innermost ones, then the outermost; 0 past them
 } entry;
 
 struct clj_cc_oracle {
@@ -120,7 +120,10 @@ __attribute__((no_sanitize("address", "thread"))) static void scan(clj_cc_oracle
 		const clj_header *h = clj_debug_object_at(w);
 		if (!h || !ours(o, h) || !(atomic_load_explicit(&h->rc, memory_order_relaxed) & CLJ_RC_COUNT_MASK)) continue;
 		entry *e = find(o, h);
-		if (e && !e->at) e->at = sp + i * sizeof *words;
+		if (!e) continue;
+		int k = 0;
+		while (k < WORDS_MAX - 1 && e->at[k]) k++;
+		e->at[k] = sp + i * sizeof *words; // the last keeps the outermost: the owner's frame is usually above its lenders'
 	}
 }
 
@@ -149,11 +152,13 @@ void clj_cc_oracle_end(clj_cc_oracle *o) {
 		uint32_t rc = atomic_load_explicit(&h->rc, memory_order_relaxed);
 		uint32_t count = rc & CLJ_RC_COUNT_MASK, known = e->named + e->held + ((rc & CLJ_RC_BUFFERED) ? 1 : 0);
 		if (count == known) continue;
-		char where[256] = "no stack word names it";
-		if (e->at && stack) {
+		char   where[1024] = "no stack word names it";
+		size_t len = 0;
+		for (int k = 0; k < WORDS_MAX && e->at[k] && stack; k++) {
 			char fn[200];
-			describe(fn, sizeof fn, function_at(words, n, sp, fp, pc, e->at));
-			snprintf(where, sizeof where, "a word at %p in %s", (void *)e->at, fn);
+			describe(fn, sizeof fn, function_at(words, n, sp, fp, pc, e->at[k]));
+			len += (size_t)snprintf(where + len, sizeof where - len, "%sa word at %p in %s", k ? "; " : "", (void *)e->at[k], fn);
+			if (len >= sizeof where) break;
 		}
 		if (count > known)
 			clj_ice("cc/frame-missed", NULL, "a parked coroutine owns %u references to a %s, its frames name %u and its objects hold %u: %s",

@@ -399,6 +399,16 @@ OPT_INLINE void argrec_hold(clj_frame *f, clj_argbuf *b, bool *on, const clj_val
 	else if (owned) argrec_put(f, b, on, v, owned, NULL);
 }
 
+// A builtin runs no program code but a lazy seq's realization, whose thunk may park.
+static inline bool owned_lazy(const clj_value *v, uint32_t n, uint64_t owned) {
+	if (n < 64) owned &= ((uint64_t)1 << n) - 1;
+	for (; owned; owned &= owned - 1) {
+		clj_value x = v[__builtin_ctzll(owned)];
+		if (x && clj_is_ptr(x) && (clj_header_of(x)->flags & CLJ_FLAG_LAZY)) return true;
+	}
+	return false;
+}
+
 static inline bool reads_only(const clj_node *const *args, uint32_t n) {
 	for (uint32_t i = 0; i < n; i++) {
 		switch (args[i]->kind) {
@@ -907,7 +917,7 @@ static clj_value eval_invoke(const clj_node *n, clj_frame *f) {
 		clj_value           small[SMALL_ARGS];
 		CLJ_RING clj_value *args = buf_alloc(small, nargs);
 		if (eval_all(n->u.invoke.args, nargs, f, args, &owned, &rb, &ron)) {
-			if (!(fnp && fnp->leaf)) argrec_hold(f, &rb, &ron, args, owned);
+			if (!(fnp && fnp->leaf) || owned_lazy(args, nargs, owned)) argrec_hold(f, &rb, &ron, args, owned);
 			if (fnp && fnp->kind == CLJ_FN_NATIVE) {
 				IC_COUNT(site, hits);
 				result = call_native(fnp, fn, args, nargs);
@@ -1029,13 +1039,13 @@ static clj_value intrinsic_apply(const clj_node *n, clj_value *args, uint64_t *o
 	if (__builtin_expect(intrinsic_guard(n), 1)) {
 		// A collection this site owns (a last-use local, a nested conj) goes to the consuming core as is: at rc 1
 		// it is updated in place, and the bit leaves the mask since the core took the reference.
-		// The builtin runs no program code but a lazy seq's realization, which a compiled site does not name either
-		// (its facts call it pure): the buffer is held through a rebound var's fn alone.
 		if (__builtin_expect(clj_intrinsic_consumes(op), 0) && (*owned & 1)) {
 			*owned &= ~(uint64_t)1;
 			if (on) rb->owned = *owned;
+			if (owned_lazy(args, n->u.intrinsic.n, *owned)) argrec_hold(f, rb, &on, args, *owned);
 			result = clj_intrinsic_call_consuming(op, args);
 		} else {
+			if (owned_lazy(args, n->u.intrinsic.n, *owned)) argrec_hold(f, rb, &on, args, *owned);
 			result = clj_intrinsic_call(op, args);
 		}
 	} else {
