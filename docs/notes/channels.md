@@ -73,8 +73,12 @@
   ports: a plain port's `clj_lock` never parks. The wake token is the waiter's (NOTES "Scheduler", "Park and
   resume"); `ChanStressTests.altsWokenOnAnEarlierPortWhileParkedOnALaterPortsMutex` replays it (hung under every
   seed before, run 37957787440) and `multOverTwoTransducingTapsMergedSideBySide` runs the workload's shape.
-- [ ] **A close! past 16 parked takers can run a `take!` callback under the channel's lock** (`chan.c` `add_wake`,
-  found by the rooting-hazards annotation): the 17th waiter on is woken in place, and `clj_resume` runs a callback
-  waiter's fn inline, so a program's fn would run under the lock, where a park is an error and a reentry deadlocks.
-  The comment there says no user code runs; it holds for parked coroutines only. Trigger: a channel with more than 16
-  pending `take!` callbacks closed, or a fix that defers callback waiters past the lock like the first 16.
+- **Every wake is resumed after the section, however many** (`chan.c` `add_wake`, `flush_wakes`; found by the
+  rooting-hazards annotation). An operation links the nodes it woke through their own `next`, free once a node left
+  its queue, so the list has no bound. `clj_resume` runs a `put!`/`take!` callback's fn inline: a wake under the
+  section would run the program's fn there, where a park is an error and a reentry deadlocks (a transducing
+  channel's refuses it). A fixed batch of 16 woke the 17th waiter on in place. The paths that wake many at once:
+  `close!` (every parked taker), a put on a promise channel (every taker), a step's `reduced` (every parked put),
+  and a take whose refill runs parked puts through a filtering step. `ChanTests.callbacksRunOutsideTheSection`
+  wakes 20 callbacks on each; every other resume (cmutex, timers, cancellation, `runtime.c`) is
+  `clj_resume_far`, which asserts a coroutine's waiter.

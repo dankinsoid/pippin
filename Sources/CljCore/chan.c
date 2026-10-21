@@ -476,41 +476,34 @@ static clj_value buffer_take(clj_chan *ch) {
 
 // ---- the operations under the lock; woken nodes go to a list the caller flushes after unlocking
 
+// Unbounded: a woken callback waiter runs its fn inline (clj_resume), so no wake may happen under the lock.
 typedef struct {
-	qnode                 *nodes[16];
-	size_t                 n;
+	qnode                 *head, *tail; // linked through next, free once a node left its queue
 	CLJ_BORROWED clj_value port;
 } wakes;
 
 // Under the lock: the value is published through the node, a slot of the channel, before a waiter sees it.
-static void add_wake(wakes *ws, qnode *n, clj_value value, bool ok) {
+static void add_wake(wakes *ws, qnode *n, clj_value value) {
 	clj_release(n->value.v);
 	clj_slot_store(clj_header_of(ws->port), &n->value, clj_retain(value));
-	if (ws->n < 16) {
-		ws->nodes[ws->n++] = n;
-		return;
-	}
-	// A close! with more than 16 parked takers wakes the rest under the lock: still no user code there.
-	clj_value v = n->value.v;
-	CLJ_ROOTS(&v);
-	clj_slot_clear(&n->value);
-	wake(n, v, ok, ws->port);
-	clj_release(v);
-	v = CLJ_NIL;
+	n->next = NULL;
+	if (ws->tail) ws->tail->next = n;
+	else ws->head = n;
+	ws->tail = n;
 }
 
 static void flush_wakes(wakes *ws, bool ok) {
 	clj_value v = CLJ_NIL;
 	CLJ_ROOTS(&v);
-	for (size_t i = 0; i < ws->n; i++) {
-		qnode *n = ws->nodes[i];
+	for (qnode *n = ws->head, *next; n; n = next) {
+		next = n->next;
 		v = n->value.v;
 		clj_slot_clear(&n->value);
 		wake(n, v, ok, ws->port);
 		clj_release(v);
 		v = CLJ_NIL;
 	}
-	ws->n = 0;
+	ws->head = ws->tail = NULL;
 }
 
 enum { OP_DONE, OP_NOT_READY, OP_STALE };
@@ -525,7 +518,7 @@ static void drain_to_takers(clj_chan *ch, clj_value chv, wakes *ws) {
 		if (!t) return;
 		v = buffer_take(ch);
 		ws->port = chv;
-		add_wake(ws, t, v, true);
+		add_wake(ws, t, v);
 		clj_release(v);
 		v = CLJ_NIL;
 	}
@@ -584,7 +577,7 @@ static void abort_locked(clj_chan *ch, clj_value chv, wakes *ws) {
 		qnode *p = pop_live(&ch->putters, &ch->putters_tail, &ch->nputters, NULL, &stale);
 		if (!p) break;
 		ws->port = chv;
-		add_wake(ws, p, CLJ_TRUE, true);
+		add_wake(ws, p, CLJ_TRUE);
 	}
 }
 
@@ -621,7 +614,7 @@ static int put_locked(clj_chan *ch, clj_value chv, clj_value v, clj_waiter *acto
 	if (stale) return OP_STALE;
 	if (t) {
 		ws->port = chv;
-		add_wake(ws, t, v, true);
+		add_wake(ws, t, v);
 		*ok = true;
 		return OP_DONE;
 	}
@@ -649,7 +642,7 @@ static void refill(clj_chan *ch, clj_value chv, wakes *ws) {
 		}
 		clj_slot_clear(&p->value);
 		ws->port = chv;
-		add_wake(ws, p, CLJ_TRUE, true);
+		add_wake(ws, p, CLJ_TRUE);
 		if (done) {
 			abort_locked(ch, chv, ws);
 			close_locked(ch, chv, ws);
@@ -673,7 +666,7 @@ static int take_locked(clj_chan *ch, clj_value chv, clj_waiter *actor, clj_value
 			*out = p->value.v;
 			clj_slot_clear(&p->value);
 			ws->port = chv;
-			add_wake(ws, p, CLJ_TRUE, true);
+			add_wake(ws, p, CLJ_TRUE);
 			return OP_DONE;
 		}
 	}
@@ -724,7 +717,7 @@ clj_value clj_chan_put(clj_value chv, clj_value v) {
 	if (clj_is_nil(v)) return clj_throw_msg("Can't put nil on channel");
 	if (!clj_park_allowed()) return CLJ_THROWN;
 	clj_chan *ch = chan_of(chv);
-	wakes       ws = {.n = 0};
+	wakes       ws = {0};
 	bool        ok = false;
 	clj_waiter *w = NULL;
 	chan_lock(ch);
@@ -754,7 +747,7 @@ static clj_value chan_take(clj_value chv, bool uncancellable) {
 	if (chan_arg(chv, "<!") == CLJ_THROWN) return CLJ_THROWN;
 	if (!uncancellable && !clj_park_allowed()) return CLJ_THROWN;
 	clj_chan   *ch = chan_of(chv);
-	wakes       ws = {.n = 0};
+	wakes       ws = {0};
 	clj_value   out = CLJ_NIL;
 	clj_waiter *w = NULL;
 	CLJ_ROOTS(&out);
@@ -791,7 +784,7 @@ clj_value clj_chan_offer(clj_value chv, clj_value v) {
 	if (chan_arg(chv, "offer!") == CLJ_THROWN) return CLJ_THROWN;
 	if (clj_is_nil(v)) return clj_throw_msg("Can't put nil on channel");
 	clj_chan *ch = chan_of(chv);
-	wakes ws = {.n = 0};
+	wakes ws = {0};
 	bool  ok = false;
 	chan_lock(ch);
 	int r = put_locked(ch, chv, v, NULL, &ok, &ws);
@@ -803,7 +796,7 @@ clj_value clj_chan_offer(clj_value chv, clj_value v) {
 clj_value clj_chan_poll(clj_value chv) {
 	if (chan_arg(chv, "poll!") == CLJ_THROWN) return CLJ_THROWN;
 	clj_chan *ch = chan_of(chv);
-	wakes     ws = {.n = 0};
+	wakes     ws = {0};
 	clj_value out = CLJ_NIL;
 	CLJ_ROOTS(&out);
 	chan_lock(ch);
@@ -839,7 +832,7 @@ clj_value clj_chan_put_cb(clj_value chv, clj_value v, clj_value fn, bool on_call
 	clj_chan *ch = chan_of(chv);
 	// The callback rides in a waiter, not in a slot, and another execution may run it.
 	clj_share(fn);
-	wakes ws = {.n = 0};
+	wakes ws = {0};
 	bool  ok = false;
 	chan_lock(ch);
 	int r = put_locked(ch, chv, v, NULL, &ok, &ws);
@@ -868,7 +861,7 @@ clj_value clj_chan_take_cb(clj_value chv, clj_value fn, bool on_caller) {
 	clj_chan *ch = chan_of(chv);
 	// The callback rides in a waiter, not in a slot, and another execution may run it.
 	clj_share(fn);
-	wakes     ws = {.n = 0};
+	wakes     ws = {0};
 	clj_value out = CLJ_NIL;
 	CLJ_ROOTS(&out);
 	chan_lock(ch);
@@ -908,14 +901,14 @@ static void close_locked(clj_chan *ch, clj_value chv, wakes *ws) {
 		bool   stale;
 		qnode *t = pop_live(&ch->takers, &ch->takers_tail, &ch->ntakers, NULL, &stale);
 		if (!t) break;
-		add_wake(ws, t, CLJ_NIL, true);
+		add_wake(ws, t, CLJ_NIL);
 	}
 }
 
 clj_value clj_chan_close(clj_value chv) {
 	if (chan_arg(chv, "close!") == CLJ_THROWN) return CLJ_THROWN;
 	clj_chan *ch = chan_of(chv);
-	wakes     ws = {.n = 0};
+	wakes     ws = {0};
 	chan_lock(ch);
 	close_locked(ch, chv, &ws);
 	chan_unlock(ch);
@@ -1017,7 +1010,7 @@ clj_value clj_chan_alts(clj_value ports, clj_value opts) {
 		clj_value chv = is_put ? clj_vector_nth(port, 0) : port;
 		clj_value v = is_put ? clj_vector_nth(port, 1) : CLJ_NIL;
 		clj_chan *ch = chan_of(chv);
-		wakes     ws = {.n = 0};
+		wakes     ws = {0};
 		bool      ok = false;
 		chan_lock(ch);
 		int r = is_put ? put_locked(ch, chv, v, w, &ok, &ws) : take_locked(ch, chv, w, &out, &ws);
@@ -1121,7 +1114,7 @@ clj_value clj_chan_deliver(clj_value chv, clj_value v) {
 	if (chan_arg(chv, "deliver") == CLJ_THROWN) return CLJ_THROWN;
 	clj_chan *ch = chan_of(chv);
 	if (ch->kind != CLJ_BUF_PROMISE) return clj_throw_msg("deliver expects a promise, got a channel");
-	wakes ws = {.n = 0};
+	wakes ws = {0};
 	chan_lock(ch);
 	bool first = !realized_locked(ch);
 	if (first) {
@@ -1188,7 +1181,7 @@ clj_value clj_chan_deref_timeout(clj_value chv, int64_t ms, clj_value timeout_va
 // The body's value goes on as a fire-and-forget put, then the channel closes (core.async's go).
 static void deliver_result(clj_value chv, clj_value v) {
 	clj_chan *ch = chan_of(chv);
-	wakes     ws = {.n = 0};
+	wakes     ws = {0};
 	chan_lock(ch);
 	if (!clj_is_nil(v)) {
 		bool ok;
