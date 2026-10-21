@@ -199,7 +199,7 @@ extension CoreTests {
 			#expect(String(cString: text).contains("clj_c_shaken"))
 			var o = cljc_eval_options()
 			o.root = UnsafePointer(jitRootPath)
-			o.dir = UnsafePointer(jitDirPath)
+			o.dir = UnsafePointer(fixtureJitDir)
 			o.closed = true
 			guard let unit = cljc_load_dylib(&o, "fixture_shake_\(tag)", String(cString: text)) else { throw ClojureError.takePending() }
 			clj_compiled_register(unit.pointee.path, unit.pointee.`init`)
@@ -215,7 +215,6 @@ extension CoreTests {
 
 nonisolated(unsafe) private let packageRootURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 nonisolated(unsafe) private let jitRootPath = strdup(packageRootURL.path)
-nonisolated(unsafe) private let jitDirPath = strdup(packageRootURL.appendingPathComponent(".build/compiled-fixtures").path)
 
 private func resolveVar(_ ns: String, _ name: String) -> Value? {
 	let nsValue = withExtendedLifetime(Value(symbol: ns)) { Value(borrowing: clj_ns_find($0.raw)) }

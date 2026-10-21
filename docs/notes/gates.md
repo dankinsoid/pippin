@@ -234,10 +234,16 @@
 - **What shards share outside the process.** A suite runs in one shard, so only paths two suites write can
   collide. `CLJ_EVAL=compiled` names its units `form1`, `form2`, … per process in one directory, so shards would
   load each other's dylibs: each shard gets its own `CLJ_EVAL_DIR` (`<scratch>/shards/shard-N.eval`, or
-  `shard-N` under a given one). Safe as they are: temp files (pid, random or UUID names in `FutureTests`,
-  `EvacTests`, `NamespaceTests`, `ChanTests`, `CorpusCompilationCacheTests`); `.build/compiled-fixtures`
-  (`fixture_<name>` distinct between `CompilerFixtureTests` and `SwiftStubTests`, `form<n>` only from
-  `CompilerFixtureTests`' own compiled eval); `.build/swift-stubs` (the fixture module and every generator entry
+  `shard-N` under a given one). The tests' own units go to `.build/compiled-fixtures/pid-<pid>`, a directory per
+  process (`fixtureJitDir`, CompilerFixtureTests.swift), which removes those of processes gone when it starts: the
+  `compiledEval` of `CompilerFixtureTests`, `LeakFuzzTests` and `CoroCollectTests` names its units `form<n>` by
+  one counter per process too, and in one shared directory a shard compiled, loaded or lost another's `form1.c`
+  (run 39611285339: "Unable to resolve symbol: chan" in `LeakFuzzTests`' closed backend, "form1.c: No such
+  file" and "Unable to resolve symbol: CiP" in `CompilerFixtureTests`, each in another shard). Safe as they are:
+  temp files (pid, random or UUID names in `FutureTests`,
+  `EvacTests`, `NamespaceTests`, `ChanTests`, `CorpusCompilationCacheTests`); the paths one suite alone writes
+  (`.build/compiled-ui`, `ReconcilerTests`; `.build/model-tests`, `ModelTests`; `.build/c-decls`, `CDeclTests`),
+  since a gate runs a suite in one process; `.build/swift-stubs` (the fixture module and every generator entry
   are built in a `.tmp-<pid>` directory and renamed into place, the loser discarding its copy); the corpus cache
   (a lock per library); the nREPL server (port 0). The corpus watchdog's budget is the one timing collision:
   `test-random-sample` under ASan beside other shards passes 5 s, hence the Makefile's 60 s ("CI"), and TSan's

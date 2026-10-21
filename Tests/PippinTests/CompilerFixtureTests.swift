@@ -46,13 +46,27 @@ func compiledEval<T>(closed: Bool = false, _ body: () throws -> T) throws -> T {
 }
 
 nonisolated(unsafe) private var uncaughtTraces: [(String, Int)] = []
-nonisolated(unsafe) private let jitDir = strdup(packageRoot.appendingPathComponent(".build/compiled-fixtures").path)
+// Shards and isolated suites run side by side, and jit.c names its units form1, form2, ... per process.
+// @ai-generated(solo)
+private let fixtureUnits: URL = {
+	let base = packageRoot.appendingPathComponent(".build/compiled-fixtures")
+	let fm = FileManager.default
+	// A finished process's units stay for a look until the next run starts.
+	for name in (try? fm.contentsOfDirectory(atPath: base.path)) ?? [] {
+		if name.hasPrefix("pid-"), let pid = pid_t(name.dropFirst(4)), kill(pid, 0) == 0 || errno == EPERM { continue }
+		try? fm.removeItem(at: base.appendingPathComponent(name))
+	}
+	let dir = base.appendingPathComponent("pid-\(getpid())")
+	try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+	return dir
+}()
+nonisolated(unsafe) let fixtureJitDir = strdup(fixtureUnits.path)
 nonisolated(unsafe) private let jitRoot = strdup(packageRoot.path)
 
 private func evalOptions() -> cljc_eval_options {
 	var o = cljc_eval_options()
 	o.root = UnsafePointer(jitRoot)
-	o.dir = UnsafePointer(jitDir)
+	o.dir = UnsafePointer(fixtureJitDir)
 	return o
 }
 
@@ -655,7 +669,7 @@ extension CoreTests {
 		@Test func crossUnitInlineFollowsTheCalleesTree() throws {
 			clj_init()
 			defer { clj_ns_set_current(clj_ns_user()) }
-			let dir = String(cString: jitDir!)
+			let dir = String(cString: fixtureJitDir!)
 			let lib = "(ns cp.xu-lib)\n(defn sq [x] (* x x))\n(defn poly [x] (+ (* x x) (* 3 x) 1))\n"
 			let app = "(ns cp.xu-app)\n(defn f [y] (cp.xu-lib/sq (inc y)))\n(defn g [y] [(cp.xu-lib/poly (inc y)) (cp.xu-lib/poly y)])\n"
 			try loadUnits([(lib, "\(dir)/xu/lib.clj"), (app, "\(dir)/xu/app.clj")], tag: "a")
@@ -701,7 +715,7 @@ extension CoreTests {
 			try #require(FileManager.default.isExecutableFile(atPath: tool), "\(tool): make test-compiled builds the plain clj-compile first")
 			let file = packageRoot.appendingPathComponent("Tests/PippinTests/Fixtures/dev-inline/core.clj").path
 			let expected = try String(contentsOfFile: packageRoot.appendingPathComponent("Tests/PippinTests/Fixtures/dev-inline/core.out").path, encoding: .utf8)
-			let out = URL(fileURLWithPath: String(cString: jitDir!)).appendingPathComponent("dev-inline")
+			let out = URL(fileURLWithPath: String(cString: fixtureJitDir!)).appendingPathComponent("dev-inline")
 			try? FileManager.default.removeItem(at: out)
 			try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
 			let proc = Process()
