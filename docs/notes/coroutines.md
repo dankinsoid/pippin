@@ -344,8 +344,10 @@
   results owned" with accessors inferred +0. The marks are empty macros of `value.h`, so release builds pay nothing
   for them; what a named variable costs is a TSD read and a few stores per call of the function, not per element.
   Runtime marking: 208 `CLJ_ROOTS` sites (261 variables and paths), 18 spans, 171 `CLJ_BORROWED`, 221 `CLJ_NO_CYCLE`,
-  45 `CLJ_OWNED`, 57 `CLJ_NO_PARK`, 18 `CLJ_RING`. About 20 s locally on 16 threads, 4767 functions, 1909 of them may
-  park. The fixtures in `scripts/rooting-fixtures/` must fail on each rule and nowhere else.
+  45 `CLJ_OWNED`, 57 `CLJ_NO_PARK`, 18 `CLJ_RING`. 11 s on the 3-core arm64 runner, 4770 functions, 1909 of them may
+  park. The fixtures in `scripts/rooting-fixtures/` must fail on each rule and nowhere else. Measured against main
+  (corpus-bench runs 39593265012 and 39599907911): geomean interp 1.013, core+interp 1.027, dev 0.989, closed 0.994;
+  `suite-data` 1.017 closed and 1.040 interpreted, the most a named hot path costs.
 - [ ] **What the analysis cannot see** (design §7, «Чего это не собирает»): an owned reference a C frame keeps in
   heap memory (the reader's frame stack's `meta`, the `syntax-quote` stack, the printer's iterator stack, the trie
   insert's per-level copies on the shared path), a call's result inside another call or initializer before any
