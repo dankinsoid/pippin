@@ -15,15 +15,18 @@ extension CoreTests {
 				"(pr-str (sort-by first > [[1 :a] [2 :b] [1 :c] [2 :d]]))",
 				"(pr-str (sort-by :k (fn [a b] (compare b a)) [{:k 1} {:k 3} {:k 2}]))",
 			]
+			var lines: [String] = []
+			let census = LiveCensus()
 			for round in 0..<3 {
 				for f in forms {
 					let before = settledLiveObjects("before")
 					_ = try? cljEvalScoped(f)
 					let after = settledLiveObjects("after")
-					print("PROBE round \(round) delta \(after - before): \(f)")
-					if round == 2 && after != before { clj_debug_live_report() }
+					lines.append("PROBE round \(round) delta \(after - before): \(f)")
 				}
 			}
+			lines.append("PROBE moves: " + LiveCensus().moves(since: census).joined(separator: ", "))
+			Issue.record(Comment(rawValue: lines.joined(separator: "\n")))
 		}
 	}
 }
