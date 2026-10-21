@@ -49,6 +49,8 @@ extension CoreTests {
 			(defn inner-after-park [c] (<! c) (throw (ex-info "x" {})))
 			(defn spawner [c] (go (try (inner-after-park c) (catch :default e (mapv :fn (ex-trace e))))))
 			(defn outer-spawner [c] (spawner c))
+			(defn noting [errs f] (fn [_] (try (f) (catch :default e (swap! errs conj (ex-message e))))))
+			(defn drain-count [c] (loop [n 0] (if (poll! c) (recur (inc n)) n)))
 			""")
 		}
 
@@ -169,6 +171,39 @@ extension CoreTests {
 				#expect(try eval("(let [c (chan 1) d (chan)] (put! c 1 (fn [ok] (put! d ok)) false) (<!! d))") == true)
 				#expect(message("(take! (chan) 1)") == "take! expects a fn callback, got: long")
 				#expect(message("(put! (chan) nil)") == "Can't put nil on channel")
+			}
+			base.check()
+		}
+
+		// A callback's park or reentry throws under the section; 20 waiters woken at once overflow a fixed wake batch.
+		@Test func callbacksRunOutsideTheSection() throws {
+			let base = CoroBaseline()
+			do {
+				#expect(try eval("""
+				(let [c (chan) d (chan 64) errs (atom [])]
+				  (dotimes [_ 20] (take! c (noting errs #(>!! d 1))))
+				  (close! c)
+				  (into [(drain-count d)] @errs))
+				""") == [20])
+				#expect(try eval("""
+				(let [p (a/promise-chan) d (chan 64) errs (atom [])]
+				  (dotimes [_ 20] (take! p (noting errs #(>!! d 1))))
+				  (>!! p 1)
+				  (into [(drain-count d)] @errs))
+				""") == [20])
+				// The 20 parked puts complete in one take: the step's reduced aborts them, or its filter drops them.
+				#expect(try eval("""
+				(let [c (chan 1 (take 2)) errs (atom [])]
+				  (>!! c 1)
+				  (dotimes [i 20] (put! c i (noting errs #(offer! c 9))))
+				  (into [(poll! c) (poll! c) (poll! c)] @errs))
+				""") == [1, 0, nil])
+				#expect(try eval("""
+				(let [c (chan 1 (filter odd?)) errs (atom [])]
+				  (>!! c 1)
+				  (dotimes [i 20] (put! c (* 2 i) (noting errs #(offer! c 3))))
+				  (into [(poll! c) (poll! c) (poll! c)] @errs))
+				""") == [1, 3, nil])
 			}
 			base.check()
 		}
