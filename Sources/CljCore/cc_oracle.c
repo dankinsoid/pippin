@@ -11,7 +11,7 @@
 
 #if CLJ_DEBUG
 
-enum { ORACLE_SLOTS = 1 << 14, ORACLE_MAX = ORACLE_SLOTS / 2, FRAMES_MAX = 4096, WORDS_MAX = 4 };
+enum { ORACLE_BITS = 8, ORACLE_MAX = 1 << 16, FRAMES_MAX = 4096, WORDS_MAX = 4 };
 
 typedef struct {
 	const clj_header *h;
@@ -24,11 +24,32 @@ struct clj_cc_oracle {
 	const clj_coro    *c;
 	uint32_t           owner;
 	entry             *table;
-	uint32_t           n;
+	uint32_t           bits, n;
 	bool               full;
 	const clj_header **work;
 	uint32_t           nwork;
 };
+
+static uint32_t slot_of(const clj_cc_oracle *o, const clj_header *h) {
+	return (uint32_t)(((uintptr_t)h * 0x9E3779B97F4A7C15u) >> (64 - o->bits));
+}
+
+static void grow(clj_cc_oracle *o) {
+	entry   *old = o->table;
+	uint32_t cap = 1u << o->bits;
+	o->bits++;
+	o->table = calloc((size_t)1 << o->bits, sizeof *o->table);
+	o->work = realloc(o->work, ((size_t)1 << (o->bits - 1)) * sizeof *o->work);
+	if (!o->table || !o->work) clj_fatal("out of memory");
+	uint32_t mask = (1u << o->bits) - 1;
+	for (uint32_t i = 0; i < cap; i++) {
+		if (!old[i].h) continue;
+		uint32_t j = slot_of(o, old[i].h);
+		while (o->table[j].h) j = (j + 1) & mask;
+		o->table[j] = old[i];
+	}
+	free(old);
+}
 
 static int enabled = -1;
 
@@ -38,14 +59,19 @@ static bool ours(const clj_cc_oracle *o, const clj_header *h) {
 }
 
 static entry *find(clj_cc_oracle *o, const clj_header *h) {
-	uint32_t i = (uint32_t)((((uintptr_t)h >> 3) * 0x9E3779B97F4A7C15u) >> 50) & (ORACLE_SLOTS - 1);
+	uint32_t mask = (1u << o->bits) - 1, i = slot_of(o, h);
 	while (o->table[i].h) {
 		if (o->table[i].h == h) return &o->table[i];
-		i = (i + 1) & (ORACLE_SLOTS - 1);
+		i = (i + 1) & mask;
 	}
 	if (o->n >= ORACLE_MAX) {
 		o->full = true;
 		return NULL;
+	}
+	if (2 * (o->n + 1) > (1u << o->bits)) {
+		grow(o);
+		mask = (1u << o->bits) - 1;
+		for (i = slot_of(o, h); o->table[i].h; i = (i + 1) & mask) {}
 	}
 	o->n++;
 	o->table[i].h = h;
@@ -60,12 +86,13 @@ clj_cc_oracle *clj_cc_oracle_begin(const clj_coro *c) {
 	}
 	if (!enabled || !c->debug_owner) return NULL;
 	clj_cc_oracle *o = calloc(1, sizeof *o);
-	entry         *table = calloc(ORACLE_SLOTS, sizeof *table);
-	const clj_header **work = malloc(ORACLE_MAX * sizeof *work);
+	entry         *table = calloc((size_t)1 << ORACLE_BITS, sizeof *table);
+	const clj_header **work = malloc(((size_t)1 << (ORACLE_BITS - 1)) * sizeof *work);
 	if (!o || !table || !work) clj_fatal("out of memory");
 	o->c = c;
 	o->owner = c->debug_owner;
 	o->table = table;
+	o->bits = ORACLE_BITS;
 	o->work = work;
 	return o;
 }
@@ -144,7 +171,7 @@ void clj_cc_oracle_end(clj_cc_oracle *o) {
 		const clj_header *h = o->work[--o->nwork];
 		if (h->type->each_child) h->type->each_child((void *)h, held, o);
 	}
-	for (uint32_t i = 0; i < ORACLE_SLOTS && !o->full; i++) {
+	for (uint32_t i = 0; i < (1u << o->bits) && !o->full; i++) {
 		entry            *e = &o->table[i];
 		const clj_header *h = e->h;
 		// Only what may lie on a cycle: a reference to anything else keeps no garbage alive.
