@@ -108,6 +108,11 @@ static void describe(char *out, size_t cap, uintptr_t pc) {
 
 // The stack holds redzones and words of returned frames: read as plain words, never as the sanitizer's objects.
 __attribute__((no_sanitize("address", "thread"))) static void scan(clj_cc_oracle *o, const uintptr_t *words, size_t n, uintptr_t sp) {
+#if defined(__has_feature) && __has_feature(thread_sanitizer)
+	// A stale word names any execution's object, read while its owner writes it: TSan seeds from the named alone.
+	(void)o, (void)words, (void)n, (void)sp;
+	return;
+#endif
 	uintptr_t hi = sp + n * sizeof *words;
 	for (size_t i = 0; i < n && !o->full; i++) {
 		uintptr_t w = words[i];
