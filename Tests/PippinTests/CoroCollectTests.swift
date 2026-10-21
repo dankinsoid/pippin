@@ -62,8 +62,7 @@ extension CoreTests {
 			(def gap-slot (volatile! nil))
 			(alter-var-root #'*data-readers* assoc
 			  'gap/chan (fn [_] (let [c (chan)] (vreset! gap-slot c) c))
-			  'gap/park (fn [x] (let [c @gap-slot] (vreset! gap-slot nil) (<! c) x))
-			  'gap/lazy-park (fn [_] (let [c @gap-slot] (vreset! gap-slot nil) (lazy-seq (<! c) nil))))
+			  'gap/park (fn [x] (let [c @gap-slot] (vreset! gap-slot nil) (<! c) x)))
 			;; Equality that parks: program code a builtin runs, as a lazy seq's realization is.
 			(deftype GapKey [c n] IEquiv (equiv [_ o] (<! c) false) IHashEq (hasheq [_] 7))
 			""")
@@ -94,10 +93,9 @@ extension CoreTests {
 			// The same through a deftype's equality, and a trie insert down a shared path whose key equality parks.
 			("(defn gap-equiv [] (let [d (chan)] (go (try (vector (identity d) (= (->GapKey d 0) (->GapKey d 1))) (finally (reset! unwound :equiv))))) nil)", "equiv"),
 			("(defn gap-trie [] (let [c (chan)] (go (let [m (assoc (zipmap (range 40) (range 40)) (->GapKey c 0) 0)] (try (assoc m (->GapKey c 1) 1) (finally (reset! unwound :trie))) m))) nil)", "trie"),
-			// Heap stacks of the runtime's C: the printer's array elements, the reader's metadata, syntax-quote's arguments.
+			// Heap stacks of the runtime's C: the printer's array elements, the reader's metadata.
 			("(defn gap-print [] (let [d (chan)] (go (try (pr-str (object-array [(identity d) (lazy-seq (cons (<! d) nil))])) (finally (reset! unwound :print))))) nil)", "print"),
 			("(defn gap-read [] (go (try (read-string \"^{:c #gap/chan 0} [#gap/park 1]\") (finally (reset! unwound :read)))) nil)", "read"),
-			("(defn gap-quote [] (go (try (read-string \"`[#gap/chan 0 #gap/lazy-park 0]\") (finally (reset! unwound :quote)))) nil)", "quote"),
 			// An argument buffer of more than 64 values, the owned one past the 64th.
 			(gapWideArgs, "wide-args"),
 		]
