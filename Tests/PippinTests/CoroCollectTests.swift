@@ -58,8 +58,16 @@ extension CoreTests {
 			(def alts-done (atom nil))
 			(def suspended nil)
 			(def stale-park nil)
+			;; A tagged literal hands the channel it makes to the next one, which parks on it: only the reader holds it.
+			(def gap-slot (volatile! nil))
+			(alter-var-root #'*data-readers* assoc
+			  'gap/chan (fn [_] (let [c (chan)] (vreset! gap-slot c) c))
+			  'gap/park (fn [x] (let [c @gap-slot] (vreset! gap-slot nil) (<! c) x))
+			  'gap/lazy-park (fn [_] (let [c @gap-slot] (vreset! gap-slot nil) (lazy-seq (<! c) nil))))
+			;; Equality that parks: program code a builtin runs, as a lazy seq's realization is.
+			(deftype GapKey [c n] IEquiv (equiv [_ o] (<! c) false) IHashEq (hasheq [_] 7))
 			""")
-			for k in ["v", "loop", "chan", "timeout", "suspended", "deadline", "future", "alts", "let"] { _ = kw(k) }
+			for k in ["v", "loop", "chan", "timeout", "suspended", "deadline", "future", "alts", "let", "top"] { _ = kw(k) }
 			for (_, k) in CoroCollectTests.gapShapes { _ = kw(k) }
 		}
 
@@ -78,7 +86,26 @@ extension CoreTests {
 			("(defn gap-handed [] (let [d (chan)] (go (try (<! (identity d)) (finally (reset! unwound :handed))))) nil)", "handed"),
 			// A frame of more than 64 slots, the channel past the 64th.
 			(gapWide, "wide"),
+			// A call the facts call pure realizes a lazy seq whose thunk parks: the seq an argument, a slot beside an
+			// owned value, an argument of a local fn.
+			("(defn gap-lazy [] (let [c (chan)] (go (try (first (lazy-seq (cons (<! c) nil))) (finally (reset! unwound :lazy))))) nil)", "lazy"),
+			("(defn gap-lazy-slot [] (let [d (chan)] (go (try (let [s (lazy-seq (cons (<! d) nil))] (vector (identity d) (first s))) (finally (reset! unwound :lazy-slot))))) nil)", "lazy-slot"),
+			("(defn gap-lazy-fn [] (let [d (chan)] (go (try (let [head (fn [s] (first s))] (vector (identity d) (head (map (fn [x] (<! d) x) [1])))) (finally (reset! unwound :lazy-fn))))) nil)", "lazy-fn"),
+			// The same through a deftype's equality, and a trie insert down a shared path whose key equality parks.
+			("(defn gap-equiv [] (let [d (chan)] (go (try (vector (identity d) (= (->GapKey d 0) (->GapKey d 1))) (finally (reset! unwound :equiv))))) nil)", "equiv"),
+			("(defn gap-trie [] (let [c (chan)] (go (let [m (assoc (zipmap (range 40) (range 40)) (->GapKey c 0) 0)] (try (assoc m (->GapKey c 1) 1) (finally (reset! unwound :trie))) m))) nil)", "trie"),
+			// Heap stacks of the runtime's C: the printer's array elements, the reader's metadata, syntax-quote's arguments.
+			("(defn gap-print [] (let [d (chan)] (go (try (pr-str (object-array [(identity d) (lazy-seq (cons (<! d) nil))])) (finally (reset! unwound :print))))) nil)", "print"),
+			("(defn gap-read [] (go (try (read-string \"^{:c #gap/chan 0} [#gap/park 1]\") (finally (reset! unwound :read)))) nil)", "read"),
+			("(defn gap-quote [] (go (try (read-string \"`[#gap/chan 0 #gap/lazy-park 0]\") (finally (reset! unwound :quote)))) nil)", "quote"),
+			// An argument buffer of more than 64 values, the owned one past the 64th.
+			(gapWideArgs, "wide-args"),
 		]
+
+		private static var gapWideArgs: String {
+			let ones = [String](repeating: "1", count: 64).joined(separator: " ")
+			return "(defn gap-wide-args [] (let [d (chan)] (go (try (vector \(ones) (identity d) (<! d)) (finally (reset! unwound :wide-args))))) nil)"
+		}
 
 		private static var gapWide: String {
 			let names = (0..<70).map { "w\($0)" }
@@ -170,6 +197,17 @@ extension CoreTests {
 			}
 			try abandoned("(cc-alts-abandon)", unwinds: "alts")
 			try abandoned("(cc-let-abandon)", unwinds: "let")
+		}
+
+		// A top-level form evaluated in a coroutine: its frame has no ring entry, its argument buffers are named apart.
+		// Closed compilation refuses eval.
+		@Test(arguments: ["interp", "dev"]) func aTopLevelFormsBuffersAreNamed(backend: String) throws {
+			let src = """
+			(defn gap-top [] (go (try (eval '(let [d (clojure.core.async/chan)] (vector (identity d) (clojure.core.async/<! d))))
+			  (finally (reset! unwound :top)))) nil)
+			"""
+			if backend == "interp" { _ = try eval(src) } else { try compiledEval(closed: false) { _ = try eval(src) } }
+			try abandoned("(gap-top)", unwinds: "top")
 		}
 
 		// A wrapped ring's entries are returned frames', each of which owned the channel: never read as the park's.

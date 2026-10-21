@@ -297,15 +297,19 @@
   A parked one's frames are read as its edges (`visit_frames`, design §7 «Фаза 3», «Кадры перечисляются»): the
   execution's list (`clj_frefs` on the ring header, `read_frefs`) — what a compiled frame names before a call the
   facts say may park and drops after it (`emit_frefs_push_with`: its owned temps, its owned C-variable slots, its
-  array as `CLJ_FREF_CFRAME`, a fused site's state as `CLJ_FREF_ARRAY`, a fused step's item), and the variables C
-  code of the runtime names by address (the next entry) —; the interpreter's frames on the ring
+  array as `CLJ_FREF_CFRAME`, a fused site's state as `CLJ_FREF_ARRAY`, a fused step's item), and before a call they
+  call pure only when an argument or the local fn it calls carries `CLJ_FLAG_LAZY` (`clj_c_lazy`: a lazy seq, or a
+  deftype instance whose core slot is a program fn, `birth_flags`, is at or under it), and the variables C code of
+  the runtime names by address or by heap stack (the next entry) —; the interpreter's frames on the ring
   (`clj_shadow_frame.frame`): each one's owned slots, every one from 64 slots on with the count before the slots,
   and the argument buffers on it (`clj_frame.args`, `clj_argbuf`: put on from an owned value before an argument
-  that may park — not a read, nor an intrinsic or a leaf builtin over reads — and held through a call but an
-  intrinsic's or a leaf builtin's, `clj_fn.leaf` from the facts' pure names; a frame of a bare thread's execution or
-  a top-level form takes none, `ARGS_OFF`, and a frame a collection may read evaluates its arguments out of line,
-  `eval_all_tracked`, so a bare thread's loop is the plain one), a fused program's unrecorded frame through its
-  buffer; every read through `clj_coro_parked_bytes` when evacuated; and the unshared objects those reach or `alts!`
+  that may park — not a read, nor an intrinsic or a leaf builtin over reads none of which carries `LAZY` — and held
+  through a call but an intrinsic's or a leaf builtin's, `clj_fn.leaf` from the facts' pure names, unless an owned
+  argument carries `LAZY`; a frame of a bare thread's execution takes none, `ARGS_OFF`, and a frame a collection may
+  read evaluates its arguments out of line, `eval_all_tracked`, so a bare thread's loop is the plain one; past 64
+  values, all owned, `eval_all_wide` names them by `count` and leaves the buffer on to the caller's `argrec_end`), a
+  top-level form's frame in a coroutine through `CLJ_FREF_ARGS` (`CLJ_ROOTS_ARGS` in `exec_run_at`: no ring entry
+  records it), a fused program's unrecorded frame through its buffer; every read through `clj_coro_parked_bytes` when evacuated; and the unshared objects those reach or `alts!`
   lends its waiter (`clj_waiter.ports`), each entered once, whose references to shared objects are the coroutine's
   too. A ring that ever went past its capacity (`wrapped`, set at the push) is not read: an entry below its depth
   may be a returned frame's. Debug builds stop on `cc/overcount` when a graph with no lost node counts more edges
@@ -321,13 +325,17 @@
   `timeout` waits for the timeout; a channel Swift holds keeps its park. `gapShapeIsCollected`, each in all three
   backends: the reducer's accumulator, `sort`'s seq of its items, a transducer step's item, a slot a closure
   captures, a direct fn's parameter, a slot read through the static link, an owned value beside a parking argument,
-  a last use handed to the call, a channel past a frame's 64th slot. `aParkAfterTheRingWrappedIsNotMisread`: a park
+  a last use handed to the call, a channel past a frame's 64th slot, a pure call realizing a parking lazy seq (an
+  argument, a slot beside an owned value, an argument of a local fn), a deftype's parking equality under `=` and
+  under a trie insert down a shared path, the printer's array elements, the reader's metadata, syntax-quote's
+  arguments, an owned value past a buffer's 64th; `aTopLevelFormsBuffersAreNamed` (interpreted and dev) a top-level
+  form `eval` runs in a `go`. `aParkAfterTheRingWrappedIsNotMisread`: a park
   after a 16-entry ring wrapped under frames that each owned the channel is left alone and wakes. Not collected: a
-  park of a pinned kind, and a cycle through what nothing names (design §7, «Чего это не собирает»): a function of the
-  runtime C's owned references in heap memory and unassigned temporaries ("What the analysis cannot see"), a call the
-  facts call pure that realizes a lazy seq whose thunk parks, a literal's hashing, a `def`'s watches, a top-level
-  form's frame, the interpreter's keyword lookup into a program's `ILookup` type and its protocol dispatch's impl, a
-  coroutine whose ring wrapped. Trigger: the stale-park report naming one, or the corpus's residue (NOTES "Corpus").
+  park of a pinned kind, and a cycle through what nothing names (design §7, «Чего это не собирает»): a literal's
+  hashing, a `def`'s watches, the interpreter's keyword lookup into a program's `ILookup` type and its protocol
+  dispatch's impl, a rebound builtin at a compiled site the facts call pure, a published lazy seq a pure call
+  realizes, a deftype with a parking core method made by a compiled callee the facts call pure, a coroutine whose
+  ring wrapped. Trigger: the stale-park report naming one, or the corpus's residue (NOTES "Corpus").
 - [ ] **The interpreter pays about 4 % for reading a parked frame's buffers** (design §7, «Фаза 3», «Цена»): A/B
   against main's `eval.c` over the branch, run 39299367250, interp 1.041 and core+interp 1.028, bare threads
   1.01–1.05 though they put no buffer on. Left: the `args` store and the `wrapped` test in `run_body`, the hold on
@@ -336,30 +344,26 @@
   рантайма», «Гарантия»; `roots_internal.h`, `scripts/rooting-hazards.py`). `CLJ_ROOTS(&a, &b)` puts the tagged
   addresses of owned variables on the execution's frame-reference list for the rest of the block (`cleanup` drops
   them; a `Stack overflow` landing restores the length); `CLJ_ROOTS_SPAN(&items, &n)` an array by its pointer and
-  `size_t` length. Invariant: at each call that may park a named variable holds an owned reference or nil, so a
-  hand-over clears it first (`t = x; x = CLJ_NIL; r = conj(t, …)`), and so does a release before a later call.
+  `size_t` length; `CLJ_ROOTS_FIELD(&items, &n, field)` one field of each of a heap stack's n structs (the reader's
+  frame `meta`, the printer's iterator `held` and `item`). Owned values a stack's frame keeps in an array go on one
+  value stack named as a span, each frame remembering where its own begin (the printer's array elements,
+  syntax-quote's arguments); a trie `assoc` or `dissoc` keeps the references `descend` takes down a shared path in
+  `edit.path`, one span a call. Invariant: at each call that may park a named variable holds an owned reference or
+  nil, so a hand-over clears it first (`t = x; x = CLJ_NIL; r = conj(t, …)`), and so does a release before a later
+  call.
   `make rooting-hazards` (in `make gates`) enforces it over the AST (libclang of the active Xcode): may-park is
   `clj_park` propagated through the call graph and every function pointer not `CLJ_NO_PARK`; a local live across such
   a call is named, `CLJ_BORROWED`, `CLJ_NO_CYCLE` or (eval.c) `CLJ_RING`; ownership follows "arguments borrowed,
-  results owned" with accessors inferred +0. The marks are empty macros of `value.h`, so release builds pay nothing
+  results owned" with accessors inferred +0. A struct field pointing at an array of structs that hold references is
+  a heap stack, its entries' owned fields named field by field; a pointer into one is a view. A call's owned result
+  that is an operand of a call or an initializer is a temporary, a hazard while a sibling operand that may park
+  runs, unless the initializer's field is `CLJ_BORROWED` or `CLJ_NO_CYCLE`. The marks are empty macros of `value.h`, so release builds pay nothing
   for them; what a named variable costs is a TSD read and a few stores per call of the function, not per element.
-  Runtime marking: 208 `CLJ_ROOTS` sites (261 variables and paths), 18 spans, 171 `CLJ_BORROWED`, 221 `CLJ_NO_CYCLE`,
-  45 `CLJ_OWNED`, 57 `CLJ_NO_PARK`, 18 `CLJ_RING`. 11 s on the 3-core arm64 runner, 4770 functions, 1909 of them may
-  park. The fixtures in `scripts/rooting-fixtures/` must fail on each rule and nowhere else. Measured against main
+  Runtime marking: 212 `CLJ_ROOTS` sites (265 variables and paths), 22 spans, 3 field spans, 1 `CLJ_ROOTS_ARGS`, 178
+  `CLJ_BORROWED`, 227 `CLJ_NO_CYCLE`, 45 `CLJ_OWNED`, 57 `CLJ_NO_PARK`, 18 `CLJ_RING`. 11 s on the 3-core arm64
+  runner, 4783 functions, 1910 of them may park. The fixtures in `scripts/rooting-fixtures/` must fail on each rule and nowhere else. Measured against main
   (corpus-bench runs 39593265012 and 39599907911): geomean interp 1.013, core+interp 1.027, dev 0.989, closed 0.994;
   `suite-data` 1.017 closed and 1.040 interpreted, the most a named hot path costs.
-- [ ] **What the analysis cannot see** (design §7, «Чего это не собирает»): an owned reference a C frame keeps in
-  heap memory (the reader's frame stack's `meta`, the `syntax-quote` stack, the printer's iterator stack, the trie
-  insert's per-level copies on the shared path), a call's result inside another call or initializer before any
-  variable holds it, a top-level form's argument buffers and buffers past 64 values. Each only leaks. Trigger: the
-  frame oracle naming one, or the leak fuzzer's residue.
-  The oracle named one already: a compiled call the facts call pure (`first`, `doall`) that realizes a lazy seq
-  whose thunk parks writes no frame references, so the frame's owned temporaries and slots go unnamed
-  (`cc/frame-missed` on the lazy seq the dev-compiled `(first (lazy-seq (cons (<! c) nil)))` held, run 39589318892).
-  The interpreter's builtins hold their buffer when an owned argument carries `CLJ_FLAG_LAZY`; the compiled side
-  would ask `clj_facts_may_park` to answer yes for any call whose argument may be a seq, a push on most untyped
-  calls. The leak fuzzer keeps those shapes to the interpreter. Trigger: a compiled program leaking through one, or
-  a cheaper test than the argument's type (a runtime test of the flag the emitter can place before a pure call).
 - **The frame oracle** (design §7, «Оракул»; `cc_oracle.c`, debug builds, `CLJ_CC_ORACLE=0` turns it off). On each
   read of a parked coroutine, every unshared object of it that may lie on a cycle has exactly the references its
   frames' enumeration names plus the edges of its other unshared objects and its own fields; more is

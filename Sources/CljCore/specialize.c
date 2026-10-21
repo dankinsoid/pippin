@@ -20,7 +20,7 @@
 // What the index answered for the join, not what the parameters entered at: a self-site's contribution is derived
 // from this, so this is what moving invalidates.
 typedef struct {
-	clj_value           var;
+	CLJ_NO_CYCLE clj_value var;
 	const clj_node     *fn;
 	const clj_fn_arity *arity;
 	uint32_t            nparams;
@@ -28,7 +28,7 @@ typedef struct {
 } join_dep;
 
 struct clj_derivation {
-	clj_value   *dep_vars;
+	CLJ_NO_CYCLE clj_value *dep_vars;
 	uint32_t    *dep_epochs;
 	uint32_t     ndeps;
 	join_dep    *joins;

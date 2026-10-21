@@ -498,6 +498,7 @@ typedef struct fnctx {
 	cljc_let_go          let_go[CLJC_LET_GO_MAX]; // a lazy-seq thunk's tail cons sites and the captures each lets go
 	size_t               nlet_go;
 	bool                 frefs; // the frame fn declares FR and F0, its references across a call that may park
+	uint8_t              frefs_open; // a push awaiting its pop: 1, or 2 when it was taken only if an argument carried LAZY
 	// Owned C-variable slots that may hold a value where emission is: bound earlier, or anywhere in an enclosing loop.
 	// A slot keeps its value past its let until a rebind, its drop or the frame's exit.
 	uint64_t             bound;
@@ -2661,12 +2662,69 @@ typedef struct {
 	uint32_t    n;
 } fref_array;
 
+// Types whose value may be a lazy seq or hold one under it (CLJ_FLAG_LAZY is the OR of the children's).
+#define LAZY_CARRIERS (CLJ_T_TOP & ~(CLJ_T_NIL | CLJ_T_BOOL | CLJ_T_FIXNUM | CLJ_T_LONG | CLJ_T_BIGINT | CLJ_T_RATIO | CLJ_T_DECIMAL | CLJ_T_DOUBLE | \
+                                     CLJ_T_CHAR | CLJ_T_STRING | CLJ_T_KEYWORD | CLJ_T_SYMBOL | CLJ_T_VAR | CLJ_T_UUID | CLJ_T_INST | CLJ_T_REGEX))
+
+// The i-th argument's node, where the temps are the call's arguments in order.
+static const clj_node *frefs_arg_node(const clj_node *call, uint32_t nargs, uint32_t i) {
+	switch (call->kind) {
+	case CLJ_NODE_INVOKE: return nargs == call->u.invoke.n ? call->u.invoke.args[i] : NULL;
+	case CLJ_NODE_INTRINSIC: return nargs == call->u.intrinsic.n ? call->u.intrinsic.args[i] : NULL;
+	default: return NULL;
+	}
+}
+
+// Builtins that read no argument past its type, identity or number: none realizes a lazy seq it is given.
+static bool never_realizes(const clj_node *call) {
+	static const char *const names[] = {"+", "-", "*", "/", "quot", "rem", "inc", "dec", "<", "<=", ">", ">=", "==", "identical?", "long", "int",
+	                                    "unchecked-add", "unchecked-subtract", "unchecked-inc", "unchecked-dec", "unchecked-add-int",
+	                                    "unchecked-subtract-int", "unchecked-inc-int", "unchecked-dec-int", "not", "nil?", "zero?", "pos?", "neg?",
+	                                    "even?", "odd?", "number?", "integer?", "char?", "string?", "keyword?", "symbol?", "fn?", "vector?", "map?",
+	                                    "set?", "list?", "seq?", "seqable?", "sequential?", "coll?", "counted?", "ifn?", "associative?", "indexed?",
+	                                    "cons", "aget", "aset", "alength", "mutable-field*", "set-field!*"};
+	if (call->kind == CLJ_NODE_INVOKE) {
+		const clj_node *h = call->u.invoke.fn;
+		return h->kind == CLJ_NODE_VAR && (var_named(h->u.var.v, "clojure.core", "field*") || var_named(h->u.var.v, "clojure.core", "new*"));
+	}
+	if (call->kind != CLJ_NODE_INTRINSIC) return false;
+	const char *nm = call->u.intrinsic.op->name;
+	if (strncmp(nm, "clojure.core/", 13) != 0) return false;
+	for (size_t i = 0; i < sizeof names / sizeof *names; i++) {
+		if (strcmp(nm + 13, names[i]) == 0) return true;
+	}
+	return false;
+}
+
+static void frefs_lazy_test(const fnctx *f, sb *test, const clj_node *n, const char *name) {
+	if (n && n->kind == CLJ_NODE_CONST && !(clj_is_ptr(n->u.value.v) && (clj_header_of(n->u.value.v)->flags & CLJ_FLAG_LAZY))) return;
+	const clj_fact *a = n && f->facts ? clj_facts_node(f->facts, n->id) : NULL;
+	if (a && !(a->types & LAZY_CARRIERS)) return;
+	sb_printf(test, "%sclj_c_lazy(%s)", test->len ? " || " : "", name);
+}
+
 // What the frame's unwind would release, but the arguments the call takes over: its owned temps, the owned
 // C-variable slots in scope and its array's owned slots (fr, read where it is). A collection that finds the coroutine
 // parked inside the call reads them as its edges; a reference left out only reads as held from outside. Nothing
 // between push and pop may jump.
-static bool emit_frefs_push_with(fnctx *f, const clj_node *call, const temp *args, uint32_t nargs, uint64_t taken, const fref_array *extra) {
-	if (!f->frefs || (f->facts && !clj_facts_may_park(f->facts, call->id))) return false;
+// A call the facts call pure runs no program code but a lazy seq's realization or a deftype's core method: it names
+// them only when an argument, or the local fn it calls, carries CLJ_FLAG_LAZY. One reached otherwise is published (a
+// var's, an atom's) or the callee's own: a lazy seq's making puts its thunk's park in the callee's facts, a deftype's
+// does not, which only leaks (design §7, «Чего это не собирает»).
+static bool frefs_push(fnctx *f, const clj_node *call, const temp *args, uint32_t nargs, uint64_t taken, const fref_array *extra, const char *head) {
+	if (f->frefs_open) clj_ice("emit/frefs-nested", call, "a call's frame references pushed while another call's are");
+	if (!f->frefs) return false;
+	bool cond = f->facts && !clj_facts_may_park(f->facts, call->id);
+	sb   test = {0};
+	if (cond && never_realizes(call)) return false;
+	if (cond) {
+		for (uint32_t i = 0; i < nargs; i++) frefs_lazy_test(f, &test, frefs_arg_node(call, nargs, i), args[i].name);
+		if (head) frefs_lazy_test(f, &test, NULL, head);
+		if (!test.len) {
+			sb_free(&test);
+			return false;
+		}
+	}
 	sb       list = {0};
 	uint32_t k = 0, refs = 0;
 	for (int i = 0; i < f->nlive; i++) {
@@ -2692,21 +2750,32 @@ static bool emit_frefs_push_with(fnctx *f, const clj_node *call, const temp *arg
 		refs++;
 	}
 	if (k) {
+		if (cond) sb_printf(&f->out, "\tif (__builtin_expect(%s, 0)) {\n", test.s);
 		sb_printf(&f->out, "\tif (!FR) FR = clj_c_frefs(&F0);\n\t{\n\t\tclj_value *Fv = clj_c_frefs_at(FR, F0, %u);\n%s\t\tFR->n = F0 + %u;\n\t}\n", k,
 		          list.s, k);
-		f->u->slots.frefs_sites++;
+		if (cond) sb_puts(&f->out, "\t}\n");
+		if (cond) f->u->slots.frefs_lazy++;
+		else f->u->slots.frefs_sites++;
 		f->u->slots.frefs_refs += refs;
+		f->frefs_open = cond ? 2 : 1;
 	}
 	sb_free(&list);
+	sb_free(&test);
 	return k != 0;
 }
 
-static bool emit_frefs_push(fnctx *f, const clj_node *call, const temp *args, uint32_t nargs, uint64_t taken) {
-	return emit_frefs_push_with(f, call, args, nargs, taken, NULL);
+static bool emit_frefs_push_with(fnctx *f, const clj_node *call, const temp *args, uint32_t nargs, uint64_t taken, const fref_array *extra) {
+	return frefs_push(f, call, args, nargs, taken, extra, NULL);
 }
 
+static bool emit_frefs_push(fnctx *f, const clj_node *call, const temp *args, uint32_t nargs, uint64_t taken) {
+	return frefs_push(f, call, args, nargs, taken, NULL, NULL);
+}
+
+// A conditional push may not have run: FR is then NULL, or the list is at F0 already.
 static void emit_frefs_pop(fnctx *f, bool pushed) {
-	if (pushed) sb_puts(&f->out, "\tFR->n = F0;\n");
+	if (pushed) sb_puts(&f->out, f->frefs_open == 2 ? "\tif (FR) FR->n = F0;\n" : "\tFR->n = F0;\n");
+	f->frefs_open = 0;
 }
 
 // A direct call of an owned entry (design §7 «Владеющие параметры»): every owned argument is made +1 first — a dying
@@ -2803,7 +2872,8 @@ static void emit_invoke_boxed(fnctx *f, const clj_node *n, direct_entry *d, bool
 	clj_value method = nargs >= 1 && nargs <= CLJ_FN_MAX_FIXED ? protocol_method_root(head) : CLJ_NIL;
 	bool      folded = false;
 	// The owned arm names them itself, after its takes.
-	bool pushed = !(direct && omask && clj_is_nil(method)) && emit_frefs_push(f, n, args, nargs, 0);
+	bool local_fn = head->kind != CLJ_NODE_VAR && head->kind != CLJ_NODE_CONST;
+	bool pushed = !(direct && omask && clj_is_nil(method)) && frefs_push(f, n, args, nargs, 0, NULL, local_fn ? fn.name : NULL);
 	if (f->c->opts.closed && nargs == 2 && head->kind == CLJ_NODE_VAR && !d && var_named(head->u.var.v, "clojure.core", "satisfies?")) folded = emit_satisfies(f, n, &fn, args, array, &r);
 	else if (f->c->opts.closed && nargs == 2 && head->kind == CLJ_NODE_VAR && !d && var_named(head->u.var.v, "clojure.core", "extends?")) folded = emit_extends(f, n, &fn, args, array, &r);
 	if (!folded && !clj_is_nil(method)) {
@@ -3622,19 +3692,20 @@ static void mono_intrinsic_n(fnctx *f, sb *s, const char *name, uint32_t arity, 
 
 static void mono_intrinsic(fnctx *f, sb *s, const char *name, const char *arg, const char *result) { mono_intrinsic_n(f, s, name, 1, &arg, result); }
 
-// A step's own reference across a call into a stage or the consumer that may park: held, named in the list (design
-// §7, «Фаза 3»); the step's FR and F0 are declared where park is.
+// A step's own item across a stage or consumer call that may park (design §7, «Фаза 3»); at a site the facts call
+// pure, only a lazy item can park there, by its realization.
 static void mono_push(sb *s, bool park, const char *held) {
-	if (park && held) sb_printf(s, "\tif (!FR) FR = clj_c_frefs(&F0);\n\t*clj_c_frefs_at(FR, F0, 1) = %s;\n\tFR->n = F0 + 1;\n", held);
+	if (!held) return;
+	if (!park) sb_printf(s, "\tif (__builtin_expect(clj_c_lazy(%s), 0)) {\n", held);
+	sb_printf(s, "\tif (!FR) FR = clj_c_frefs(&F0);\n\t*clj_c_frefs_at(FR, F0, 1) = %s;\n\tFR->n = F0 + 1;\n", held);
+	if (!park) sb_puts(s, "\t}\n");
 }
 
 static void mono_pop(sb *s, bool park, const char *held) {
-	if (park && held) sb_puts(s, "\tFR->n = F0;\n");
+	if (held) sb_puts(s, park ? "\tFR->n = F0;\n" : "\tif (FR) FR->n = F0;\n");
 }
 
-static void mono_frefs_decl(sb *s, bool park) {
-	if (park) sb_puts(s, "\tclj_frefs *FR = NULL;\n\tuint32_t F0 = 0;\n\t(void)FR;\n\t(void)F0;\n");
-}
+static void mono_frefs_decl(sb *s) { sb_puts(s, "\tclj_frefs *FR = NULL;\n\tuint32_t F0 = 0;\n\t(void)FR;\n\t(void)F0;\n"); }
 
 // The stage fn called on what a holds, call being the expression emit_mono_step made for it; t is its answer.
 static void mono_call(sb *s, bool park, const char *held, const char *call, uint32_t stub) {
@@ -3694,7 +3765,7 @@ static void emit_mono_segment(fnctx *f, const mono_plan *p, mono_emit *e, uint32
 	sb s = {0};
 	sb_printf(&s, "static CLJC_FRAME int %s(void *ctx, const clj_value *xs, clj_fused_sink *sink) {\n\tclj_value *fz = ctx;\n\tclj_value v, t, u, w, a[4];\n", name);
 	sb_puts(&s, "\tint h = CLJ_FUSED_GO;\n\t(void)t;\n\t(void)u;\n\t(void)w;\n\t(void)a;\n");
-	mono_frefs_decl(&s, e->park);
+	mono_frefs_decl(&s);
 	bool multi = first && p->nsources > 1;
 	if (multi) {
 		// the multi-coll map: its fn over one item of each coll
@@ -3866,7 +3937,7 @@ static void emit_mono_flush(fnctx *f, const mono_plan *p, mono_emit *e, const ch
 	sb s = {0};
 	sb_printf(&s, "static CLJC_FRAME int %s(void *ctx, clj_fused_sink *sink) {\n\tclj_value *fz = ctx;\n\tclj_value v, t, a[4];\n\tint r;\n", name);
 	sb_puts(&s, "\t(void)v;\n\t(void)t;\n\t(void)a;\n\t(void)r;\n");
-	mono_frefs_decl(&s, e->park);
+	mono_frefs_decl(&s);
 	for (uint32_t i = p->nstages; i-- > 0;) {
 		bool scan = p->kind[i] == MONO_SCAN && p->init[i] == UINT32_MAX;
 		if (p->kind[i] != MONO_PARTITION_ALL && !scan) continue;
@@ -3906,7 +3977,7 @@ static void emit_mono_begin(fnctx *f, const mono_plan *p, mono_emit *e, const ch
 	sb_printf(&f->u->protos, "static int %s(void *ctx, clj_fused_sink *sink);\n", name);
 	sb s = {0};
 	sb_printf(&s, "static CLJC_FRAME int %s(void *ctx, clj_fused_sink *sink) {\n\tclj_value *fz = ctx;\n\tclj_value v, t;\n\tint r;\n", name);
-	mono_frefs_decl(&s, e->park);
+	mono_frefs_decl(&s);
 	for (uint32_t i = 0; i < p->nstages; i++) {
 		if (p->kind[i] != MONO_SCAN || p->init[i] == UINT32_MAX) continue;
 		char call[400];
@@ -5400,9 +5471,10 @@ static const char *const reflective_roots[] = {
     "ns-publics", "ns-interns", "ns-map", "ns-refers", "ns-imports", "all-ns", "alter-var-root",
 };
 
+// Vars and symbols.
 typedef struct {
-	clj_value *v;
-	size_t     n, cap;
+	CLJ_NO_CYCLE clj_value *v;
+	size_t                  n, cap;
 } vlist;
 
 static void vlist_add(vlist *l, clj_value v) {

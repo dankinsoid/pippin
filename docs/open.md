@@ -219,7 +219,6 @@ file. 140 open, 120 partly done.
 - [~] The guard page of a coroutine works like a thread's — A `try` inside the coroutine does not see it, as at the host boundary (same trigger as there).
 - [~] A coroutine abandoned while parked is collected by cancelling it — Triggers: a channel released to nonzero, as for any cycle
 - [ ] The interpreter pays about 4 % for reading a parked frame's buffers — Trigger: interpreter speed becoming a goal.
-- [ ] What the analysis cannot see — Trigger: the frame oracle naming one, or the leak fuzzer's residue.
 - [ ] Not done, with triggers: `Runtime.eval` from a bare thread that parks blocks that thread … — Not done, with triggers: `Runtime.eval` from a bare thread that parks blocks that thread (the JVM's `<!!`)
 
 ### [Corpus (corpus/, Tests/PippinTests/CorpusTests.swift, docs/corpus.md)](notes/corpus.md)

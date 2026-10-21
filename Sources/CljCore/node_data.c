@@ -272,8 +272,8 @@ static clj_value encode_capture(const clj_capture *c) {
 }
 
 static clj_value encode_fn(const clj_node *n) {
-	if (n->kind == CLJ_NODE_DIRECT_FN) return vec3(kw_direct_fn, clj_retain(n->u.fn.name.v), encode_arities(n));
 	clj_value arities = encode_arities(n);
+	if (n->kind == CLJ_NODE_DIRECT_FN) return vec3(kw_direct_fn, clj_retain(n->u.fn.name.v), arities);
 	CLJ_ROOTS(&arities);
 	clj_value *captures = zalloc(n->u.fn.ncaptures, sizeof *captures);
 	for (uint32_t i = 0; i < n->u.fn.ncaptures; i++) captures[i] = encode_capture(&n->u.fn.captures[i]);
@@ -302,10 +302,12 @@ static clj_value encode_try(const clj_node *n) {
 		const clj_catch *c = &n->u.try_.catches[i];
 		if (c->kind == CLJ_CATCH_KEYWORD || c->kind == CLJ_CATCH_HOST) {
 			clj_value head = c->kind == CLJ_CATCH_KEYWORD ? kw_catch_kw : kw_catch_host;
-			clj_value items[4] = {head, clj_fixnum(c->slot), encode(c->handler), clj_retain(c->selector)};
+			clj_value handler = encode(c->handler);
+			clj_value items[4] = {head, clj_fixnum(c->slot), handler, clj_retain(c->selector)};
 			catches[i] = vec_take(items, 4);
 		} else if (c->kind == CLJ_CATCH_TYPE) {
-			clj_value items[4] = {kw_catch_type, clj_fixnum(c->slot), encode(c->handler), qualified(c->selector)};
+			clj_value handler = encode(c->handler);
+			clj_value items[4] = {kw_catch_type, clj_fixnum(c->slot), handler, qualified(c->selector)};
 			catches[i] = vec_take(items, 4);
 		} else {
 			catches[i] = vec3(c->kind == CLJ_CATCH_ALL ? kw_all : kw_error, clj_fixnum(c->slot), encode(c->handler));
@@ -323,8 +325,13 @@ static clj_value encode_try(const clj_node *n) {
 static clj_value encode_fused(const clj_node *n) {
 	CLJ_NO_CYCLE clj_value *names = zalloc(n->u.fused.nguards, sizeof *names);
 	for (uint32_t i = 0; i < n->u.fused.nguards; i++) names[i] = clj_symbol_from_cstr(n->u.fused.guards[i]->name);
-	clj_value items[5] = {kw_fused, vec_take(names, n->u.fused.nguards), encode_all(n->u.fused.args, n->u.fused.nargs), encode(n->u.fused.fused),
-	                      encode(n->u.fused.original)};
+	clj_value args = encode_all(n->u.fused.args, n->u.fused.nargs);
+	CLJ_ROOTS(&args);
+	clj_value fused = encode(n->u.fused.fused);
+	CLJ_ROOTS(&fused);
+	clj_value original = encode(n->u.fused.original);
+	clj_value items[5] = {kw_fused, vec_take(names, n->u.fused.nguards), args, fused, original};
+	args = fused = CLJ_NIL;
 	free(names);
 	return vec_take(items, 5);
 }
@@ -361,9 +368,19 @@ static clj_value encode_kind(const clj_node *n) {
 	case CLJ_NODE_VECTOR: return tagged(kw_vector, n->u.seq.items, n->u.seq.n);
 	case CLJ_NODE_MAP: return tagged(kw_map, n->u.seq.items, n->u.seq.n);
 	case CLJ_NODE_SET: return tagged(kw_set, n->u.seq.items, n->u.seq.n);
-	case CLJ_NODE_LET: return vec3(kw_let, encode_bindings(n), encode(n->u.let.body));
-	case CLJ_NODE_LOOP: return vec3(kw_loop, encode_bindings(n), encode(n->u.let.body));
-	case CLJ_NODE_RECUR: return vec3(kw_recur, encode_slots(n->u.recur.slots, n->u.recur.n), encode_all(n->u.recur.args, n->u.recur.n));
+	case CLJ_NODE_LET:
+	case CLJ_NODE_LOOP: {
+		clj_value bindings = encode_bindings(n);
+		CLJ_ROOTS(&bindings);
+		clj_value body = encode(n->u.let.body);
+		clj_value v = vec3(n->kind == CLJ_NODE_LET ? kw_let : kw_loop, bindings, body);
+		bindings = CLJ_NIL;
+		return v;
+	}
+	case CLJ_NODE_RECUR: {
+		clj_value args = encode_all(n->u.recur.args, n->u.recur.n);
+		return vec3(kw_recur, encode_slots(n->u.recur.slots, n->u.recur.n), args);
+	}
 	case CLJ_NODE_FN:
 	case CLJ_NODE_DIRECT_FN: return encode_fn(n);
 	case CLJ_NODE_DIRECT_CALL: return encode_direct_call(n);
@@ -391,8 +408,11 @@ static clj_value encode_kind(const clj_node *n) {
 		return v;
 	}
 	case CLJ_NODE_DEF: {
-		clj_value items[7] = {kw_def, qualified(n->u.def.var.v), encode_opt(n->u.def.init), encode(n->u.def.meta), clj_bool(n->u.def.macro),
-		                      clj_bool(n->u.def.dynamic), kw_lazy_kinds[n->u.def.lazy]};
+		clj_value init = encode_opt(n->u.def.init);
+		CLJ_ROOTS(&init);
+		clj_value meta = encode(n->u.def.meta);
+		clj_value items[7] = {kw_def, qualified(n->u.def.var.v), init, meta, clj_bool(n->u.def.macro), clj_bool(n->u.def.dynamic), kw_lazy_kinds[n->u.def.lazy]};
+		init = CLJ_NIL;
 		return vec_take(items, 7);
 	}
 	case CLJ_NODE_TRY: return encode_try(n);

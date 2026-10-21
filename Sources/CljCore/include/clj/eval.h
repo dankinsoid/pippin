@@ -47,6 +47,7 @@ typedef struct clj_argbuf {
 	uint64_t                  owned; // vals[i] is owned where bit i is set
 	const clj_frame          *frame; // a frame no ring entry records (a fused program's), read with the buffer
 	const struct clj_argbuf  *prev;
+	size_t                    count; // past 64 values, where every one is owned: vals[0, count) are, and owned is not read
 } clj_argbuf;
 
 // Slot ownership: a fixed param and the self slot borrow from the caller's argument array, which the +0

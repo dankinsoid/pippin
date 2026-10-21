@@ -190,8 +190,9 @@
 - **The deep walk of a replaced var root** (`clj_rc_release_root` in `rc.c`, `clj_cc_deep_release` and
   `collect_deep` in `cc.c`; design §7 «Сборщик циклов: как он устроен», «Корень вара», which holds the why). A
   lazy seq realized into a value that reaches it back through a var (`(def s (lazy-seq (cons 1 s)))`, then a
-  redefinition) is a ring with no `REACH` on it. `CLJ_FLAG_LAZY` is born with a lazy seq and OR'd like `REACH` by
-  `clj_reach_from`, `clj_reach_copy` and the two `memcpy` clones; it makes no candidate. `clj_var_bind_root` is the one
+  redefinition) is a ring with no `REACH` on it. `CLJ_FLAG_LAZY` is born with a lazy seq (and with a deftype
+  instance whose core slot is a program fn, `birth_flags`: a builtin touching it runs program code, which a compiled
+  pure site tests for) and OR'd like `REACH` by `clj_reach_from`, `clj_reach_copy` and the two `memcpy` clones; it makes no candidate. `clj_var_bind_root` is the one
   place a root is swapped (`def`, `alter-var-root`, `intern` with a value, a compiled unit's and a shaken var's
   bind, Swift's `Runtime` definitions, `in-ns`, `load`'s `*file*`), and it releases the old root through
   `clj_rc_release_root`, as do both drains of the retired fn roots (`eval.c`). A deep release of a shared object with

@@ -980,6 +980,9 @@ static void fill_slots(clj_user_type *ut) {
 	else if (bits & CLJ_CORE_SEQUENTIAL) t->hash = clj_aseq_hash;
 	if (!clj_is_nil(m[CLJ_CM_EQUALS])) t->equals = user_equals;
 	else if (bits & CLJ_CORE_SEQUENTIAL) t->equals = clj_aseq_equals;
+	for (size_t i = 0; i < CLJ_CORE_METHOD_COUNT; i++) {
+		if (!clj_is_nil(m[i])) ut->birth_flags = CLJ_FLAG_LAZY;
+	}
 }
 
 typedef struct {
@@ -1292,6 +1295,7 @@ clj_value clj_instance_make_mutable(const clj_user_type *ut, const clj_value *fi
 	clj_instance *o = clj_alloc(&ut->t, sizeof *o + (n + (ut->owned ? 1 : 0)) * sizeof *o->fields);
 	// before the slots: a MUTABLE owner takes no reach bits from its children, so it is born with them (object.h)
 	if (ut->heap_mut) o->h.flags |= CLJ_FLAG_MUTABLE | CLJ_FLAG_REACH | clj_cc_born_local();
+	o->h.flags |= ut->birth_flags;
 	for (size_t i = 0; i < n; i++) {
 		if (ut->muts[i] & CLJ_FIELD_RAW) clj_slot_set_bits(&o->fields[i], raw_bits((clj_field_hint)ut->hints[i], fields[i]), memory_order_relaxed);
 		else clj_slot_init(&o->h, &o->fields[i], clj_retain(fields[i]));

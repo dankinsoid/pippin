@@ -39,6 +39,7 @@ clj_value clj_b_new_star(const clj_value *args, size_t n);
 static inline clj_value clj_instance_make(const clj_user_type *ut, const clj_value *fields, size_t n) {
 	if (__builtin_expect(ut->muts != NULL, 0)) return clj_instance_make_mutable(ut, fields, n);
 	clj_instance *o = clj_alloc(&ut->t, sizeof *o + n * sizeof *o->fields);
+	o->h.flags |= ut->birth_flags;
 	for (size_t i = 0; i < n; i++) clj_slot_init(&o->h, &o->fields[i], clj_retain(fields[i]));
 	clj_retain(clj_from_ptr((void *)ut));
 	return clj_from_ptr(o);

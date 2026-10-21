@@ -26,14 +26,8 @@ private struct SplitMix {
 private struct LeakProgram {
 	var rng: SplitMix
 	var chans: [String] = []
-	// A compiled site the facts call pure names nothing while a lazy seq it realizes parks (NOTES "Coroutines",
-	// "What the analysis cannot see"): those shapes run interpreted only.
-	let compiled: Bool
 
-	init(seed: UInt64, compiled: Bool) {
-		rng = SplitMix(state: seed)
-		self.compiled = compiled
-	}
+	init(seed: UInt64) { rng = SplitMix(state: seed) }
 
 	private mutating func chan() -> String { rng.pick(chans) }
 
@@ -49,12 +43,11 @@ private struct LeakProgram {
 		if depth == 0 || rng.below(3) == 0 { return base }
 		let p = park(depth - 1)
 		let coll = coll()
-		let realized = [
+		return rng.pick([
 			"(doall (map (fn [x] \(p) x) \(coll)))",
 			"(first (filter (fn [x] \(p) true) \(coll)))",
 			"(first (lazy-seq (cons \(p) nil)))",
-		]
-		return rng.pick((compiled ? [] : realized) + [
+			"(count (pr-str (object-array [\(c) (lazy-seq (cons \(p) nil))])))",
 			"(reduce (fn [acc x] \(p) (conj acc x)) [] \(coll))",
 			"(into [] (map (fn [x] \(p) x)) \(coll))",
 			"(mapv (fn [x] \(p) x) \(coll))",
@@ -110,7 +103,7 @@ extension CoreTests {
 
 		private static func run(_ backend: String, _ i: Int) throws {
 			let seed = fuzzSeed &+ UInt64(i) &* 7919 &+ UInt64(backend.utf8.count)
-			var program = LeakProgram(seed: seed, compiled: backend != "interp")
+			var program = LeakProgram(seed: seed)
 			let name = "leak-\(backend)-\(seed)"
 			let src = program.source(name)
 			let def = { _ = try cljEvalScoped("(in-ns 'leak-fuzz-tests) " + src) }

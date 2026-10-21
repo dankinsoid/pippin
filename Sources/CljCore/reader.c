@@ -223,7 +223,7 @@ static clj_value wrap(clj_value sym, clj_value v) {
 // ---- syntax-quote, expanded at read time exactly as Clojure's LispReader does
 
 typedef struct {
-	parser   *p;
+	CLJ_BORROWED parser *p;
 	clj_value gensyms; // map: auto-gensym symbol → its generated symbol
 	uint32_t  line, col;
 } sq;
@@ -369,17 +369,19 @@ static clj_value sq_atom(sq *q, clj_value form) {
 	return list_owning(pair, 2);
 }
 
-// One collection being rebuilt: its items, and the concat arguments produced for them so far.
+// One collection being rebuilt: its items, and the concat arguments produced for them so far, the last i of the
+// stack's vals from start.
 typedef struct {
-	clj_value  form;
-	clj_value *items; // borrowed
-	clj_value *args;  // owned
-	size_t     n, i;
+	CLJ_BORROWED clj_value  form;
+	CLJ_BORROWED clj_value *items;
+	size_t                  start, n, i;
 } sq_frame;
 
 typedef struct {
-	sq_frame *items;
-	size_t    n, cap;
+	sq_frame  *items;
+	size_t     n, cap;
+	clj_value *vals; // owned: each open frame's arguments, an inner frame's on top of its parent's
+	size_t     nvals, vcap;
 } sq_stack;
 
 static void sq_push(sq_stack *s, clj_value form) {
@@ -391,20 +393,32 @@ static void sq_push(sq_stack *s, clj_value form) {
 	sq_frame *f = &s->items[s->n++];
 	f->form = form;
 	f->items = coll_items(form, &f->n);
-	f->args = calloc(f->n + 1, sizeof *f->args);
-	if (!f->args) clj_fatal("out of memory");
+	f->start = s->nvals;
 	f->i = 0;
+}
+
+// Consumes v: the top frame's next argument.
+static void sq_put(sq_stack *s, clj_value v) {
+	if (s->nvals == s->vcap) {
+		s->vcap = s->vcap ? s->vcap * 2 : 16;
+		s->vals = realloc(s->vals, s->vcap * sizeof *s->vals);
+		if (!s->vals) clj_fatal("out of memory");
+	}
+	s->vals[s->nvals++] = v;
+	s->items[s->n - 1].i++;
 }
 
 // Pops the frame and builds its expansion.
 static clj_value sq_pop(sq_stack *s) {
-	sq_frame *f = &s->items[--s->n];
-	clj_value v;
-	if (clj_is_vector(f->form)) v = apply_to("vector", f->args, f->n);
-	else if (is_map(f->form)) v = apply_to("hash-map", f->args, f->n);
-	else if (clj_is_set(f->form)) v = apply_to("hash-set", f->args, f->n);
-	else v = seq_concat(f->args, f->n);
-	free(f->args);
+	sq_frame  *f = &s->items[--s->n];
+	clj_value *args = s->vals + f->start;
+	clj_value  v;
+	CLJ_ASSERT(s->nvals == f->start + f->n, "a syntax-quote frame's arguments are not the top of the stack");
+	s->nvals = f->start;
+	if (clj_is_vector(f->form)) v = apply_to("vector", args, f->n);
+	else if (is_map(f->form)) v = apply_to("hash-map", args, f->n);
+	else if (clj_is_set(f->form)) v = apply_to("hash-set", args, f->n);
+	else v = seq_concat(args, f->n);
 	free(f->items);
 	return v;
 }
@@ -422,6 +436,7 @@ static clj_read_status sq_form(sq *q, clj_value root, clj_value *out) {
 		return CLJ_READ_OK;
 	}
 	sq_stack stack = {0};
+	CLJ_ROOTS_SPAN(&stack.vals, &stack.nvals);
 	sq_push(&stack, root);
 	for (;;) {
 		sq_frame *f = &stack.items[stack.n - 1];
@@ -431,17 +446,17 @@ static clj_read_status sq_form(sq *q, clj_value root, clj_value *out) {
 				*out = built;
 				break;
 			}
-			f = &stack.items[stack.n - 1];
-			f->args[f->i++] = wrap_list(built);
+			sq_put(&stack, wrap_list(built));
 			continue;
 		}
 		clj_value item = f->items[f->i];
-		if (is_tagged(item, "unquote-splicing")) f->args[f->i++] = clj_retain(second(item));
-		else if (is_tagged(item, "unquote")) f->args[f->i++] = wrap_list(clj_retain(second(item)));
+		if (is_tagged(item, "unquote-splicing")) sq_put(&stack, clj_retain(second(item)));
+		else if (is_tagged(item, "unquote")) sq_put(&stack, wrap_list(clj_retain(second(item))));
 		else if (is_sq_coll(item)) sq_push(&stack, item);
-		else f->args[f->i++] = wrap_list(sq_atom(q, item));
+		else sq_put(&stack, wrap_list(sq_atom(q, item)));
 	}
 	free(stack.items);
+	free(stack.vals);
 	return CLJ_READ_OK;
 }
 
@@ -1495,6 +1510,7 @@ clj_read_status clj_read(clj_reader *r, clj_value *out) {
 	pthread_once(&keywords_once, intern_keywords);
 	parser p = {.r = r};
 	CLJ_ROOTS_SPAN(&p.vals, &p.nvals);
+	CLJ_ROOTS_FIELD(&p.frames, &p.nframes, meta);
 	clj_read_status st;
 	for (;;) {
 		skip_blank(r);

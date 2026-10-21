@@ -37,9 +37,14 @@ typedef struct {
 // Internal nodes report whether the operation changed anything; pointer identity cannot,
 // since in-place updates return the same node.
 typedef struct {
-	bool changed;
-	bool count_changed;
+	bool       changed;
+	bool       count_changed;
+	clj_value *path; // the references taken down a shared path: a key's equality or hash may park below (design §7)
+	size_t     depth;
 } edit;
+
+// A level per BITS of the hash, a collision node below them, and the root.
+enum { TRIE_DEPTH_MAX = 32 / BITS + 3 };
 
 static inline uint32_t popcount(uint32_t x) { return (uint32_t)__builtin_popcount(x); }
 static inline uint32_t bit_pos(uint32_t hash, uint32_t shift) { return 1u << ((hash >> shift) & MASK); }
@@ -194,6 +199,12 @@ static descent descend(clj_value node, size_t j, clj_value *child) {
 	return (descent){n, j, unique};
 }
 
+// The callee consumes it when it is done with every key's equality and hash, after which nothing parks.
+static void path_push(edit *e, clj_value taken) {
+	CLJ_ASSERT(e->depth < TRIE_DEPTH_MAX, "a trie path deeper than the hash has bits");
+	e->path[e->depth++] = taken;
+}
+
 // NULL when the child was untouched; otherwise the owned parent whose slot j awaits the new child.
 static bnode *ascend(descent d, clj_value nc, bool changed) {
 	if (!changed) {
@@ -271,7 +282,9 @@ static clj_value node_assoc(clj_value node, uint32_t shift, uint32_t hash, clj_v
 	if (n->nodemap & bit) {
 		clj_value child;
 		descent   d = descend(node, node_slot(n, bnode_slots(n), bit), &child);
+		if (!d.unique) path_push(e, child);
 		clj_value nc = node_assoc(child, shift + BITS, hash, key, val, e);
+		if (!d.unique) e->depth--;
 		bnode    *o = ascend(d, nc, e->changed);
 		if (!o) return node;
 		clj_slot_store(&o->h, &o->slots[d.j], nc);
@@ -387,7 +400,9 @@ static clj_value node_dissoc(clj_value node, uint32_t shift, uint32_t hash, clj_
 	if (n->nodemap & bit) {
 		clj_value child;
 		descent   d = descend(node, node_slot(n, bnode_slots(n), bit), &child);
+		if (!d.unique) path_push(e, child);
 		clj_value nc = node_dissoc(child, shift + BITS, hash, key, e);
+		if (!d.unique) e->depth--;
 		bnode    *o = ascend(d, nc, e->changed);
 		if (!o) return node;
 		return clj_from_ptr(bnode_adopt(o, bit, d.j, nc));
@@ -702,7 +717,8 @@ static void flat_each(clj_value map, clj_map_entry_fn fn, void *ctx) {
 
 // The keys come from a map, so their hashes were taken once already and cannot refuse.
 static bool flat_take_entry(clj_value key, clj_value val, void *ctx) {
-	flat_append(ctx, clj_retain(key), clj_retain(val), clj_hash(key));
+	uint32_t h = clj_hash(key);
+	flat_append(ctx, clj_retain(key), clj_retain(val), h);
 	return true;
 }
 
@@ -1173,8 +1189,12 @@ static clj_value hash_map_assoc_hashed(clj_value map, clj_value key, clj_value v
 	clj_map *m = clj_map_of(map);
 	bool unique = clj_is_unique(map);
 	clj_value root = unique ? m->root.v : clj_retain(m->root.v);
-	edit e = {0};
+	clj_value held[TRIE_DEPTH_MAX];
+	edit      e = {.path = held};
+	CLJ_ROOTS_SPAN(&e.path, &e.depth);
+	if (!unique) path_push(&e, root);
 	root = node_assoc(root, 0, hash, key, val, &e);
+	e.depth = 0;
 	return map_commit(map, unique, root, e, 1);
 }
 
@@ -1185,8 +1205,12 @@ clj_value clj_hash_map_dissoc(CLJ_OWNED clj_value map, clj_value key) {
 	clj_map *m = clj_map_of(map);
 	bool unique = clj_is_unique(map);
 	clj_value root = unique ? m->root.v : clj_retain(m->root.v);
-	edit e = {0};
+	clj_value held[TRIE_DEPTH_MAX];
+	edit      e = {.path = held};
+	CLJ_ROOTS_SPAN(&e.path, &e.depth);
+	if (!unique) path_push(&e, root);
 	root = node_dissoc(root, 0, hash, key, &e);
+	e.depth = 0;
 	return map_commit(map, unique, root, e, -1);
 }
 

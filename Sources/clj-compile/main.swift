@@ -196,7 +196,7 @@ if opts.stats {
 		workers \(st.workers), primitive sites \(st.prim_sites) of which bound \(st.prim_bound); keyword-lookup sites \(st.kw_sites), field-read sites \(st.field_sites), field*/new* in place \(st.instance_sites), field views \(st.field_views), known-type arms \(st.known); \
 		reuse: cons in a dying cell \(st.reuse_tokens), next/rest handed over \(st.reuse_consumes); inlined calls \(st.inlined) (protocol \(st.proto_inlined)), of which from another unit \(st.inlined_cross) (outlined \(st.outlined) into \(st.outlined_fns) fns), known paths \(st.paths), literal fns copied \(st.literals), monomorphized fused sites \(st.mono_fused), lowered calls \(st.lowered), scalar guards \(st.scalar_guards), entry twins \(st.entry_splits); \
 		owned entries \(st.owned_arities) over \(st.owned_params) params (\(st.owned_array) in the array), owned call sites \(st.owned_sites) handing over \(st.owned_handed), late takes \(st.reuse_takes), take-out gets \(st.reuse_takeouts), lowered literals owning their accumulator \(st.owned_lowered) at \(st.owned_steps) sites, thunk tail conses letting captures go \(st.thunk_let_go), dead slots dropped \(st.drops); \
-		frame references named at \(st.frefs_sites) calls that may park, \(st.frefs_refs) in all; \
+		frame references named at \(st.frefs_sites) calls that may park and \(st.frefs_lazy) that realize a lazy argument, \(st.frefs_refs) in all; \
 		defs \(st.defs) of which dropped \(st.defs_dropped), kept \(st.def_bytes) C bytes
 
 		""".utf8))

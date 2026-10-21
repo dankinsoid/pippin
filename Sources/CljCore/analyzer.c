@@ -170,7 +170,7 @@ const clj_type clj_node_type = {
 
 // field >= 0: a mutable field of the method's deftype (mutable-fields*), slot the receiver's, safe from shadowing.
 typedef struct {
-	clj_value sym; // borrowed from the form, which outlives the analysis
+	CLJ_BORROWED clj_value sym; // from the form, which outlives the analysis
 	uint32_t  slot;
 	int32_t   field;
 } local;
@@ -1659,7 +1659,7 @@ static clj_node *analyze_fields(analyzer *a, scope *s, const clj_value *items, u
 static int form_names(const analyzer *a, clj_value form, clj_value sym);
 
 typedef struct {
-	const analyzer        *a;
+	CLJ_BORROWED const analyzer *a;
 	CLJ_BORROWED clj_value sym;
 	int                    found;
 } names_ctx;

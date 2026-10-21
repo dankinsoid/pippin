@@ -122,6 +122,7 @@ typedef struct {
 	uint64_t known;          // intrinsic sites written with the arm their arguments' facts pick: a string's nth or count, a char's int, a known array kind
 	uint64_t frefs_sites;    // calls that may park written with the frame's own references named (design §7, «Фаза 3»)
 	uint64_t frefs_refs;     // the references those sites name
+	uint64_t frefs_lazy;     // calls the facts call pure that name them only when an argument carries LAZY
 } cljc_slot_stats;
 
 // After cljc_end: the protocol counters are resolved against the set as the units' text is.

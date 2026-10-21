@@ -194,9 +194,11 @@ typedef enum { F_SEQ, F_QUEUE, F_VECTOR, F_MAP, F_SET, F_ARRAY } frame_kind;
 typedef struct {
 	frame_kind   kind;
 	clj_seq_iter it;
-	clj_value    vec;
+	CLJ_BORROWED clj_value vec;
 	uint32_t     idx, count;
-	clj_value   *entries; // key, value, ... of a map; borrowed from the live map
+	// Key, value, ... of a map, from the live map; a namespace map's keys are stripped copies, keywords or symbols.
+	CLJ_BORROWED clj_value *entries;
+	size_t       start; // F_ARRAY: where its elements begin on the stack's vals
 	size_t       n, i;
 	bool         value_next;
 	bool         first;
@@ -204,8 +206,10 @@ typedef struct {
 } frame;
 
 typedef struct {
-	frame *items;
-	size_t count, cap;
+	frame     *items;
+	size_t     count, cap;
+	clj_value *vals; // an array's elements, owned: a frame's are on top of an enclosing one's
+	size_t     nvals, vcap;
 } frame_stack;
 
 static frame *push_frame(frame_stack *s, frame_kind kind) {
@@ -240,9 +244,10 @@ static bool collect_item(clj_value item, void *ctx) {
 }
 
 // An array frame owns its entries: the elements are boxed on the way out, not borrowed.
-static void free_entries(frame *f) {
+static void free_entries(frame_stack *s, frame *f) {
 	if (f->kind == F_ARRAY) {
-		for (size_t i = 0; i < f->n; i++) clj_release(f->entries[i]);
+		for (size_t i = s->nvals; i-- > f->start;) clj_release(s->vals[i]);
+		s->nvals = f->start;
 	}
 	if (f->owned_keys) {
 		for (size_t i = 0; i < f->n; i += 2) clj_release(f->entries[i]);
@@ -543,9 +548,13 @@ static void emit(buf *b, frame_stack *stack, clj_value v, bool readably, const l
 		put_cstr(b, clj_array_kind_name(clj_array_kind_of(v)));
 		frame *f = push_frame(stack, F_ARRAY);
 		size_t n = clj_array_count(v);
-		f->entries = n ? malloc(n * sizeof *f->entries) : NULL;
-		if (n && !f->entries) clj_fatal("out of memory");
-		for (size_t i = 0; i < n; i++) f->entries[i] = clj_array_get(v, (uint32_t)i);
+		if (stack->nvals + n > stack->vcap) {
+			stack->vcap = stack->nvals + n > 2 * stack->vcap ? stack->nvals + n : 2 * stack->vcap;
+			stack->vals = realloc(stack->vals, stack->vcap * sizeof *stack->vals);
+			if (!stack->vals) clj_fatal("out of memory");
+		}
+		f->start = stack->nvals;
+		for (size_t i = 0; i < n; i++) stack->vals[stack->nvals++] = clj_array_get(v, (uint32_t)i);
 		f->n = n;
 	} else if (clj_is_type(v)) {
 		put_cstr(b, ((const clj_type *)clj_to_ptr(v))->name);
@@ -578,8 +587,6 @@ static bool elide(buf *b, const limits *lim, size_t printed, const char *sep) {
 }
 
 // Yields the next child of the top frame, or closes it. false when the frame is done.
-// Not named: the print stack's iterators, the printer's own, read as held from outside while a printed lazy seq
-// parks in its realization.
 static bool next_child(buf *b, frame_stack *stack, clj_value *out, bool *thrown, const limits *lim) {
 	frame *f = &stack->items[stack->count - 1];
 	switch (f->kind) {
@@ -618,7 +625,7 @@ static bool next_child(buf *b, frame_stack *stack, clj_value *out, bool *thrown,
 			return true;
 		}
 		put_char(b, '}');
-		free_entries(f);
+		free_entries(stack, f);
 		break;
 	case F_SET:
 		if (f->i < f->n && !elide(b, lim, f->i, " ")) {
@@ -627,21 +634,21 @@ static bool next_child(buf *b, frame_stack *stack, clj_value *out, bool *thrown,
 			return true;
 		}
 		put_char(b, '}');
-		free_entries(f);
+		free_entries(stack, f);
 		break;
 	case F_ARRAY:
 		if (f->i < f->n) {
 			put_char(b, ' ');
 			if (elide(b, lim, f->i, "")) {
 				put_char(b, ']');
-				free_entries(f);
+				free_entries(stack, f);
 				break;
 			}
-			*out = f->entries[f->i++];
+			*out = stack->vals[f->start + f->i++];
 			return true;
 		}
 		put_char(b, ']');
-		free_entries(f);
+		free_entries(stack, f);
 		break;
 	}
 	stack->count--;
@@ -654,6 +661,9 @@ static bool next_child(buf *b, frame_stack *stack, clj_value *out, bool *thrown,
 static clj_value print_to_string(clj_value root, bool readably, size_t max, const limits *lim) {
 	buf                    b = {0};
 	frame_stack            stack = {0};
+	CLJ_ROOTS_FIELD(&stack.items, &stack.count, it.held);
+	CLJ_ROOTS_FIELD(&stack.items, &stack.count, it.item);
+	CLJ_ROOTS_SPAN(&stack.vals, &stack.nvals);
 	CLJ_BORROWED clj_value v = root;
 	bool                   pending = true, thrown = false, truncated = false;
 	for (;;) {
@@ -670,10 +680,11 @@ static clj_value print_to_string(clj_value root, bool readably, size_t max, cons
 		frame *f = &stack.items[i - 1];
 		bool seq = f->kind == F_SEQ || f->kind == F_QUEUE;
 		if (truncated) put_char(&b, f->kind == F_SEQ ? ')' : f->kind == F_VECTOR || f->kind == F_ARRAY || f->kind == F_QUEUE ? ']' : '}');
-		if (!seq && f->kind != F_VECTOR) free_entries(f);
+		if (!seq && f->kind != F_VECTOR) free_entries(&stack, f);
 		if (seq) clj_seq_iter_close(&f->it);
 	}
 	free(stack.items);
+	free(stack.vals);
 	clj_value s = thrown ? CLJ_THROWN : clj_string_new(b.data, b.len);
 	free(b.data);
 	return s;

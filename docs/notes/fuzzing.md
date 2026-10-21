@@ -122,7 +122,8 @@ item 2. `fuzz/` holds it; `make fuzz` is the bounded pass, `make fuzz-long` the 
   buffered or not, and spawns one to three `go`, `go-loop`, `mult`/`tap` or `mix`/`admix` bodies, each parking on
   them from inside runtime callbacks up to two deep: `reduce`, `reduce-kv`, `map` realized by `doall`, a
   transducer through `into` and `transduce`, `mapv`, `sort-by`, `filter`, `some`, `group-by`, `update`, `apply`,
-  `swap!`, a lazy seq, a closure and a vector over the channels, an atom holding one. The program returns nil, so
+  `swap!`, a lazy seq, a printed object array holding one, a closure and a vector over the channels, an atom
+  holding one; every shape in each backend. The program returns nil, so
   every coroutine it parks is garbage. After the call the test collects until the live coroutines are back at the
   baseline and checks the live objects too; a failure prints the seed and the source.
 - **Backends and the oracle.** Interpreted, dev-compiled and closed-compiled, the defn compiled and called from

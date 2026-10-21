@@ -14,6 +14,11 @@ a reference a function holds across a call that may park and that nothing names:
   when CLJ_OWNED or released by the function itself: an unmarked one is the caller's +0.
 - named: registered by a CLJ_ROOTS/CLJ_ROOTS_SPAN in effect at the call (the whole variable, or the field path a
   struct's owned field sits at), or declared CLJ_BORROWED. A struct field is owned unless CLJ_BORROWED.
+- a heap stack: a struct field pointing at an array of structs that hold references. Each entry's owned field is
+  held while the field is, and CLJ_ROOTS_FIELD names one field of every entry; a local pointer into one, or an array
+  of such pointers, is a view.
+- a temporary: a call's owned result that is an operand of a call or an initializer is held by no variable while
+  another operand runs; one that may park is a hazard, unless the initializer's field is CLJ_BORROWED or CLJ_NO_CYCLE.
 
 Also: no write to a slot's word outside object.h, and no plain clj_value field in a heap object (design §4
 «Запись в слот»).
@@ -42,6 +47,7 @@ PRIMITIVES = "Sources/CljCore/include/clj/object.h"
 FIXTURES = "scripts/rooting-fixtures"
 VALUE_TYPEDEFS = {"clj_value"}
 SLOT_TYPEDEFS = {"clj_slot", "clj_atomic_slot"}
+FIELD_REG = re.compile(r"\bCLJ_ROOTS_FIELD\([^,]+,[^,]+,\s*([\w.\s]+)\)")
 MARK = re.compile(r"\bCLJ_(BORROWED|OWNED|NO_PARK|MAY_PARK|NO_CYCLE|RING)\b")
 NORETURN = {"abort", "exit", "_exit", "longjmp", "siglongjmp", "_longjmp", "__builtin_unreachable", "__builtin_trap",
             "__assert_rtn", "pthread_exit", "__builtin_abort"}
@@ -167,7 +173,8 @@ class Types:
 			h = ("value",)
 		elif base.kind in (C.TYPE_CONSTANT_ARRAY, C.TYPE_INCOMPLETE_ARRAY):
 			inner = self.holder(C.lib().clang_getArrayElementType(base))
-			h = ("array", inner) if inner else None
+			# an array of pointers into structs is views (a wake list's queue nodes), not a heap stack
+			h = ("array", inner) if inner and inner[0] != "sptr" else None
 		elif base.kind == C.TYPE_RECORD:
 			decl = C.lib().clang_getTypeDeclaration(base)
 			if not self.is_heap_record(decl):
@@ -188,6 +195,10 @@ class Types:
 				decl = C.lib().clang_getTypeDeclaration(pb)
 				if self.is_heap_record(decl) and "NO_CYCLE" not in marks(C.definition(decl) if not C.is_null(C.definition(decl)) else decl):
 					h = ("objptr",)
+				elif not self.is_heap_record(decl):
+					inner = self.holder(p)
+					if inner and inner[0] == "struct" and owned_paths(inner):
+						h = ("sptr", inner)
 		elif base.kind == C.TYPE_ATOMIC:
 			h = self.holder(C.lib().clang_Type_getValueType(base))
 		self.memo[key] = h
@@ -206,6 +217,9 @@ def owned_paths(h, prefix=()):
 	# An array of structs: its elements own what the struct's fields do; a name of any element field path covers all.
 	if h[0] == "array" and h[1][0] == "struct":
 		return owned_paths(h[1], prefix)
+	# A heap stack: each entry owns what the struct's fields do, named field by field (CLJ_ROOTS_FIELD).
+	if h[0] == "sptr":
+		return owned_paths(h[1], prefix + ("*",))
 	return [prefix]
 
 
@@ -414,6 +428,8 @@ class Fn:
 		# CXCursor_UnaryExpr is sizeof, alignof and the like: an unevaluated operand reads nothing
 		if k in (C.BLOCK_EXPR, 136):
 			return front
+		if k == C.INIT_LIST_EXPR:
+			self.temporaries(c, C.children(c), self.unowned_fields(c))
 		for x in C.children(c):
 			front = self.ex(x, front) if 100 <= x.kind < 300 else front
 		return front
@@ -483,6 +499,7 @@ class Fn:
 				given.append(v)
 			self.fn_ref(s, lambda: (self.param_marks(strip(ch[0]), i), f"parameter {i + 1} of {info[2]}"))
 			front = self.ex(a, front)
+		self.temporaries(c, ch[1:])
 		site = len(self.calls)
 		_, line, col, off = C.location(c)
 		self.calls.append({"line": line, "off": off, "callee": info, "addr": addr, "live": 0, "given": [v.idx for v in given],
@@ -494,6 +511,66 @@ class Fn:
 		if info[0] == "direct" and info[3]:
 			return []
 		return front
+
+	def temp_of(self, e):
+		"""The callee's name when e is a call whose result is a reference nothing holds yet, else None."""
+		e = strip(e)
+		if e.kind != C.CALL_EXPR:
+			return None
+		ch = C.children(e)
+		f = strip(ch[0]) if ch else None
+		if f is None or f.kind != C.DECL_REF_EXPR:
+			return None
+		d = C.referenced(f)
+		if C.is_null(d) or d.kind != C.FUNCTION_DECL:
+			return None
+		if C.usr(d) in self.types.borrowed_fns or self.fn_marks(d) & {"BORROWED", "NO_CYCLE"}:
+			return None
+		h = self.types.holder(C.lib().clang_getResultType(C.ctype(d)))
+		return C.spelling(d) if h and h[0] in ("value", "objptr") else None
+
+	def calls_in(self, e, acc):
+		"""The direct callees and the may-park indirect calls evaluated in e."""
+		if e.kind == C.CALL_EXPR:
+			info = self.callee(e, C.children(e))
+			if info[0] == "direct":
+				acc.add(info[1])
+			elif not info[2]:
+				acc.add(("indirect", info[1]))
+		if e.kind in (C.BLOCK_EXPR, 136):
+			return acc
+		for x in C.children(e):
+			self.calls_in(x, acc)
+		return acc
+
+	def unowned_fields(self, il):
+		"""The positions of a struct initializer whose field holds no reference it owns."""
+		names, base = self.types.typedef_chain(C.ctype(il))
+		if base.kind != C.TYPE_RECORD:
+			return set()
+		fields = [f for f in C.children(C.lib().clang_getTypeDeclaration(base)) if f.kind == C.FIELD_DECL]
+		out = set()
+		for i, x in enumerate(C.children(il)):
+			ch = C.children(x) if x.kind == C.UNEXPOSED_EXPR else []
+			fd = C.referenced(ch[0]) if len(ch) == 2 and ch[0].kind == 47 else fields[i] if i < len(fields) else None
+			if fd is not None and not C.is_null(fd) and marks(fd) & {"BORROWED", "NO_CYCLE"}:
+				out.add(i)
+		return out
+
+	def temporaries(self, c, operands, unowned=frozenset()):
+		"""An owned call result among the operands lives unnamed while a sibling operand runs."""
+		if len(operands) < 2:
+			return
+		for i, a in enumerate(operands):
+			t = self.temp_of(a) if i not in unowned else None
+			if not t:
+				continue
+			others = set()
+			for j, b in enumerate(operands):
+				if j != i:
+					self.calls_in(b, others)
+			if others:
+				self.out["temporaries"].append((rel(self.path), C.location(a)[1], self.name, t, sorted(others, key=str)))
 
 	def parm_marks(self, p):
 		"""A parameter's marks over every declaration of its function: a prototype may carry them."""
@@ -596,6 +673,11 @@ class Fn:
 				walk(x)
 
 		walk(d)
+		path, line, _, _ = C.location(d)
+		m = FIELD_REG.search(source(path).split("\n")[line - 1]) if path else None
+		if m and paths:
+			# CLJ_ROOTS_FIELD(&base, &n, a.b): the entries' field a.b under the base path
+			paths = [(paths[0][0], paths[0][1] + ("*",) + tuple(m.group(1).replace(" ", "").split(".")))]
 		off = C.location(d)[3]
 		self.regs.append((off, self.scopes[-1][1] if self.scopes else 1 << 40, paths, self.line(d)))
 		return self.link(front, self.node("reg", site=len(self.regs) - 1))
@@ -856,6 +938,9 @@ class Fn:
 			return False
 		if "OWNED" in v.marks or v.holder[0] == "struct" and not v.param:
 			return True
+		# a pointer into a heap stack is a view of the field that owns the array
+		if v.holder[0] == "sptr":
+			return False
 		return v.owned
 
 	def report(self):
@@ -1000,7 +1085,7 @@ def analyze(job):
 	path, args = job
 	host = any(rel(path).startswith(h + "/") for h in HOSTS)
 	out = {"functions": {}, "errors": [], "obligations": [], "marks": {}, "slot_writes": set(), "fields": set(),
-	       "parse": []}
+	       "parse": [], "temporaries": []}
 	tu = C.TU(path, args)
 	out["parse"] = tu.errors()
 	types = Types()
@@ -1061,13 +1146,14 @@ def sources(root):
 
 def check(results):
 	"""Joins the units' summaries: errors as (file, line, message), and stats."""
-	functions, marks_by, obligations, errors, parse = {}, {}, [], [], []
+	functions, marks_by, obligations, errors, parse, temporaries = {}, {}, [], [], [], []
 	slot_writes, fields = set(), set()
 	for r in results:
 		functions.update(r["functions"])
 		for k, m in r["marks"].items():
 			marks_by.setdefault(k, set()).update(m)
 		obligations += r["obligations"]
+		temporaries += r["temporaries"]
 		errors += r["errors"]
 		parse += r["parse"]
 		slot_writes |= r["slot_writes"]
@@ -1123,6 +1209,14 @@ def check(results):
 				else:
 					out.append((f["file"], line, f"{f['name']}: {name} (line {vline}) holds a reference ({why_}) across a "
 					                             f"call that may park ({via}); register it (CLJ_ROOTS) or declare it CLJ_BORROWED"))
+	for file, line, fn, temp, others in temporaries:
+		# an indirect call is listed only when its pointer is not CLJ_NO_PARK
+		parks = [o for o in others if isinstance(o, tuple) or o in why]
+		if parks:
+			o = parks[0]
+			via = o[1] if isinstance(o, tuple) else functions.get(o, {}).get("name", o.split("@")[-1])
+			out.append((file, line, f"{fn}: {temp}'s result is held by no variable while {via} runs beside it, which may park; "
+			                        "assign it to a named variable first"))
 	for usr, name, desc, file, line in obligations:
 		if usr in why:
 			out.append((file, line, f"{name} goes into {desc}, which is CLJ_NO_PARK, but it may park: it {why[usr]}"))

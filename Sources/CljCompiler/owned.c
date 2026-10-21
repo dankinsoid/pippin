@@ -10,7 +10,7 @@
 #include "reuse.h"
 
 typedef struct {
-	clj_value       var;
+	CLJ_NO_CYCLE clj_value var;
 	uint32_t        order, ndefs;
 	// The fixed arities of a def whose init is a FN without captures, 0 for any other init. Not the node: a compiled
 	// eval's tree dies with its form, and the entry outlives it.

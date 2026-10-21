@@ -101,7 +101,7 @@ typedef struct {
 	clj_diag_severity severity;
 	uint32_t          line, col;         // the argument at the call site; 0 for a declaration
 	uint32_t          use_line, use_col; // the use inside the callee the requirement rests on; 0 for a declaration
-	clj_value         callee;            // var, or nil for a direct fn
+	CLJ_NO_CYCLE clj_value callee;       // var, or nil for a direct fn
 	uint32_t          arg;               // UINT32_MAX for the result
 	clj_fact          passed, required;
 	uint32_t          effects, effects_allowed; // CLJ_DIAG_EFFECTS only: what the argument does and what it may do
@@ -168,7 +168,7 @@ clj_value clj_facts_value_read(const clj_facts *f, uint32_t i, bool *in_fn);
 // index answered over the recorded sites; params joins into it what the arity's own self-sites pass under it (the
 // fixpoint of NOTES.md "Facts", the caller join), and is what the parameters entered at.
 typedef struct {
-	clj_value var;
+	CLJ_NO_CYCLE clj_value var;
 	uint32_t  epoch;   // the var's callers epoch then
 	uint32_t  fn;      // id of the FN node
 	uint32_t  arity;   // its fixed parameter count; CLJ_FN_MAX_FIXED + 1 names the variadic arity

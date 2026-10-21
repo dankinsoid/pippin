@@ -926,6 +926,20 @@ static void read_owned(private_walk *p, const clj_value *v, uint64_t owned, size
 // Bounds only a walk of memory gone wrong: the chains are the parked execution's own.
 enum { FRAME_READS_MAX = 1 << 16 };
 
+static void read_frame(private_walk *p, const clj_frame *at, uint32_t *budget);
+
+// The buffers of evaluations under way in a frame, innermost first.
+static void read_args(private_walk *p, const clj_argbuf *b, uint32_t *budget) {
+	for (; b && !((uintptr_t)b & 7) && *budget; --*budget) {
+		const clj_argbuf *buf = clj_coro_parked_bytes(p->c, b, sizeof *buf);
+		if (!buf) return;
+		if (buf->count) read_owned(p, buf->vals, UINT64_MAX, buf->count);
+		else read_owned(p, buf->vals, buf->owned, 64);
+		if (buf->frame) read_frame(p, buf->frame, budget);
+		b = buf->prev;
+	}
+}
+
 // Owned slots, every one from 64 slots on (eval.c, slots_alloc), and the buffers of evaluations under way.
 static void read_frame(private_walk *p, const clj_frame *at, uint32_t *budget) {
 	const clj_frame *fr = clj_coro_parked_bytes(p->c, at, sizeof *fr);
@@ -937,13 +951,7 @@ static void read_frame(private_walk *p, const clj_frame *at, uint32_t *budget) {
 	} else if (fr->owned) {
 		read_owned(p, fr->slots, fr->owned, 64);
 	}
-	for (const clj_argbuf *b = fr->args; b && !((uintptr_t)b & 7) && *budget; --*budget) {
-		const clj_argbuf *buf = clj_coro_parked_bytes(p->c, b, sizeof *buf);
-		if (!buf) return;
-		read_owned(p, buf->vals, buf->owned, 64);
-		if (buf->frame) read_frame(p, buf->frame, budget);
-		b = buf->prev;
-	}
+	read_args(p, fr->args, budget);
 }
 
 // A wrapped ring holds entries of returned frames below its depth: none is read (design §7, «Фаза 3», «Кольцо»).
@@ -963,7 +971,7 @@ static void read_cframe(private_walk *p, const clj_cframe *at, size_t arr) {
 	if (fr && arr) read_owned(p, fr->slots, fr->owned, arr);
 }
 
-// Each word an owned reference, a tagged address, or a kind and its two operands (shadow_internal.h).
+// Each word an owned reference, a tagged address, or a kind and its operands (shadow_internal.h).
 static void read_frefs(private_walk *p, const clj_frefs *fl) {
 	for (uint32_t i = 0; i < fl->n; i++) {
 		clj_value w = fl->v[i];
@@ -981,6 +989,20 @@ static void read_frefs(private_walk *p, const clj_frefs *fl) {
 				clj_value *const *base = clj_coro_parked_bytes(p->c, (const void *)a, sizeof *base);
 				const size_t     *n = clj_coro_parked_bytes(p->c, (const void *)b, sizeof *n);
 				if (base && n) read_owned(p, *base, UINT64_MAX, *n);
+			}
+		} else if (w == CLJ_FREF_ARGS && i + 1 < fl->n) {
+			const clj_frame *fr = clj_coro_parked_bytes(p->c, (const void *)fl->v[++i], sizeof *fr);
+			uint32_t         budget = FRAME_READS_MAX;
+			if (fr) read_args(p, fr->args, &budget);
+		} else if (w == CLJ_FREF_FIELD && i + 3 < fl->n) {
+			clj_value          a = fl->v[i + 1], b = fl->v[i + 2], sz = fl->v[i + 3];
+			const char *const *base = clj_coro_parked_bytes(p->c, (const void *)a, sizeof *base);
+			const size_t      *n = clj_coro_parked_bytes(p->c, (const void *)b, sizeof *n);
+			size_t             stride = (size_t)(sz >> 32), off = (size_t)(sz & UINT32_MAX);
+			i += 3;
+			for (size_t k = 0; base && n && k < *n; k++) {
+				const clj_value *v = clj_coro_parked_bytes(p->c, *base + k * stride + off, sizeof *v);
+				if (v) frame_owned(p, *v);
 			}
 		} else {
 			frame_owned(p, w);

@@ -132,6 +132,9 @@ CLJ_NO_CYCLE typedef struct {
 	bool      heap_mut; // a CLJ_FIELD_HEAP field: instances are born MUTABLE, REACH and REACH_LOCAL
 	uint32_t  nfields;
 	bool      reified; // its fields hold the method closures, named after the methods: no field to read
+	// CLJ_FLAG_LAZY when a core slot runs a program fn: a builtin touching an instance may park, as in a lazy seq's
+	// realization (design §7, «Фаза 3»); every instance is born with it
+	uint32_t  birth_flags;
 	uint64_t  serial;  // from 1, never reused: a field-read cell keys on it, so a freed descriptor's address cannot alias
 	clj_slot  core_fns[CLJ_CORE_METHOD_COUNT]; // the fn behind each core slot, nil where not given; written at creation only
 } clj_user_type;

@@ -28,6 +28,11 @@ typedef struct {
 #define CLJ_FREF_ARRAY ((clj_value)((65 << 3) | 2))
 // Then a clj_cframe and its array's length as a fixnum; past 64 slots every one is owned.
 #define CLJ_FREF_CFRAME ((clj_value)((66 << 3) | 2))
+// Then the addresses of a pointer to an array of structs and of its size_t length, and the struct's size above 32
+// bits and the field's offset below: one field of each, as a heap stack holds a reference in each entry.
+#define CLJ_FREF_FIELD ((clj_value)((67 << 3) | 2))
+// Then an interpreter frame no ring entry records (a top-level form's): its argument buffers.
+#define CLJ_FREF_ARGS ((clj_value)((68 << 3) | 2))
 
 // A ring, one per execution: past the capacity the oldest frame is overwritten, so the innermost ones survive.
 // The header is in the clj_coro: a canceller writes it while the owner is parked and its mapping may be evacuated.

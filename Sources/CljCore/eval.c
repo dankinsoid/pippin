@@ -384,8 +384,15 @@ OPT_INLINE void argrec_put(clj_frame *f, clj_argbuf *b, bool *on, const clj_valu
 	b->owned = owned;
 	b->frame = inner;
 	b->prev = f->args;
+	b->count = 0;
 	f->args = b;
 	*on = true;
+}
+
+// A buffer past 64 values: every one evaluated is owned, so it is named by a count.
+static void argrec_put_wide(clj_frame *f, clj_argbuf *b, bool *on, const clj_value *v, size_t count) {
+	argrec_put(f, b, on, v, 0, NULL);
+	b->count = count;
 }
 
 OPT_INLINE void argrec_end(clj_frame *f, clj_argbuf *b, bool *on) {
@@ -423,8 +430,25 @@ static inline bool reads_only(const clj_node *const *args, uint32_t n) {
 	return true;
 }
 
+// A builtin over reads parks only by realizing a lazy seq one holds; a var's root is skipped: a rebind may free it.
+static inline bool reads_lazy(const clj_node *const *args, uint32_t n, const clj_frame *f) {
+	for (uint32_t i = 0; i < n; i++) {
+		const clj_node *a = args[i];
+		clj_value       v;
+		switch (a->kind) {
+		case CLJ_NODE_LOCAL: v = f->slots[a->u.local.index]; break;
+		case CLJ_NODE_CAPTURED: v = f->captured[a->u.index]; break;
+		case CLJ_NODE_OUTER: v = outer_frame(f, a->u.outer.depth)->slots[a->u.outer.index]; break;
+		case CLJ_NODE_CONST: v = a->u.value.v; break;
+		default: continue;
+		}
+		if (clj_is_ptr(v) && (clj_header_of(v)->flags & CLJ_FLAG_LAZY)) return true;
+	}
+	return false;
+}
+
 // A read of a slot, a capture, a constant or a var's root: no park between, so nothing before needs the buffer.
-static inline bool may_park_node(const clj_node *n) {
+static inline bool may_park_node(const clj_node *n, const clj_frame *f) {
 	switch (n->kind) {
 	case CLJ_NODE_LOCAL:
 	case CLJ_NODE_CAPTURED:
@@ -433,13 +457,15 @@ static inline bool may_park_node(const clj_node *n) {
 	case CLJ_NODE_VAR:
 	case CLJ_NODE_FN: return false;
 	// a builtin over reads: intrinsic_apply holds nothing through it either
-	case CLJ_NODE_INTRINSIC: return !reads_only(n->u.intrinsic.args, n->u.intrinsic.n);
+	case CLJ_NODE_INTRINSIC:
+		return !reads_only(n->u.intrinsic.args, n->u.intrinsic.n) || reads_lazy(n->u.intrinsic.args, n->u.intrinsic.n, f);
 	// so does eval_invoke through a leaf builtin
 	case CLJ_NODE_INVOKE: {
 		const clj_node *h = n->u.invoke.fn;
 		if (h->kind != CLJ_NODE_VAR || clj_var_of(h->u.var.v)->dynamic) return true;
 		clj_value root = clj_var_root_relaxed(h->u.var.v);
-		return !(clj_is_fn(root) && clj_fn_of(root)->leaf && reads_only(n->u.invoke.args, n->u.invoke.n));
+		if (!(clj_is_fn(root) && clj_fn_of(root)->leaf && reads_only(n->u.invoke.args, n->u.invoke.n))) return true;
+		return reads_lazy(n->u.invoke.args, n->u.invoke.n, f);
 	}
 	default: return true;
 	}
@@ -452,7 +478,7 @@ static __attribute__((noinline)) bool eval_all_tracked(const clj_node *const *no
 	uint64_t mask = 0;
 	bool     borrow = owned != NULL;
 	for (uint32_t i = 0; i < n; i++) {
-		if (mask && !*on && may_park_node(nodes[i])) argrec_put(f, rb, on, out, mask, NULL);
+		if (mask && !*on && may_park_node(nodes[i], f)) argrec_put(f, rb, on, out, mask, NULL);
 		bool      own = true;
 		clj_value v = borrow ? eval_borrowed(nodes[i], f, &own) : eval_child(nodes[i], f);
 		if (v == CLJ_THROWN) {
@@ -469,13 +495,32 @@ static __attribute__((noinline)) bool eval_all_tracked(const clj_node *const *no
 	return true;
 }
 
+// Past 64 values, all owned: the buffer stays on until the caller's argrec_end, since no mask names them.
+static __attribute__((noinline)) bool eval_all_wide(const clj_node *const *nodes, uint32_t n, clj_frame *f, clj_value *out, uint64_t *owned,
+                                                    clj_argbuf *rb, bool *on) {
+	for (uint32_t i = 0; i < n; i++) {
+		if (i && !*on && may_park_node(nodes[i], f)) argrec_put_wide(f, rb, on, out, i);
+		clj_value v = eval_child(nodes[i], f);
+		if (v == CLJ_THROWN) {
+			argrec_end(f, rb, on);
+			release_all(out, i);
+			return false;
+		}
+		out[i] = v;
+		if (*on) rb->count = i + 1;
+	}
+	if (!*on) argrec_put_wide(f, rb, on, out, n);
+	if (owned) *owned = UINT64_MAX;
+	return true;
+}
+
 // Evaluates nodes into out; on failure releases what was already evaluated. With `owned` the reads that can
 // be borrowed are, and the mask says which results the caller must release (n > 64: every one); NULL evaluates
 // everything owned, for values that are stored. rb is off on entry and after a failure.
 // @ai-generated(guided)
 // Inlined: the borrow/owned branch folds away per call site, and a frame no collection reads pays one test.
 OPT_INLINE bool eval_all(const clj_node *const *nodes, uint32_t n, clj_frame *f, clj_value *out, uint64_t *owned, clj_argbuf *rb, bool *on) {
-	if (f->args != ARGS_OFF && n <= 64) return eval_all_tracked(nodes, n, f, out, owned, rb, on);
+	if (f->args != ARGS_OFF) return n <= 64 ? eval_all_tracked(nodes, n, f, out, owned, rb, on) : eval_all_wide(nodes, n, f, out, owned, rb, on);
 	uint64_t mask = 0;
 	bool     borrow = owned && n <= 64;
 	for (uint32_t i = 0; i < n; i++) {
@@ -1486,7 +1531,7 @@ static clj_value eval_map_shaped(const clj_node *n, clj_frame *f) {
 	for (uint32_t i = 0; i < nkeys; i++) {
 		const clj_node *item = n->u.seq.items[2 * i + 1];
 		// the map and the values so far in it, which only this buffer names
-		if (!aon && f->args != ARGS_OFF && may_park_node(item)) argrec_put(f, &ab, &aon, &m, 1, NULL);
+		if (!aon && f->args != ARGS_OFF && may_park_node(item, f)) argrec_put(f, &ab, &aon, &m, 1, NULL);
 		clj_value v = eval_child(item, f);
 		if (v == CLJ_THROWN) {
 			argrec_end(f, &ab, &aon);
@@ -2083,7 +2128,8 @@ static clj_value exec_run_at(const clj_exec *e, const clj_node *n) {
 	// no ring entry records this frame; every slot of a top-level frame is owned or nil
 	size_t named = nslots;
 	CLJ_ROOTS_SPAN(&slots, &named);
-	clj_frame frame = {slots, NULL, e, 0, NULL, ARGS_OFF};
+	clj_frame frame = {slots, NULL, e, 0, NULL, clj_shadow_stack_init()->collectable ? NULL : ARGS_OFF};
+	CLJ_ROOTS_ARGS(&frame);
 	exec_depth_enter(clj_coro_current());
 	clj_value v = eval_child(n, &frame);
 	CLJ_ASSERT(v != CLJ_RECUR, "recur escaped its target");
