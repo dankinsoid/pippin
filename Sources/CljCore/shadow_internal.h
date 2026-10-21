@@ -33,6 +33,11 @@ typedef struct {
 #define CLJ_FREF_FIELD ((clj_value)((67 << 3) | 2))
 // Then an interpreter frame no ring entry records (a top-level form's): its argument buffers.
 #define CLJ_FREF_ARGS ((clj_value)((68 << 3) | 2))
+// Then a C variable's address, its size, and the clj_roots_walker that names what it reaches in heap memory.
+#define CLJ_FREF_WALK ((clj_value)((69 << 3) | 2))
+
+// Run by the collector over the parked variable's bytes: it reads and names, and never parks, locks or allocates.
+typedef CLJ_NO_PARK void (*clj_roots_walker)(const void *var, void (*named)(clj_value v, void *ctx), void *ctx);
 
 // A ring, one per execution: past the capacity the oldest frame is overwritten, so the innermost ones survive.
 // The header is in the clj_coro: a canceller writes it while the owner is parked and its mapping may be evacuated.

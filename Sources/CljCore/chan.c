@@ -492,18 +492,29 @@ static void add_wake(wakes *ws, qnode *n, clj_value value) {
 	ws->tail = n;
 }
 
+// The list's own references while a callback it wakes, or a transducer step under the lock, parks: each node's value
+// and a callback waiter's fn, which no queue holds any more. A callback waiter is on one port, so on one node.
+static void wakes_walk(const void *var, void (*named)(clj_value v, void *ctx), void *ctx) {
+	for (const qnode *n = ((const wakes *)var)->head; n; n = n->next) {
+		named(n->value.v, ctx);
+		if (n->w && !n->w->coro) named(n->w->callback, ctx);
+	}
+}
+
+// Unlinks each node before its wake, so the list names only the ones still to wake.
 static void flush_wakes(wakes *ws, bool ok) {
 	clj_value v = CLJ_NIL;
 	CLJ_ROOTS(&v);
-	for (qnode *n = ws->head, *next; n; n = next) {
-		next = n->next;
+	while (ws->head) {
+		qnode *n = ws->head;
+		ws->head = n->next;
 		v = n->value.v;
 		clj_slot_clear(&n->value);
 		wake(n, v, ok, ws->port);
 		clj_release(v);
 		v = CLJ_NIL;
 	}
-	ws->head = ws->tail = NULL;
+	ws->tail = NULL;
 }
 
 enum { OP_DONE, OP_NOT_READY, OP_STALE };
@@ -718,6 +729,7 @@ clj_value clj_chan_put(clj_value chv, clj_value v) {
 	if (!clj_park_allowed()) return CLJ_THROWN;
 	clj_chan *ch = chan_of(chv);
 	wakes       ws = {0};
+	CLJ_ROOTS_WALK(&ws, wakes_walk);
 	bool        ok = false;
 	clj_waiter *w = NULL;
 	chan_lock(ch);
@@ -748,6 +760,7 @@ static clj_value chan_take(clj_value chv, bool uncancellable) {
 	if (!uncancellable && !clj_park_allowed()) return CLJ_THROWN;
 	clj_chan   *ch = chan_of(chv);
 	wakes       ws = {0};
+	CLJ_ROOTS_WALK(&ws, wakes_walk);
 	clj_value   out = CLJ_NIL;
 	clj_waiter *w = NULL;
 	CLJ_ROOTS(&out);
@@ -785,6 +798,7 @@ clj_value clj_chan_offer(clj_value chv, clj_value v) {
 	if (clj_is_nil(v)) return clj_throw_msg("Can't put nil on channel");
 	clj_chan *ch = chan_of(chv);
 	wakes ws = {0};
+	CLJ_ROOTS_WALK(&ws, wakes_walk);
 	bool  ok = false;
 	chan_lock(ch);
 	int r = put_locked(ch, chv, v, NULL, &ok, &ws);
@@ -797,6 +811,7 @@ clj_value clj_chan_poll(clj_value chv) {
 	if (chan_arg(chv, "poll!") == CLJ_THROWN) return CLJ_THROWN;
 	clj_chan *ch = chan_of(chv);
 	wakes     ws = {0};
+	CLJ_ROOTS_WALK(&ws, wakes_walk);
 	clj_value out = CLJ_NIL;
 	CLJ_ROOTS(&out);
 	chan_lock(ch);
@@ -833,6 +848,7 @@ clj_value clj_chan_put_cb(clj_value chv, clj_value v, clj_value fn, bool on_call
 	// The callback rides in a waiter, not in a slot, and another execution may run it.
 	clj_share(fn);
 	wakes ws = {0};
+	CLJ_ROOTS_WALK(&ws, wakes_walk);
 	bool  ok = false;
 	chan_lock(ch);
 	int r = put_locked(ch, chv, v, NULL, &ok, &ws);
@@ -862,6 +878,7 @@ clj_value clj_chan_take_cb(clj_value chv, clj_value fn, bool on_caller) {
 	// The callback rides in a waiter, not in a slot, and another execution may run it.
 	clj_share(fn);
 	wakes     ws = {0};
+	CLJ_ROOTS_WALK(&ws, wakes_walk);
 	clj_value out = CLJ_NIL;
 	CLJ_ROOTS(&out);
 	chan_lock(ch);
@@ -909,6 +926,7 @@ clj_value clj_chan_close(clj_value chv) {
 	if (chan_arg(chv, "close!") == CLJ_THROWN) return CLJ_THROWN;
 	clj_chan *ch = chan_of(chv);
 	wakes     ws = {0};
+	CLJ_ROOTS_WALK(&ws, wakes_walk);
 	chan_lock(ch);
 	close_locked(ch, chv, &ws);
 	chan_unlock(ch);
@@ -1011,6 +1029,7 @@ clj_value clj_chan_alts(clj_value ports, clj_value opts) {
 		clj_value v = is_put ? clj_vector_nth(port, 1) : CLJ_NIL;
 		clj_chan *ch = chan_of(chv);
 		wakes     ws = {0};
+		CLJ_ROOTS_WALK(&ws, wakes_walk);
 		bool      ok = false;
 		chan_lock(ch);
 		int r = is_put ? put_locked(ch, chv, v, w, &ok, &ws) : take_locked(ch, chv, w, &out, &ws);
@@ -1115,6 +1134,7 @@ clj_value clj_chan_deliver(clj_value chv, clj_value v) {
 	clj_chan *ch = chan_of(chv);
 	if (ch->kind != CLJ_BUF_PROMISE) return clj_throw_msg("deliver expects a promise, got a channel");
 	wakes ws = {0};
+	CLJ_ROOTS_WALK(&ws, wakes_walk);
 	chan_lock(ch);
 	bool first = !realized_locked(ch);
 	if (first) {
@@ -1182,6 +1202,7 @@ clj_value clj_chan_deref_timeout(clj_value chv, int64_t ms, clj_value timeout_va
 static void deliver_result(clj_value chv, clj_value v) {
 	clj_chan *ch = chan_of(chv);
 	wakes     ws = {0};
+	CLJ_ROOTS_WALK(&ws, wakes_walk);
 	chan_lock(ch);
 	if (!clj_is_nil(v)) {
 		bool ok;

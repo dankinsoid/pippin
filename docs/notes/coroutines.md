@@ -348,23 +348,25 @@
   frame `meta`, the printer's iterator `held` and `item`). Owned values a stack's frame keeps in an array go on one
   value stack named as a span, each frame remembering where its own begin (the printer's array elements,
   syntax-quote's arguments); a trie `assoc` or `dissoc` keeps the references `descend` takes down a shared path in
-  `edit.path`, one span a call. Invariant: at each call that may park a named variable holds an owned reference or
-  nil, so a hand-over clears it first (`t = x; x = CLJ_NIL; r = conj(t, …)`), and so does a release before a later
-  call.
-  `make rooting-hazards` (in `make gates`) enforces it over the AST (libclang of the active Xcode): may-park is
-  `clj_park` propagated through the call graph and every function pointer not `CLJ_NO_PARK`; a local live across such
-  a call is named, `CLJ_BORROWED`, `CLJ_NO_CYCLE` or (eval.c) `CLJ_RING`; ownership follows "arguments borrowed,
-  results owned" with accessors inferred +0. A struct field pointing at an array of structs that hold references is
-  a heap stack, its entries' owned fields named field by field; a pointer into one, or a list of nodes pointing at their own
-  type, is a view. A call's owned result
-  that is an operand of a call or an initializer is a temporary, a hazard while a sibling operand that may park
-  runs, unless the initializer's field is `CLJ_BORROWED` or `CLJ_NO_CYCLE`. The marks are empty macros of `value.h`, so release builds pay nothing
-  for them; what a named variable costs is a TSD read and a few stores per call of the function, not per element.
-  Runtime marking: 212 `CLJ_ROOTS` sites (265 variables and paths), 22 spans, 3 field spans, 1 `CLJ_ROOTS_ARGS`, 178
-  `CLJ_BORROWED`, 227 `CLJ_NO_CYCLE`, 45 `CLJ_OWNED`, 57 `CLJ_NO_PARK`, 18 `CLJ_RING`. 11 s on the 3-core arm64
-  runner, 4783 functions, 1907 of them may park. The fixtures in `scripts/rooting-fixtures/` must fail on each rule and nowhere else. Measured against main
-  (corpus-bench runs 39593265012 and 39599907911): geomean interp 1.013, core+interp 1.027, dev 0.989, closed 0.994;
-  `suite-data` 1.017 closed and 1.040 interpreted, the most a named hot path costs.
+  `edit.path`, one span a call; a channel's list of woken nodes is named by `CLJ_ROOTS_WALK(&ws, wakes_walk)` (a
+  `CLJ_NO_PARK` walker the collector runs over the parked variable: each node's value and a callback waiter's fn,
+  since a callback it wakes or a transducer step under the section may park), and `flush_wakes` unlinks a node before
+  its wake. Invariant: at each call that may park a named variable holds an owned reference or nil, so a hand-over
+  clears it first (`t = x; x = CLJ_NIL; r = conj(t, …)`), and so does a release before a later call. `make
+  rooting-hazards` (in `make gates`) enforces it over the AST (libclang of the active Xcode): may-park is `clj_park`
+  propagated through the call graph and every function pointer not `CLJ_NO_PARK`; a local live across such a call is
+  named, `CLJ_BORROWED`, `CLJ_NO_CYCLE` or (eval.c) `CLJ_RING`; ownership follows "arguments borrowed, results owned"
+  with accessors inferred +0. A struct field pointing at an array of structs that hold references is a heap stack, its
+  entries' owned fields named field by field, a linked list by a walker (`CLJ_ROOTS_WALK`); a pointer into one is a
+  view. A call's owned result that is an operand of a call or an initializer is a temporary, a hazard while a sibling
+  operand that may park runs, unless the initializer's field is `CLJ_BORROWED` or `CLJ_NO_CYCLE`. The marks are empty
+  macros of `value.h`, so release builds pay nothing for them; what a named variable costs is a TSD read and a few
+  stores per call of the function, not per element. Runtime marking: 212 `CLJ_ROOTS` sites (265 variables and paths),
+  22 spans, 3 field spans, 1 `CLJ_ROOTS_ARGS`, 10 walkers, 178 `CLJ_BORROWED`, 227 `CLJ_NO_CYCLE`, 45 `CLJ_OWNED`, 57
+  `CLJ_NO_PARK`, 18 `CLJ_RING`. 11 s on the 3-core arm64 runner, 4786 functions, 1908 of them may park. The fixtures
+  in `scripts/rooting-fixtures/` must fail on each rule and nowhere else. Measured against main (corpus-bench runs
+  39593265012 and 39599907911): geomean interp 1.013, core+interp 1.027, dev 0.989, closed 0.994; `suite-data` 1.017
+  closed and 1.040 interpreted, the most a named hot path costs.
 - **The frame oracle** (design §7, «Оракул»; `cc_oracle.c`, debug builds, `CLJ_CC_ORACLE=0` turns it off). On each
   read of a parked coroutine, every unshared object of it that may lie on a cycle has exactly the references its
   frames' enumeration names plus the edges of its other unshared objects and its own fields; more is

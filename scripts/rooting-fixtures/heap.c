@@ -72,7 +72,7 @@ clj_value fx_stack_view(fx_stack *s, fx_walk *w) {
 	return top->meta + (clj_value)inner.depth;
 }
 
-// A list of nodes that point at their own type is the list's, not a stack.
+// A linked list is a heap stack too; a walker names it.
 typedef struct fx_node {
 	clj_value       value;
 	struct fx_node *next;
@@ -82,8 +82,19 @@ typedef struct {
 	fx_node *head;
 } fx_list;
 
-clj_value fx_list_view(void) {
+clj_value fx_list_unnamed(void) {
 	fx_list l = {calloc(1, sizeof(fx_node))};
+	fx_park(); // expect: l.head.*.value holds a reference
+	return l.head->value;
+}
+
+static void fx_list_walk(const void *var, void (*named)(clj_value v, void *ctx), void *ctx) {
+	for (const fx_node *n = ((const fx_list *)var)->head; n; n = n->next) named(n->value, ctx);
+}
+
+clj_value fx_list_walked(void) {
+	fx_list l = {calloc(1, sizeof(fx_node))};
+	CLJ_ROOTS_WALK(&l, fx_list_walk);
 	fx_park();
 	return l.head->value;
 }

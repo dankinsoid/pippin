@@ -46,6 +46,11 @@ static inline clj_roots_mark clj_roots_push_args(const void *frame) {
 	return clj_roots_push_words(w, 2);
 }
 
+static inline clj_roots_mark clj_roots_push_walk(const void *var, size_t size, clj_roots_walker walk) {
+	uintptr_t w[4] = {CLJ_FREF_WALK, (uintptr_t)var, (uintptr_t)size, (uintptr_t)walk};
+	return clj_roots_push_words(w, 4);
+}
+
 #define CLJ_ROOTS_CAT2(a, b) a##b
 #define CLJ_ROOTS_CAT(a, b) CLJ_ROOTS_CAT2(a, b)
 #define CLJ_ROOTS_N(...) ((uint32_t)(sizeof((clj_value *const[]){__VA_ARGS__}) / sizeof(clj_value *)))
@@ -63,6 +68,11 @@ static inline clj_roots_mark clj_roots_push_args(const void *frame) {
 // CLJ_ROOTS_ARGS(&frame): the argument buffers of an interpreter frame (eval.c) no ring entry records.
 #define CLJ_ROOTS_ARGS(frame)                                                                                         \
 	clj_roots_mark CLJ_ROOTS_CAT(clj_roots_, __LINE__) __attribute__((cleanup(clj_roots_drop))) = clj_roots_push_args(frame)
+
+// CLJ_ROOTS_WALK(&list, walk): what walk names from the variable, a structure no span describes (a linked list).
+#define CLJ_ROOTS_WALK(var, walk)                                                                                     \
+	clj_roots_mark CLJ_ROOTS_CAT(clj_roots_, __LINE__) __attribute__((cleanup(clj_roots_drop))) =                       \
+	    clj_roots_push_walk(var, sizeof *(var), walk)
 
 // CLJ_ROOTS_FIELD(&frames, &n, meta): the meta field of each of the first n structs at frames, all read where they are.
 #define CLJ_ROOTS_FIELD(base, n, field)                                                                               \

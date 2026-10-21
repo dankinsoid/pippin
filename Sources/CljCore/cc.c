@@ -971,6 +971,8 @@ static void read_cframe(private_walk *p, const clj_cframe *at, size_t arr) {
 	if (fr && arr) read_owned(p, fr->slots, fr->owned, arr);
 }
 
+static void walk_named(clj_value v, void *ctx) { frame_owned(ctx, v); }
+
 // Each word an owned reference, a tagged address, or a kind and its operands (shadow_internal.h).
 static void read_frefs(private_walk *p, const clj_frefs *fl) {
 	for (uint32_t i = 0; i < fl->n; i++) {
@@ -994,6 +996,11 @@ static void read_frefs(private_walk *p, const clj_frefs *fl) {
 			const clj_frame *fr = clj_coro_parked_bytes(p->c, (const void *)fl->v[++i], sizeof *fr);
 			uint32_t         budget = FRAME_READS_MAX;
 			if (fr) read_args(p, fr->args, &budget);
+		} else if (w == CLJ_FREF_WALK && i + 3 < fl->n) {
+			const void      *at = clj_coro_parked_bytes(p->c, (const void *)fl->v[i + 1], (size_t)fl->v[i + 2]);
+			clj_roots_walker walk = (clj_roots_walker)fl->v[i + 3];
+			i += 3;
+			if (at) walk(at, walk_named, p);
 		} else if (w == CLJ_FREF_FIELD && i + 3 < fl->n) {
 			clj_value          a = fl->v[i + 1], b = fl->v[i + 2], sz = fl->v[i + 3];
 			const char *const *base = clj_coro_parked_bytes(p->c, (const void *)a, sizeof *base);
