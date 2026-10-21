@@ -81,7 +81,7 @@
   zero no writer holds the object. `clj_debug_all_shared` still descends through every slot: its callers are
   tests on values no other thread writes.
 - **Slots: an edge of a heap object is written through a primitive, enforced by type** (`object.h`,
-  `scripts/slot-audit.py`; design §4 «Запись в слот»). A field or slot-array element `each_child` visits is a
+  `scripts/rooting-hazards.py`; design §4 «Запись в слот»). A field or slot-array element `each_child` visits is a
   `clj_slot` (`clj_atomic_slot` where it is read and replaced with atomics), so `obj->f = v` does not compile and
   every write is `clj_slot_store` (publishes `v` when the owner is shared), `clj_slot_init` (a fresh object, no flag
   test; debug builds check that an owner born shared gets only shared values), `clj_slot_clear` or the atomic
@@ -89,7 +89,7 @@
   which `each_child` does not visit (a coroutine's pending exception and retired roots), is a `clj_private_value`.
   An atom, a channel, a coroutine, a var and a namespace are born shared, so their stores publish without a
   `clj_share` of their own; a channel's put is published on every path in — the ring, a parked putter's node, a
-  woken taker's node (`add_wake`). `make slot-audit` (in `make gates`) fails on a plain `clj_value` field of a
+  woken taker's node (`add_wake`). `make rooting-hazards` (in `make gates`) fails on a plain `clj_value` field of a
   heap struct and on a write to `.v`, or its address taken, outside `object.h`. Holes, all on the side of a value
   already published: a move between slots (`memmove` of a node, a struct copy of a slot) compiles, and the slot
   pointer of an untyped buffer (an object array's `data`, the trailing meta word) is a cast the audit cannot see.

@@ -324,7 +324,7 @@
   a last use handed to the call, a channel past a frame's 64th slot. `aParkAfterTheRingWrappedIsNotMisread`: a park
   after a 16-entry ring wrapped under frames that each owned the channel is left alone and wakes. Not collected: a
   park of a pinned kind, and a cycle through what nothing names (design §7, «Чего это не собирает»): a function of the
-  runtime further up than the one the audit asks, the `CLJ_ROOTS_NONE` exceptions with their reasons, a call the
+  runtime C's owned references in heap memory and unassigned temporaries ("What the analysis cannot see"), a call the
   facts call pure that realizes a lazy seq whose thunk parks, a literal's hashing, a `def`'s watches, a top-level
   form's frame, the interpreter's keyword lookup into a program's `ILookup` type and its protocol dispatch's impl, a
   coroutine whose ring wrapped. Trigger: the stale-park report naming one, or the corpus's residue (NOTES "Corpus").
@@ -332,23 +332,32 @@
   against main's `eval.c` over the branch, run 39299367250, interp 1.041 and core+interp 1.028, bare threads
   1.01–1.05 though they put no buffer on. Left: the `args` store and the `wrapped` test in `run_body`, the hold on
   the slow call path and in `intrinsic_apply`, a frame one word wider. Trigger: interpreter speed becoming a goal.
-- **C code of the runtime names what it owns across a call of the program's code** (design §7, «Фаза 3», «Код
-  рантайма»; `roots_internal.h`, `scripts/roots-audit.py`). `CLJ_ROOTS(&a, &b)` puts the tagged addresses of the
-  function's owned `clj_value` variables on the execution's frame-reference list for the rest of the block (the
-  `cleanup` attribute drops them; a `Stack overflow` landing restores the length); `CLJ_ROOTS_SPAN(&items, &n)` an
-  array by the addresses of its pointer and its `size_t` length. The collector reads each where it is when it judges
-  the coroutine parked. The invariant: at each call that may park a named variable holds an owned reference or nil,
-  so a hand-over clears it first (`acc = r; r = CLJ_NIL; r = conj(acc, x)`, the reducer's consuming and owned steps,
-  the fused driver's `conj` and `assoc!`), and a release before a later call stores nil. Named: the reducer's
-  accumulator at every `clj_reducer_start`, a walk's seq and its iterator's `held` and `item`, `clj_seq_items`' own
-  items once it retains them, `sort`'s `keep` and the keys of `sort-by`, `apply`'s spread, the fused driver's
-  accumulator, outputs and mapcat fn, `swap-vals!`'s old value, an atom's watches and old value across them, a
-  nested lazy seq's claimed chain, and the rest the audit lists (164 functions). `make roots-audit` (in `make
-  gates`) fails on a C function that calls a program's fn (`clj_invoke` and the rest), a slot a program may fill
-  (`->invoke`, `->seq`, `->first`, `->reduce`, a native's `fn`), walks a seq or parks, with neither `CLJ_ROOTS` nor
-  `CLJ_ROOTS_NONE`; the latter carries its reason in a comment (holds nothing, reader or analysis data, an
-  accessor whose walker names the walk). The cost is a TSD read and a few stores per call of such a function, not
-  per element. Not asked: a function further up that holds a reference across a call into an audited one.
+- **C code of the runtime names every reference it owns across a call that may park** (design §7, «Фаза 3», «Код
+  рантайма», «Гарантия»; `roots_internal.h`, `scripts/rooting-hazards.py`). `CLJ_ROOTS(&a, &b)` puts the tagged
+  addresses of owned variables on the execution's frame-reference list for the rest of the block (`cleanup` drops
+  them; a `Stack overflow` landing restores the length); `CLJ_ROOTS_SPAN(&items, &n)` an array by its pointer and
+  `size_t` length. Invariant: at each call that may park a named variable holds an owned reference or nil, so a
+  hand-over clears it first (`t = x; x = CLJ_NIL; r = conj(t, …)`), and so does a release before a later call.
+  `make rooting-hazards` (in `make gates`) enforces it over the AST (libclang of the active Xcode): may-park is
+  `clj_park` propagated through the call graph and every function pointer not `CLJ_NO_PARK`; a local live across such
+  a call is named, `CLJ_BORROWED`, `CLJ_NO_CYCLE` or (eval.c) `CLJ_RING`; ownership follows "arguments borrowed,
+  results owned" with accessors inferred +0. The marks are empty macros of `value.h`, so release builds pay nothing
+  for them; what a named variable costs is a TSD read and a few stores per call of the function, not per element.
+  Runtime marking: 208 `CLJ_ROOTS` sites (261 variables and paths), 18 spans, 171 `CLJ_BORROWED`, 221 `CLJ_NO_CYCLE`,
+  45 `CLJ_OWNED`, 57 `CLJ_NO_PARK`, 18 `CLJ_RING`. About 20 s locally on 16 threads, 4767 functions, 1909 of them may
+  park. The fixtures in `scripts/rooting-fixtures/` must fail on each rule and nowhere else.
+- [ ] **What the analysis cannot see** (design §7, «Чего это не собирает»): an owned reference a C frame keeps in
+  heap memory (the reader's frame stack's `meta`, the `syntax-quote` stack, the printer's iterator stack, the trie
+  insert's per-level copies on the shared path), a call's result inside another call or initializer before any
+  variable holds it, a top-level form's argument buffers and buffers past 64 values. Each only leaks. Trigger: the
+  frame oracle naming one, or the leak fuzzer's residue.
+- **The frame oracle** (design §7, «Оракул»; `cc_oracle.c`, debug builds, `CLJ_CC_ORACLE=0` turns it off). On each
+  read of a parked coroutine, every unshared object of it that may lie on a cycle has exactly the references its
+  frames' enumeration names plus the edges of its other unshared objects and its own fields; more is
+  `cc/frame-missed`, fewer `cc/frame-overnamed`, with the frame of a stack word naming it (frame pointers from the
+  switch's save area, `dladdr`). The conservative stack scan only finds objects (`clj_debug_object_at`: a pool cell
+  of a known slab, or a live allocation by the sanitizer or `malloc_size`, of a known type); a borrowed word adds no
+  count, so it raises no alarm. Shared objects are the leak fuzzer's (NOTES "Fuzzing", "Leak fuzzing").
 - **The stale-park report** (design §7, «Фаза 3», «Отчёт о брошенном парке»; `cc.c` `park_report`). Opt-in
   (`CLJ_PARK_REPORT_S=<seconds>`, `clj_debug_cc_park_report_ms` in tests; off, a collection reads no clock and
   walks nothing more): the evacuation sweep stamps when it first saw a park (`cc_park_ns`), and a shared collection

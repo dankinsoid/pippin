@@ -73,3 +73,8 @@
   ports: a plain port's `clj_lock` never parks. The wake token is the waiter's (NOTES "Scheduler", "Park and
   resume"); `ChanStressTests.altsWokenOnAnEarlierPortWhileParkedOnALaterPortsMutex` replays it (hung under every
   seed before, run 37957787440) and `multOverTwoTransducingTapsMergedSideBySide` runs the workload's shape.
+- [ ] **A close! past 16 parked takers can run a `take!` callback under the channel's lock** (`chan.c` `add_wake`,
+  found by the rooting-hazards annotation): the 17th waiter on is woken in place, and `clj_resume` runs a callback
+  waiter's fn inline, so a program's fn would run under the lock, where a park is an error and a reentry deadlocks.
+  The comment there says no user code runs; it holds for parked coroutines only. Trigger: a channel with more than 16
+  pending `take!` callbacks closed, or a fix that defers callback waiters past the lock like the first 16.
