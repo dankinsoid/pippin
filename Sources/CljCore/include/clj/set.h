@@ -15,7 +15,7 @@ typedef struct {
 extern const clj_type clj_set_type;
 
 // Immortal singleton.
-clj_value clj_set_empty(void);
+CLJ_BORROWED clj_value clj_set_empty(void);
 uint32_t  clj_set_count(clj_value set);
 bool      clj_set_contains(clj_value set, clj_value x);
 // Borrowed (+0): the element equal to x as the set holds it, or not_found.

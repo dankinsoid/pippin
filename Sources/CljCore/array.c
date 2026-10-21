@@ -185,7 +185,6 @@ clj_value clj_array_clone(clj_value arr) {
 
 // keep arrives after the walk, which is clj_seq_items' own.
 clj_value clj_array_from_seq(clj_array_kind kind, clj_value coll) {
-	CLJ_ROOTS_NONE;
 	size_t     n = 0;
 	clj_value  keep = CLJ_NIL;
 	clj_value *items = clj_seq_items(coll, &n, &keep);

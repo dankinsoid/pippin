@@ -15,9 +15,10 @@ typedef struct {
 
 extern const clj_type clj_symbol_type;
 
-clj_value clj_symbol_new(clj_value ns, clj_value name);
+// A symbol's children are strings: it lies on no cycle.
+CLJ_NO_CYCLE clj_value clj_symbol_new(clj_value ns, clj_value name);
 // Clojure's split: at the first '/', so "a/b/c" is ns "a" name "b/c"; "/" alone is the symbol `/`.
-clj_value clj_symbol_from_cstr(const char *s);
+CLJ_NO_CYCLE clj_value clj_symbol_from_cstr(const char *s);
 
 static inline bool        clj_is_symbol(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_symbol_type; }
 static inline clj_symbol *clj_symbol_of(clj_value v) { return (clj_symbol *)clj_to_ptr(v); }

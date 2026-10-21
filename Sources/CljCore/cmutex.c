@@ -73,8 +73,7 @@ static lot_node *dequeue_locked(lot_bucket *b, const void *key, bool *more) {
 	return found;
 }
 
-void clj_lot_park(const void *key, bool (*wait_if)(const void *key, void *ctx), void *ctx, clj_wake wake) {
-	CLJ_ROOTS_NONE;
+void clj_lot_park(const void *key, CLJ_NO_PARK bool (*wait_if)(const void *key, void *ctx), void *ctx, clj_wake wake) {
 	lot_bucket *b = bucket_of(key);
 	clj_lock_lock(&b->lock);
 	if (!wait_if(key, ctx)) {
@@ -137,7 +136,6 @@ static bool try_acquire(clj_cmutex *m) {
 // One attempt per activation: the park inside may move the coroutine to another thread, and the locks-held count
 // this frame touched before must be reached afresh after (lock.h).
 static __attribute__((noinline)) bool lock_attempt(clj_cmutex *m) {
-	CLJ_ROOTS_NONE;
 	for (int i = 0; i < SPINS; i++) {
 		if (try_acquire(m)) return true;
 		pause();

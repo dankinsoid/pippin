@@ -509,7 +509,6 @@ void clj_coro_entry(void) {
 	clj_coro *c = clj_coro_here();
 	ASAN_FINISH(c->asan_fake);
 	// fn and args are the coroutine's slots, its edges
-	CLJ_ROOTS_NONE;
 	clj_eval_top_enter();
 	clj_recovery rec;
 	clj_recovery_push(&rec);

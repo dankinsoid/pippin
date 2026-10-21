@@ -579,7 +579,6 @@ static bool elide(buf *b, const limits *lim, size_t printed, const char *sep) {
 // Not named: the print stack's iterators, the printer's own, read as held from outside while a printed lazy seq
 // parks in its realization.
 static bool next_child(buf *b, frame_stack *stack, clj_value *out, bool *thrown, const limits *lim) {
-	CLJ_ROOTS_NONE;
 	frame *f = &stack->items[stack->count - 1];
 	switch (f->kind) {
 	case F_SEQ:

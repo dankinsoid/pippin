@@ -1333,7 +1333,7 @@ static clj_value marshal_args(const objc_sig *sig, const clj_value *args, call_a
 }
 
 // Who the callee is sits in ca->ints already (self/_cmd, the block, nothing), so the prototype set is one.
-static clj_value call_out(const objc_sig *sig, void *fn, const call_args *ca) {
+static clj_value call_out(const objc_sig *sig, CLJ_NO_PARK void *fn, const call_args *ca) {
 	// The prototype is chosen by the return, the slot type by fp_is_float; the arguments are the same.
 #define SEND(tag)                                                                 \
 	(sig->fp_is_float ? ((send_##tag##_f)fn)(INT_ARGS(ca->ints), FP_ARGS(ca->flts)) \

@@ -5,7 +5,7 @@
 #include "object.h"
 
 // Immortal: a var lives for the process, like the name that reaches it. Made through clj_ns_intern.
-typedef struct {
+CLJ_NO_CYCLE typedef struct {
 	clj_header        h;
 	clj_slot          ns;   // symbol
 	clj_slot          name; // symbol
@@ -36,7 +36,7 @@ static inline uint32_t clj_var_callers_epoch(clj_value var) {
 	return atomic_load_explicit(&clj_var_of(var)->callers_epoch, memory_order_acquire);
 }
 // Borrowed root, CLJ_UNBOUND when unbound. Not safe against a concurrent def (NOTES.md).
-clj_value clj_var_root(clj_value var);
+CLJ_BORROWED clj_value clj_var_root(clj_value var);
 // The same without ordering: for a guard that only compares the root against a known immortal object.
 static inline clj_value clj_var_root_relaxed(clj_value var) { return clj_slot_load(&clj_var_of(var)->root, memory_order_relaxed); }
 static inline bool clj_var_is_bound(clj_value var) { return clj_var_root(var) != CLJ_UNBOUND; }

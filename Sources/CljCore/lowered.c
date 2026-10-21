@@ -68,7 +68,6 @@ static clj_value closure_of(clj_lowered *l) {
 }
 
 static clj_value entry(void *ctx, const clj_value *args, size_t n) {
-	CLJ_ROOTS_NONE;
 	clj_lowered *l = ctx;
 	if (n == l->arity) return l->step(l->ctx, args, n);
 	return clj_invoke(closure_of(l), args, n);

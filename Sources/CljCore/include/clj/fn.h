@@ -30,7 +30,7 @@ typedef struct {
 		struct {
 			clj_native_ctx_fn fn;
 			void             *ctx;
-			void (*release)(void *ctx); // NULL when ctx needs no cleanup
+			CLJ_NO_PARK void (*release)(void *ctx); // NULL when ctx needs no cleanup
 		} native_ctx;
 		const clj_node *node; // closure: its fn node, borrowed from the exec in code
 	} u;

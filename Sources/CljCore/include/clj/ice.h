@@ -19,7 +19,7 @@ typedef struct clj_ice_frame {
 	struct clj_ice_frame *prev;
 	const char           *pass;
 	clj_backend           backend;
-	clj_value             file;      // borrowed string, or nil
+	CLJ_BORROWED clj_value file;    // a string, or nil
 	uint32_t              line, col; // the top-level form
 } clj_ice_frame;
 

@@ -61,7 +61,7 @@ clj_value clj_with_meta(clj_value v, clj_value m);
 // walked value is — a cons chain and a realized lazy seq keep their elements alive, a view keeps its backing
 // collection — except that an item a first slot yielded lives only until the next step or close (`slots`).
 typedef struct {
-	clj_value cur;    // borrowed
+	CLJ_BORROWED clj_value cur;
 	uintptr_t pos;    // index into a vector or byte offset into a string
 	int64_t   at;     // the current value of a range, which spans the whole int64
 	bool      thrown; // a lazy seq's thunk or a slot threw; the exception is pending and the walk is over

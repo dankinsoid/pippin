@@ -50,7 +50,4 @@ static inline clj_roots_mark clj_roots_push_span(clj_value *const *base, const s
 #define CLJ_ROOTS_SPAN(base, n)                                                                                       \
 	clj_roots_mark CLJ_ROOTS_CAT(clj_roots_, __LINE__) __attribute__((cleanup(clj_roots_drop))) = clj_roots_push_span(base, n)
 
-// For scripts/roots-audit.sh: nothing owned is held across the function's calls of a program's code.
-#define CLJ_ROOTS_NONE ((void)0)
-
 #endif

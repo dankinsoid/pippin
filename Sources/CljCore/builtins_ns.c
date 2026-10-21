@@ -472,7 +472,7 @@ static clj_value objc_runtime_bridge(const char *pkg, size_t plen, const char *n
 }
 
 // In order; C has no type values yet (design §5 «C — уровень 0»: a struct by value is refused), so no C bridge.
-static const type_bridge bridges[] = {host_resolver_bridge, objc_runtime_bridge};
+static CLJ_NO_PARK const type_bridge bridges[] = {host_resolver_bridge, objc_runtime_bridge};
 
 // The var holding the type pkg.name names, interning a bridge's answer as pkg/name; nil when nothing reaches it.
 static clj_value import_type_var(clj_value pkg, clj_value name) {
@@ -523,7 +523,6 @@ static clj_value import_into(clj_value ns, clj_value pkg, clj_value name, clj_va
 // The specs are the reader's lists and vectors, whose walk runs nothing.
 static clj_value b_import_star(const clj_value *args, size_t n) {
 	(void)n;
-	CLJ_ROOTS_NONE;
 	clj_value ns = clj_ns_current(), last = CLJ_NIL;
 	clj_value specs = clj_seq(args[0]);
 	if (specs == CLJ_THROWN) return CLJ_THROWN;

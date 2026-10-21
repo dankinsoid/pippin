@@ -186,7 +186,7 @@ static inline clj_coro *clj_coro_here(void) {
 }
 
 // The running execution, making the thread's implicit one on first use.
-clj_coro *clj_coro_current(void);
+CLJ_BORROWED clj_coro *clj_coro_current(void);
 
 #if CLJ_DEBUG
 // The running execution acts as the owner of `tag` until a second call restores the returned tag: a finished
@@ -266,7 +266,7 @@ bool clj_park_allowed(void);
 // other side still uses the parker's stack (a blocking job) or must outlast a cancellation (a scope's join).
 void clj_park(clj_waiter *w, clj_wake wake);
 // A one-shot wait on any address; wait_if runs under the bucket's lock and false returns at once (cmutex.c).
-void clj_lot_park(const void *key, bool (*wait_if)(const void *key, void *ctx), void *ctx, clj_wake wake);
+void clj_lot_park(const void *key, CLJ_NO_PARK bool (*wait_if)(const void *key, void *ctx), void *ctx, clj_wake wake);
 // Makes the coroutine of a claimed waiter runnable; a callback waiter runs its fn with w->value on the caller.
 // clj_resume hands the carrier over (the resumer is about to park: a channel); clj_resume_far queues it for
 // any carrier (the resumer keeps running: a lock's unlock).
@@ -357,9 +357,9 @@ size_t clj_sched_carrier_count(void);
 clj_value clj_sched_sleep_ms(int64_t ms);
 // The blocking pool (sched.c): fn runs on a dedicated thread over a heap copy of ctx's `size` bytes, written back
 // after the park; inline on a bare thread.
-void clj_blocking(void (*fn)(void *ctx), void *ctx, size_t size);
+void clj_blocking(CLJ_NO_PARK void (*fn)(void *ctx), void *ctx, size_t size);
 // fn(ctx) on a blocking thread, the caller continues (thread).
-void clj_blocking_detach(void (*fn)(void *ctx), void *ctx);
+void clj_blocking_detach(CLJ_NO_PARK void (*fn)(void *ctx), void *ctx);
 
 // The body f on a pool or main coroutine whose on_done gets done_value back in c->done_value (go, future): the
 // collector sees that edge. Detached: neither bindings nor deadline conveyed.
@@ -370,7 +370,7 @@ clj_value clj_coro_spawn_into(clj_value f, int affinity, void (*on_done)(clj_cor
 // `queued` channel queues to find. DONE: finished, an ordinary node.
 enum { CLJ_CORO_CC_LIVE, CLJ_CORO_CC_PARKED, CLJ_CORO_CC_DONE };
 // inside runs under c->lock; false without running when the lock is busy.
-bool clj_coro_cc_locked(clj_coro *c, void (*inside)(clj_coro *c, int verdict, uint32_t internal, uint32_t queued, void *ctx), void *ctx);
+bool clj_coro_cc_locked(clj_coro *c, CLJ_NO_PARK void (*inside)(clj_coro *c, int verdict, uint32_t internal, uint32_t queued, void *ctx), void *ctx);
 // A white parked coroutine is cancelled once; true when this call did it.
 bool clj_coro_cc_cancel(clj_coro *c);
 // The stale-park report names one park once: true when park is still c's and this call is the first to name it.

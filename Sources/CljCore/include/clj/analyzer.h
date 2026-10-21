@@ -98,7 +98,8 @@ typedef struct {
 	uint32_t         index;
 } clj_capture;
 
-struct clj_node {
+// Every cycle through a node passes an exec, which never carries REACH (design §7, «Биты»).
+CLJ_NO_CYCLE struct clj_node {
 	clj_header    h;
 	clj_node_kind kind;
 	uint32_t      id;     // pre-order index within its tree; the root is 0
@@ -243,7 +244,7 @@ typedef void (*clj_node_visitor)(const clj_node *child, void *ctx);
 void clj_node_children(const clj_node *n, clj_node_visitor visit, void *ctx);
 
 typedef struct {
-	clj_value ns;        // namespace to resolve in; nil means the current one
+	CLJ_NO_CYCLE clj_value ns; // namespace to resolve in; nil means the current one
 	uint32_t  line, col; // position of the top-level form for error data, 0 when unknown
 } clj_env;
 

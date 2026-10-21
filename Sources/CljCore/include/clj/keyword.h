@@ -20,11 +20,11 @@ typedef struct {
 extern const clj_type clj_keyword_type;
 
 // ns is a string or nil, name a string. The result is immortal: retain/release are no-ops.
-clj_value clj_keyword_intern(clj_value ns, clj_value name);
+CLJ_BORROWED clj_value clj_keyword_intern(clj_value ns, clj_value name);
 // The keyword of sym when one was interned, else nil; never interns (find-keyword).
 clj_value clj_keyword_find(clj_value sym);
 // Splits like clj_symbol_from_cstr.
-clj_value clj_keyword_from_cstr(const char *s);
+CLJ_BORROWED clj_value clj_keyword_from_cstr(const char *s);
 
 static inline bool         clj_is_keyword(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type == &clj_keyword_type; }
 static inline clj_keyword *clj_keyword_of(clj_value v) { return (clj_keyword *)clj_to_ptr(v); }

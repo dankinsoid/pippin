@@ -495,7 +495,7 @@ static cand_vec *buf_of(const clj_coro *c) { return c->cc_local ? &((local_state
 
 // The main carrier never walks mid-work: past the bound a candidate is published to the background (design §7).
 // One at zero but not yet a zombie is torn down further up this thread's stack: the shared buffer waits for it.
-static void hand_off(clj_header *h, void (*share)(clj_value v)) {
+static void hand_off(clj_header *h, CLJ_NO_PARK void (*share)(clj_value v)) {
 	uint32_t rc = atomic_load_explicit(&h->rc, memory_order_acquire);
 	if (rc == CLJ_RC_ZOMBIE) {
 		clj_dealloc_cell(h);
@@ -1196,7 +1196,7 @@ static void release_survivors(graph *g) {
 
 // Tarjan's components over the black nodes, iteratively: a long realized chain is deeper than the C stack.
 // Each component once, after every component it reaches.
-static void black_components(graph *g, void (*component)(graph *g, const uint32_t *members, uint32_t n, void *ctx),
+static void black_components(graph *g, CLJ_NO_PARK void (*component)(graph *g, const uint32_t *members, uint32_t n, void *ctx),
                              void *ctx) {
 	typedef struct {
 		uint32_t v, e;

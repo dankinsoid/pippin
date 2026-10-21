@@ -17,7 +17,6 @@ static clj_value empty_list_count(clj_value self) {
 
 static clj_value empty_list_reduce(clj_value self, clj_value f, clj_value init) {
 	(void)self;
-	CLJ_ROOTS_NONE;
 	return clj_reduce_empty(f, init);
 }
 

@@ -21,7 +21,7 @@ void clj_compiled_eval_boot(void);
 const char *clj_core_source(size_t *len);
 
 // Where println/prn write. Process-wide; NULL restores stdout.
-typedef void (*clj_output_fn)(const char *bytes, size_t len, void *ctx);
+CLJ_NO_PARK typedef void (*clj_output_fn)(const char *bytes, size_t len, void *ctx);
 void clj_set_output(clj_output_fn fn, void *ctx);
 void clj_output(const char *bytes, size_t len);
 
@@ -90,9 +90,9 @@ bool clj_load_form_failed(clj_value file, uint32_t line, uint32_t col, clj_value
 typedef struct clj_node clj_node;
 
 typedef struct {
-	clj_value file;      // *file* at the time, a string or nil
+	CLJ_NO_CYCLE clj_value file; // *file* at the time, a string or nil
 	uint32_t  line, col; // of the top-level form the node came from
-	clj_value name;      // the symbol a (def... name) form defines, else nil
+	CLJ_NO_CYCLE clj_value name; // the symbol a (def... name) form defines, else nil
 	uint64_t  serial;    // one per top-level form: the nodes of a (do ...) share it
 } clj_load_form;
 

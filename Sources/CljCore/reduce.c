@@ -36,7 +36,6 @@ static bool take(clj_reducer *r, clj_value v, bool consumed) {
 // own reference, so a unique accumulator is updated in place; any other fn sees it at +0. acc is named for the
 // collector by the reducer's starter (CLJ_ROOTS), so a hand-over clears it first.
 static bool step(clj_reducer *r) {
-	CLJ_ROOTS_NONE;
 	if (r->call.consuming) {
 		r->acc = CLJ_NIL;
 		return take(r, clj_intrinsic_call_consuming(r->call.consuming, r->args), true);
@@ -88,7 +87,6 @@ bool clj_reducer_step_entry(clj_reducer *r, clj_value key, clj_value val) {
 
 // The empty walk's (f) holds nothing: acc is the reducer's unbound start.
 clj_value clj_reducer_finish(clj_reducer *r) {
-	CLJ_ROOTS_NONE;
 	clj_value acc = r->acc;
 	r->acc = CLJ_NIL;
 	return acc == CLJ_UNBOUND ? clj_invoke(r->call.f, NULL, 0) : acc;
@@ -100,7 +98,6 @@ void clj_reducer_drop(clj_reducer *r) {
 }
 
 clj_value clj_reduce_empty(clj_value f, clj_value init) {
-	CLJ_ROOTS_NONE;
 	return init == CLJ_UNBOUND ? clj_invoke(f, NULL, 0) : clj_retain(init);
 }
 

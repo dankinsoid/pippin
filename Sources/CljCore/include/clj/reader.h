@@ -34,7 +34,7 @@ typedef struct {
 	clj_ns_resolver     resolve_ns;
 	clj_tag_reader      read_tag; // NULL: clj_default_data_reader alone
 	void               *resolve_ctx;
-	clj_value           features; // set of keywords #?( ) selects on, borrowed; nil means :default alone
+	CLJ_BORROWED clj_value features; // set of keywords #?( ) selects on; nil means :default alone
 	bool                no_positions; // the lists read carry no :line/:column (clj_reader_no_positions)
 } clj_reader;
 

@@ -22,7 +22,6 @@ static const clj_type *type_or_null(clj_value v) { return clj_is_ptr(v) ? clj_ty
 
 // The accessors: what a walk holds across one is the walker's to name.
 clj_value clj_seq(clj_value coll) {
-	CLJ_ROOTS_NONE;
 	if (clj_is_nil(coll)) return CLJ_NIL;
 	const clj_type *t = type_or_null(coll);
 	if (!t || !t->seq) return not_a_seq(coll);
@@ -42,7 +41,6 @@ static clj_value via_seq(clj_value coll, bool first) {
 }
 
 clj_value clj_first(clj_value coll) {
-	CLJ_ROOTS_NONE;
 	if (clj_is_nil(coll)) return CLJ_NIL;
 	const clj_type *t = type_or_null(coll);
 	if (t && t->first) return t->first(coll);
@@ -50,7 +48,6 @@ clj_value clj_first(clj_value coll) {
 }
 
 clj_value clj_next(clj_value coll) {
-	CLJ_ROOTS_NONE;
 	if (clj_is_nil(coll)) return CLJ_NIL;
 	const clj_type *t = type_or_null(coll);
 	if (t && t->next) return t->next(coll);
@@ -77,7 +74,6 @@ clj_value clj_rest(clj_value coll) {
 
 clj_value clj_seq_cons(clj_value x, clj_value coll) {
 	// RT.cons: a nil tail makes a PersistentList, an ISeq tail a Cons. Its seq is made before it holds anything.
-	CLJ_ROOTS_NONE;
 	if (clj_is_nil(coll)) return clj_list_new(x, coll);
 	if (clj_is_seq(coll)) return clj_cons_new(x, coll);
 	clj_value s = clj_seq(coll);
@@ -300,7 +296,6 @@ static void hold(clj_seq_iter *it, clj_value owned) {
 
 // held and item are owned or nil at each call it makes: its walker names them (CLJ_ROOTS(&it.held, &it.item)).
 bool clj_seq_iter_next(clj_seq_iter *it, clj_value *out) {
-	CLJ_ROOTS_NONE;
 	for (;;) {
 		clj_value cur = it->cur;
 		if (!clj_is_ptr(cur)) return done(it, false);

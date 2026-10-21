@@ -4,16 +4,17 @@
 
 #include "object.h"
 
-// A boxed copy of a Swift struct, opaque to the core (design §5 «Равенство и хэш бокса»).
+// A boxed copy of a Swift struct, opaque to the core (design §5 «Равенство и хэш бокса»). The ops are the host's, so
+// they cannot park (design §5 «Вызов внутрь»).
 typedef struct {
 	// NULL when the host type has no equality: `=` of two distinct boxes of it refuses (error.h, clj_refuse).
-	bool (*equals)(void *ctx, void *a, void *b);
+	CLJ_NO_PARK bool (*equals)(void *ctx, void *a, void *b);
 	// NULL when the host type has no hash: a box of it refuses to be a map key or a set member.
-	uint32_t (*hash)(void *ctx, void *payload);
+	CLJ_NO_PARK uint32_t (*hash)(void *ctx, void *payload);
 	// Runs once, when the box dies, on whatever thread drops the last reference.
-	void (*release)(void *ctx, void *payload);
+	CLJ_NO_PARK void (*release)(void *ctx, void *payload);
 	// The printed form after the type's name, an owned string; NULL prints the name alone.
-	clj_value (*describe)(void *ctx, void *payload);
+	CLJ_NO_PARK clj_value (*describe)(void *ctx, void *payload);
 } clj_host_box_ops;
 
 typedef struct {

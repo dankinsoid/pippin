@@ -420,7 +420,6 @@ static bool still_forcing(const void *key, void *ctx) {
 // A one-shot wait for the forcer, on the lot: a park, or a block on a bare thread (design §4, lazy seq under the
 // coroutine mutex).
 void clj_force_wait(clj_value obj, _Atomic uint32_t *state) {
-	CLJ_ROOTS_NONE;
 	clj_lot_park(clj_to_ptr(obj), still_forcing, (void *)state, clj_wake_holder());
 }
 
@@ -554,7 +553,6 @@ CLJ_UNIT_ENTRY void clj_lazy_seq_let_go(const clj_value *captured, uint64_t mask
 // of its own, and an infinite lazy seq is realized one cell per turn here.
 // The thunk is the cell's, which its forcer holds.
 static clj_value run_thunk(clj_coro *co, clj_value v) {
-	CLJ_ROOTS_NONE;
 	if (co->shadow && clj_deadline_tick_on(co->shadow)) return CLJ_THROWN;
 	clj_forcing frame = {v, co->forcing_top};
 	co->forcing_top = &frame;

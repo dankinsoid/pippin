@@ -12,6 +12,18 @@
 //   110  char, Unicode scalar in the upper bits
 typedef uintptr_t clj_value;
 
+// Marks scripts/rooting-hazards.py reads from the source, first in a declaration; empty to the compiler.
+// A +0 reference or none; on a function, a +0 result.
+#define CLJ_BORROWED
+// A parameter the function consumes.
+#define CLJ_OWNED
+#define CLJ_NO_PARK
+// Named through the interpreter's ring, its frame slots and argument buffers (eval.c).
+#define CLJ_RING
+// Never freed as part of a garbage cycle (a leaf, immortal or registry-held): a reference to it needs no name.
+#define CLJ_NO_CYCLE
+#define CLJ_MAY_PARK
+
 // Constants are static const, not macros: Swift imports the former and not expressions like these.
 static const uintptr_t CLJ_TAG_MASK    = 0x7;
 static const uintptr_t CLJ_TAG_PTR     = 0x0;

@@ -344,7 +344,7 @@ clj_value clj_instance_send(clj_value target, clj_value selector, const clj_valu
 	return r;
 }
 
-void clj_proto_each_immortal(clj_value proto, void (*visit)(const clj_type *t, void *ctx), void *ctx) {
+void clj_proto_each_immortal(clj_value proto, CLJ_NO_PARK void (*visit)(const clj_type *t, void *ctx), void *ctx) {
 	reader     *r = window_open();
 	side_table *s = atomic_load_explicit(&side, memory_order_seq_cst);
 	for (uint32_t i = 0; s && i < s->cap; i++) {
@@ -354,7 +354,7 @@ void clj_proto_each_immortal(clj_value proto, void (*visit)(const clj_type *t, v
 	window_close(r);
 }
 
-void clj_proto_each_user(clj_value proto, void (*visit)(const clj_type *t, void *ctx), void *ctx) {
+void clj_proto_each_user(clj_value proto, CLJ_NO_PARK void (*visit)(const clj_type *t, void *ctx), void *ctx) {
 	clj_lock_lock(&users_lock);
 	reader *r = window_open();
 	for (uint32_t i = 0; i < nusers; i++) {
@@ -795,7 +795,6 @@ static clj_value no_core_impl(clj_value self, clj_core_method m) {
 
 // (method self rest...) through the fn the type holds for m; the type outlives the call because self does.
 static clj_value call_core(clj_value self, clj_core_method m, const clj_value *rest, size_t nrest) {
-	CLJ_ROOTS_NONE;
 	clj_value f = user_type_of(self)->core_fns[m].v;
 	if (clj_is_nil(f)) return no_core_impl(self, m);
 	clj_value args[4];
@@ -847,7 +846,6 @@ static clj_value user_count(clj_value self) {
 
 // (get x k) reaches valAt with 2 args when the fn has no 3-arity, as RT.get on the JVM; a not-found needs the 3-arity.
 static clj_value user_lookup(clj_value self, clj_value key, clj_value not_found) {
-	CLJ_ROOTS_NONE;
 	clj_value f = user_type_of(self)->core_fns[CLJ_CM_LOOKUP].v;
 	if (clj_is_nil(f)) return no_core_impl(self, CLJ_CM_LOOKUP);
 	clj_value args[3] = {self, key, not_found};
@@ -861,7 +859,6 @@ static clj_value user_conj(clj_value self, clj_value x) {
 }
 
 static clj_value user_invoke(clj_value self, const clj_value *args, size_t n) {
-	CLJ_ROOTS_NONE;
 	clj_value f = user_type_of(self)->core_fns[CLJ_CM_INVOKE].v;
 	if (clj_is_nil(f)) return no_core_impl(self, CLJ_CM_INVOKE);
 	if (!clj_fn_accepts(f, n + 1)) return clj_throw_msg("Wrong number of args (%zu) passed to: %s", n, clj_type_name(self));
@@ -876,7 +873,7 @@ static clj_value user_invoke(clj_value self, const clj_value *args, size_t n) {
 }
 
 // Throwable's getMessage/getCause default to null; nil here for all three when the form gives none.
-static clj_value user_ex_field(clj_value self, clj_core_method m, bool (*ok)(clj_value), const char *expected) {
+static clj_value user_ex_field(clj_value self, clj_core_method m, CLJ_NO_PARK bool (*ok)(clj_value), const char *expected) {
 	if (clj_is_nil(user_type_of(self)->core_fns[m].v)) return CLJ_NIL;
 	clj_value r = call_core(self, m, NULL, 0);
 	return checked(self, m, r, clj_is_nil(r) || ok(r), expected);
@@ -1435,7 +1432,6 @@ static clj_value b_set_field(const clj_value *args, size_t n) {
 
 // A reify method: the impl closure sits in field idx of the instance it is called on.
 static clj_value trampoline_invoke(void *ctx, const clj_value *args, size_t n) {
-	CLJ_ROOTS_NONE;
 	uint32_t idx = (uint32_t)(uintptr_t)ctx;
 	if (n == 0 || !clj_is_instance(args[0]) || idx >= ((const clj_user_type *)clj_type_of(args[0]))->nfields) {
 		return clj_throw_msg("reify method called on %s", n ? clj_type_name(args[0]) : "nothing");

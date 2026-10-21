@@ -12,7 +12,7 @@
 typedef struct {
 	clj_call  call;
 	clj_value acc; // owned; CLJ_UNBOUND until seeded, CLJ_THROWN once a step threw
-	clj_value args[3];
+	CLJ_BORROWED clj_value args[3]; // acc and the item, copied for the step
 } clj_reducer;
 
 clj_reducer clj_reducer_start(clj_value f, clj_value init, size_t nargs);

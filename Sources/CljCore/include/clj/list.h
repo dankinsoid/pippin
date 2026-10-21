@@ -9,7 +9,7 @@
 extern const clj_type clj_empty_list_type;
 
 // Immortal singleton.
-clj_value clj_list_empty(void);
+CLJ_BORROWED clj_value clj_list_empty(void);
 // List cell or the empty list; a Cons is neither, as on the JVM.
 static inline bool clj_is_list(clj_value v) {
 	return clj_is_ptr(v) && (clj_header_of(v)->type == &clj_list_type || clj_header_of(v)->type == &clj_empty_list_type);

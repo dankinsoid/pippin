@@ -129,7 +129,6 @@ bool clj_compare_orders(clj_value v) {
 }
 
 bool clj_compare_with(const clj_call *call, clj_value a, clj_value b, int *out) {
-	CLJ_ROOTS_NONE;
 	if (clj_is_nil(call->f)) return clj_compare(a, b, out) != CLJ_THROWN;
 	clj_value args[2] = {a, b};
 	clj_value r = clj_call_invoke(call, args);

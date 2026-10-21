@@ -138,7 +138,7 @@ static clj_value record_reduce(clj_value self, clj_value f, clj_value init) {
 	return clj_reducer_finish(&r);
 }
 
-static bool reduce_kv_entry(clj_value key, clj_value val, void *ctx) { CLJ_ROOTS_NONE; return clj_reducer_step_kv(ctx, key, val); }
+static bool reduce_kv_entry(clj_value key, clj_value val, void *ctx) { return clj_reducer_step_kv(ctx, key, val); }
 
 clj_value clj_record_reduce_kv(clj_value r, clj_value f, clj_value init) {
 	clj_reducer red = clj_reducer_start(f, init, 3);

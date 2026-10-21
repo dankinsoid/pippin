@@ -58,10 +58,10 @@ clj_value clj_protocol_no_impl(clj_value method, clj_value v);
 const clj_type *clj_dispatch_type(clj_value v);
 extern const clj_type clj_nil_dispatch_type, clj_boolean_dispatch_type, clj_char_dispatch_type;
 // Every immortal type (builtins, pseudo-descriptors, core interfaces, Object) with an entry for proto, in no order.
-void clj_proto_each_immortal(clj_value proto, void (*visit)(const clj_type *t, void *ctx), void *ctx);
+void clj_proto_each_immortal(clj_value proto, CLJ_NO_PARK void (*visit)(const clj_type *t, void *ctx), void *ctx);
 // Every live user type (deftype, record, reify) with its own entry for proto; visit runs under the registry's lock
 // with the descriptor borrowed, so it must neither release values nor make or free a type.
-void clj_proto_each_user(clj_value proto, void (*visit)(const clj_type *t, void *ctx), void *ctx);
+void clj_proto_each_user(clj_value proto, CLJ_NO_PARK void (*visit)(const clj_type *t, void *ctx), void *ctx);
 // Owned impl of method for a receiver of type t (nil, boolean and char through their pseudo-descriptors), or nil.
 clj_value clj_proto_impl_for_type(clj_value method, const clj_type *t);
 // One of the core-interface pseudo-descriptors an extend-type on an interface name designates.
@@ -122,7 +122,7 @@ enum {
 	CLJ_FIELD_HEAP = 8, // may hold a heap value: the instance is a reference type, born MUTABLE
 };
 
-typedef struct {
+CLJ_NO_CYCLE typedef struct {
 	clj_type  t;
 	clj_slot  name;   // string; t.name points into it
 	clj_slot  fields; // vector of symbols

@@ -667,7 +667,6 @@ static bool is_map(clj_value v) { return clj_is_ptr(v) && clj_header_of(v)->type
 // NULL with the exception pending when realizing a lazy form throws.
 // Analysis walks forms the reader or a macro made, and a park inside a macro is out of what the frames name.
 static clj_value *seq_items(analyzer *a, clj_value form, uint32_t *n) {
-	CLJ_ROOTS_NONE;
 	size_t     count;
 	clj_value  keep;
 	clj_value *items = clj_seq_items(form, &count, &keep);
@@ -759,7 +758,6 @@ enum { MAX_EXPANSION_STEPS = 1000 };
 
 // The macro var a seq form's head names, or nil: a local of s (NULL at top level) shadows it.
 static clj_value macro_var(const analyzer *a, scope *s, clj_value form) {
-	CLJ_ROOTS_NONE;
 	if (!clj_is_seq(form)) return CLJ_NIL;
 	clj_seq_iter it = clj_seq_iter_start(form);
 	clj_value    head;
@@ -778,7 +776,6 @@ static clj_value macro_var(const analyzer *a, scope *s, clj_value form) {
 
 // (macro &form &env args...) with &env nil: there is no local environment value yet.
 static clj_value expand_once(analyzer *a, clj_value var, clj_value form) {
-	CLJ_ROOTS_NONE;
 	clj_value fn = clj_var_deref(var);
 	if (fn == CLJ_THROWN) return rethrow_positioned(a);
 	uint32_t   n;
@@ -1401,7 +1398,6 @@ typedef enum { TRY_BODY, TRY_CATCH, TRY_FINALLY, TRY_THROWN } try_clause;
 
 // What a try item is by its head; TRY_THROWN when reading the head throws.
 static try_clause try_clause_of(clj_value item) {
-	CLJ_ROOTS_NONE;
 	if (!clj_is_seq(item)) return TRY_BODY;
 	clj_value head = clj_first(item);
 	if (head == CLJ_THROWN) return TRY_THROWN;
@@ -1651,7 +1647,6 @@ static bool names_item(clj_value item, void *ctx) {
 }
 
 static int form_names(const analyzer *a, clj_value form, clj_value sym) {
-	CLJ_ROOTS_NONE;
 	char here;
 	if (&here < a->stack_limit) return 1;
 	if (clj_is_symbol(form)) return clj_equals(form, sym) ? 1 : 0;
@@ -1803,7 +1798,6 @@ static clj_node *analyze_list_at(analyzer *a, scope *s, clj_value form, bool tai
 // Any seq is a list form: macros hand back lazy seqs, and () analyzes as itself.
 static clj_node *analyze(analyzer *a, scope *s, clj_value form, bool tail) {
 	// One C frame per nesting level: a form nested past the margin refuses here, not on the guard page.
-	CLJ_ROOTS_NONE;
 	char here;
 	if (__builtin_expect(&here < a->stack_limit, 0)) return fail(a, "Stack overflow");
 	if (clj_is_symbol(form)) return analyze_symbol(a, s, form);

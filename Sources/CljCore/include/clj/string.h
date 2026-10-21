@@ -24,8 +24,8 @@ extern const clj_type clj_string_type;
 #define CLJ_STRING_CRUMB_STRIDE 64u
 
 // bytes may be NULL when len is 0.
-clj_value clj_string_new(const char *bytes, size_t len);
-clj_value clj_string_from_cstr(const char *s);
+CLJ_NO_CYCLE clj_value clj_string_new(const char *bytes, size_t len);
+CLJ_NO_CYCLE clj_value clj_string_from_cstr(const char *s);
 // s with n more bytes, s consumed: unique and unshared (clj_is_unique_unshared), so it grows in place, moving only
 // when its cell is full; bytes must not point into s.
 clj_value clj_string_append(clj_value s, const char *bytes, size_t n);

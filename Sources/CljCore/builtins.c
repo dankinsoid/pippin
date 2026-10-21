@@ -216,6 +216,7 @@ static clj_value hash_coll(clj_value coll, bool ordered) {
 	bool thrown = it.thrown;
 	clj_seq_iter_close(&it);
 	clj_release(s);
+	s = CLJ_NIL;
 	bool dropped = clj_equals_rethrow();
 	return thrown || dropped ? CLJ_THROWN : clj_fixnum((int32_t)clj_mix_coll_hash(h, n));
 }
@@ -582,7 +583,6 @@ static clj_value b_range_star(const clj_value *args, size_t n) {
 // (cons a (cons b ... coll)): the last argument is the tail as a seq and stays unrealized.
 // Its conses are onto seqs, whose seq runs nothing.
 static clj_value b_list_star(const clj_value *args, size_t n) {
-	CLJ_ROOTS_NONE;
 	clj_value tail = args[n - 1];
 	clj_value r = clj_is_seq(tail) ? clj_retain(tail) : clj_seq(tail);
 	if (r == CLJ_THROWN) return CLJ_THROWN;
@@ -595,7 +595,6 @@ static clj_value b_list_star(const clj_value *args, size_t n) {
 }
 
 clj_value clj_empty_p(clj_value v) {
-	CLJ_ROOTS_NONE;
 	clj_value s = clj_seq(v);
 	if (s == CLJ_THROWN) return CLJ_THROWN;
 	clj_release(s);
@@ -638,7 +637,6 @@ static clj_value b_last(const clj_value *args, size_t n) {
 // keep arrives after the walk, which is clj_seq_items' own.
 static clj_value b_butlast(const clj_value *args, size_t n) {
 	(void)n;
-	CLJ_ROOTS_NONE;
 	size_t     count;
 	clj_value  keep;
 	clj_value *items = clj_seq_items(args[0], &count, &keep);
@@ -677,7 +675,6 @@ static clj_value b_sequence_xform(const clj_value *args, size_t n) {
 // rseq of a vector? value: an O(1) view of the core vector; any other IPersistentVector is reversed eagerly.
 // The seq of the list b_reverse made runs nothing.
 static clj_value b_rvec_seq(const clj_value *args, size_t n) {
-	CLJ_ROOTS_NONE;
 	if (clj_is_vector(args[0])) {
 		uint32_t count = clj_vector_count(args[0]);
 		return count ? clj_rvector_seq_new(args[0], count - 1) : CLJ_NIL;
@@ -749,13 +746,11 @@ static clj_value b_persistent(const clj_value *args, size_t n) {
 }
 
 static clj_value b_reduce(const clj_value *args, size_t n) {
-	CLJ_ROOTS_NONE;
 	return n == 3 ? clj_reduce(args[0], args[1], args[2]) : clj_reduce(args[0], CLJ_UNBOUND, args[1]);
 }
 
 static clj_value b_reduce_kv(const clj_value *args, size_t n) {
 	(void)n;
-	CLJ_ROOTS_NONE;
 	return clj_reduce_kv(args[0], args[1], args[2]);
 }
 
@@ -1462,7 +1457,7 @@ static clj_value b_identity(const clj_value *args, size_t n) {
 	return clj_retain(args[0]);
 }
 
-static clj_value b_apply(const clj_value *args, size_t n) { CLJ_ROOTS_NONE; return clj_apply(args[0], args + 1, n - 1); }
+static clj_value b_apply(const clj_value *args, size_t n) { return clj_apply(args[0], args + 1, n - 1); }
 
 // ---- vars
 
@@ -1583,7 +1578,6 @@ static clj_value b_reset_meta(const clj_value *args, size_t n) {
 // A namespace's meta is written under the namespace lock, so f runs once and a concurrent alter-meta! is lost.
 // The meta it passes is the namespace's, borrowed.
 static clj_value ns_alter_meta(clj_value ns, clj_value f, const clj_value *args, size_t n) {
-	CLJ_ROOTS_NONE;
 	clj_value  small[8];
 	clj_value *call = n + 1 <= sizeof small / sizeof *small ? small : malloc((n + 1) * sizeof *call);
 	if (!call) clj_fatal("out of memory");

@@ -32,12 +32,12 @@ static inline const clj_shape *clj_map_shape(clj_value v) { return clj_is_shape_
 
 // Immortal singleton; the object is named so another static initializer (the empty set) can point at it.
 extern clj_map clj_map_empty_object;
-clj_value clj_map_empty(void);
+CLJ_BORROWED clj_value clj_map_empty(void);
 // A fresh empty map object: what a dissoc of the last key answers, so it is not identical to the singleton.
 clj_value clj_map_empty_new(void);
 uint32_t  clj_map_count(clj_value map);
 // Borrowed (+0): valid while map is.
-clj_value clj_map_get(clj_value map, clj_value key, clj_value not_found);
+CLJ_BORROWED clj_value clj_map_get(clj_value map, clj_value key, clj_value not_found);
 bool      clj_map_contains(clj_value map, clj_value key);
 // clj_map_get retained, or for a take-out get (NOTES "Owned parameters") the value moved out, *taken set, when the
 // map (a transient too), every trie node on the way and the value are unique and unpublished: the entry holds nil

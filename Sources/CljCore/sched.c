@@ -537,7 +537,6 @@ void clj_park(clj_waiter *w, clj_wake wake) {
 
 // The callback and its value are the waiter's.
 static void run_callback(clj_waiter *w) {
-	CLJ_ROOTS_NONE;
 	if (clj_is_nil(w->callback)) return;
 	clj_value r = clj_invoke(w->callback, &w->value, 1);
 	if (r == CLJ_THROWN) {
@@ -549,12 +548,8 @@ static void run_callback(clj_waiter *w) {
 	}
 }
 
-static void resume(clj_waiter *w, bool handoff) {
+static void resume_coro(clj_waiter *w, bool handoff) {
 	clj_coro *c = w->coro;
-	if (!c) {
-		run_callback(w);
-		return;
-	}
 	pthread_mutex_lock(&c->lock);
 	w->resumed = true;
 	// Not parked yet, or parked on another waiter of its own: its park on w returns at once.
@@ -579,13 +574,21 @@ static void resume(clj_waiter *w, bool handoff) {
 	clj_sched_enqueue(c, handoff);
 }
 
-void clj_resume(clj_waiter *w) { resume(w, true); }
+void clj_resume(clj_waiter *w) {
+	if (w->coro) resume_coro(w, true);
+	else run_callback(w);
+}
 
-void clj_resume_far(clj_waiter *w) { resume(w, false); }
+// A callback's waiter is a channel's alone (chan.c, clj_resume): nothing from afar runs a program's fn inline.
+void clj_resume_far(clj_waiter *w) {
+	CLJ_ASSERT(w->coro, "a far resume of a callback's waiter");
+	resume_coro(w, false);
+}
 
 // ---- spawn and finish
 
-static void (*uncaught_handler)(clj_value ex, clj_value trace);
+// The host's: it cannot park (design §5 «Вызов внутрь»).
+static CLJ_NO_PARK void (*uncaught_handler)(clj_value ex, clj_value trace);
 
 static void put(const char *s) { (void)!write(2, s, strlen(s)); }
 
@@ -875,7 +878,7 @@ static int cc_verdict(clj_coro *c, uint32_t *internal, uint32_t *queued) {
 	return CLJ_CORO_CC_PARKED;
 }
 
-bool clj_coro_cc_locked(clj_coro *c, void (*inside)(clj_coro *c, int verdict, uint32_t internal, uint32_t queued, void *ctx), void *ctx) {
+bool clj_coro_cc_locked(clj_coro *c, CLJ_NO_PARK void (*inside)(clj_coro *c, int verdict, uint32_t internal, uint32_t queued, void *ctx), void *ctx) {
 	if (pthread_mutex_trylock(&c->lock) != 0) return false;
 	uint32_t internal, queued;
 	int      verdict = cc_verdict(c, &internal, &queued);
@@ -981,7 +984,6 @@ bool clj_coro_suspended(clj_coro *c) {
 // It defers rather than fails — the request came from another coroutine, there is no caller here to fail.
 // @ai-generated(guided)
 bool clj_coro_suspend_point(void) {
-	CLJ_ROOTS_NONE;
 	clj_coro *c = clj_coro_current();
 	if (c->host_depth || c->locks_held || c->cmutex_held || c->forcing_held) {
 		// Every call until the hold is over, not one per 1024: a loop of a fixed length would otherwise meet the
@@ -1282,7 +1284,6 @@ static void sleep_fire(void *ctx) {
 }
 
 clj_value clj_sched_sleep_ms(int64_t ms) {
-	CLJ_ROOTS_NONE;
 	if (!clj_park_allowed()) return CLJ_THROWN;
 	clj_coro   *c = clj_coro_current();
 	clj_waiter *w = clj_waiter_new(c, CLJ_NIL);
@@ -1405,8 +1406,7 @@ static job *submit(pool *p, void (*fn)(void *ctx), void *ctx, size_t copy, clj_w
 }
 
 // The job works on a heap copy of ctx, written back here: the parker's frame is nobody else's (design §4).
-void clj_blocking(void (*fn)(void *ctx), void *ctx, size_t size) {
-	CLJ_ROOTS_NONE;
+void clj_blocking(CLJ_NO_PARK void (*fn)(void *ctx), void *ctx, size_t size) {
 	clj_coro *c = clj_coro_current();
 	// Seeded, the job is done in place: a pool thread's completion would land in the schedule at a real moment.
 	if (c->implicit || c->host_depth || c->locks_held || clj_sched_seed_on) {
@@ -1960,7 +1960,6 @@ void clj_sched_seed_settling(int delta) {
 
 // Where parking is refused the execution goes on, as it would have; a cancelled one meets its cancel at the park.
 void clj_sched_point_slow(void) {
-	CLJ_ROOTS_NONE;
 	clj_coro *c = clj_coro_here();
 	if (!c || c->locks_held) return;
 	if (c->implicit) {

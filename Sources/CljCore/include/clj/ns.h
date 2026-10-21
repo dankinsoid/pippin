@@ -5,7 +5,7 @@
 #include "object.h"
 
 // Immortal, like vars. Every lookup and mutation goes through one process-wide mutex.
-typedef struct {
+CLJ_NO_CYCLE typedef struct {
 	clj_header h;
 	clj_slot   name;     // symbol
 	clj_slot   mappings; // map symbol → var interned here
@@ -56,12 +56,12 @@ clj_value clj_ns_resolve(clj_value ns, clj_value sym);
 clj_value clj_ns_resolve_ns(clj_value ns, clj_value name);
 
 // The value of clojure.core/*ns*: this thread's binding when it has one, else the root (`user` until set).
-clj_value clj_ns_current(void);
+CLJ_BORROWED clj_value clj_ns_current(void);
 // Sets the thread's binding of *ns* when there is one, else its root.
 void      clj_ns_set_current(clj_value ns);
 // The var clojure.core/*ns* itself (dynamic, root `user`).
 clj_value clj_ns_var(void);
-clj_value clj_ns_core(void);
-clj_value clj_ns_user(void);
+CLJ_BORROWED clj_value clj_ns_core(void);
+CLJ_BORROWED clj_value clj_ns_user(void);
 
 #endif

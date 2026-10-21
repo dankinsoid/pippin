@@ -62,7 +62,7 @@ typedef struct {
 	uint8_t         null;      // clj_null
 	uint8_t         elem;      // array kind + 1 when types is exactly CLJ_T_ARRAY and it is known, else 0
 	uint8_t         unreachable; // clj_dead: the node sits in a branch a refinement proved dead; not part of the lattice
-	clj_value       singleton; // the pinned value when types names one kind, else CLJ_UNBOUND
+	CLJ_BORROWED clj_value singleton; // the pinned value when types names one kind, else CLJ_UNBOUND; the tree's constant
 	const clj_type *desc;      // record or host descriptor when known, else NULL
 } clj_fact;
 

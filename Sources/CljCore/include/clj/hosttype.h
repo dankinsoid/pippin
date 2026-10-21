@@ -34,9 +34,9 @@ clj_value clj_host_type_catches(clj_value name, clj_value ex);
 // ---- the host's side of it, installed at boot; a C-only host installs nothing (design §4, §5)
 
 // Resolves "Module/Name"; *mangled takes the type's mangled name, owned by the host for the whole process.
-typedef const void *(*clj_host_type_resolver)(const char *name, size_t len, const char **mangled);
+CLJ_NO_PARK typedef const void *(*clj_host_type_resolver)(const char *name, size_t len, const char **mangled);
 // Whether the payload of a host error (clj_host_error_payload) is an instance of metatype.
-typedef bool (*clj_host_type_checker)(const void *metatype, void *payload);
+CLJ_NO_PARK typedef bool (*clj_host_type_checker)(const void *metatype, void *payload);
 // From clj_host_boot, before any user code runs; both must be non-NULL or neither.
 void clj_host_type_install(clj_host_type_resolver resolve, clj_host_type_checker check);
 

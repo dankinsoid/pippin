@@ -115,7 +115,7 @@ static clj_value set_lookup(clj_value self, clj_value key, clj_value not_found) 
 	return clj_retain(clj_set_get(self, key, not_found));
 }
 
-static bool reduce_item(clj_value item, void *ctx) { CLJ_ROOTS_NONE; return clj_reducer_step(ctx, item); }
+static bool reduce_item(clj_value item, void *ctx) { return clj_reducer_step(ctx, item); }
 
 static clj_value set_reduce(clj_value self, clj_value f, clj_value init) {
 	clj_reducer r = clj_reducer_start(f, init, 2);

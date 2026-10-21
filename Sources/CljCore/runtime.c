@@ -53,7 +53,7 @@ typedef struct capture {
 	_Atomic uint32_t rc;
 	clj_output_fn    stream; // set: a write is handed over as it comes and nothing is kept (nREPL streams :out)
 	void            *ctx;
-	void (*release)(void *ctx);
+	CLJ_NO_PARK void (*release)(void *ctx);
 } capture;
 
 #define captures (*(capture **)&clj_coro_current()->captures)
@@ -346,7 +346,6 @@ void clj_set_output(clj_output_fn fn, void *ctx) {
 }
 
 static void enqueue_output(const char *bytes, size_t len) {
-	CLJ_ROOTS_NONE;
 	pthread_once(&out_once, start_writer);
 	chunk *c = malloc(sizeof *c);
 	if (!c) clj_fatal("out of memory");
@@ -420,7 +419,6 @@ static clj_value core_var_value(const char *name) {
 // #ns.Name{...} and #ns.Name[...]: the record type behind the var Name of namespace ns, as LispReader's CtorReader.
 // The reader's own form, whose walk runs nothing.
 static clj_value read_record_literal(clj_value tag, clj_value form) {
-	CLJ_ROOTS_NONE;
 	const char *text = CLJ_STR(clj_symbol_name(tag)).bytes;
 	const char *dot = strrchr(text, '.');
 	clj_value   ns_name = clj_string_new(text, (size_t)(dot - text));

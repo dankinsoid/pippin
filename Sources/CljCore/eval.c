@@ -594,7 +594,6 @@ static clj_value eval_fn(const clj_node *n, clj_frame *f) {
 
 // A closure gets the call site for its shadow frame; anything else goes through the invoke slot.
 static inline clj_value invoke_at(clj_value fn, const clj_value *args, uint32_t n, const clj_node *site) {
-	CLJ_ROOTS_NONE;
 	if (clj_is_fn(fn) && clj_fn_of(fn)->kind == CLJ_FN_CLOSURE) return clj_closure_invoke_at(fn, args, n, site);
 	return clj_invoke(fn, args, n);
 }
@@ -602,7 +601,6 @@ static inline clj_value invoke_at(clj_value fn, const clj_value *args, uint32_t 
 // A plain native straight from the site: the arity check fn_invoke would make, then its C function. Natives
 // are leaves of the shadow stack, so a throw inside reports the same frames as through clj_invoke.
 static inline clj_value call_native(const clj_fn *nf, clj_value fn, const clj_value *args, uint32_t n) {
-	CLJ_ROOTS_NONE;
 	if (n < nf->min_arity || (nf->max_arity != CLJ_ARITY_ANY && n > nf->max_arity)) return clj_arity_error(fn, n);
 	return nf->u.native.fn(args, n);
 }
@@ -1968,7 +1966,7 @@ clj_value clj_exec_new(const clj_node *root) {
 	return clj_from_ptr(e);
 }
 
-clj_value clj_closure_invoke(clj_value f, const clj_value *args, size_t n) { CLJ_ROOTS_NONE; return clj_closure_invoke_at(f, args, n, NULL); }
+clj_value clj_closure_invoke(clj_value f, const clj_value *args, size_t n) { return clj_closure_invoke_at(f, args, n, NULL); }
 
 clj_value clj_closure_invoke_at(clj_value f, const clj_value *args, size_t n, const clj_node *site) {
 	const clj_fn_arity *arity = arity_for(clj_fn_of(f)->u.node, n);
@@ -1997,7 +1995,6 @@ clj_call clj_call_prepare(clj_value f, size_t n) {
 }
 
 clj_value clj_call_invoke_slow(const clj_call *c, const clj_value *args) {
-	CLJ_ROOTS_NONE;
 	if (c->arity) return closure_run(c->f, c->arity, args, c->n, NULL);
 	return clj_invoke(c->f, args, c->n);
 }
@@ -2043,7 +2040,6 @@ clj_value clj_eval_node(const clj_node *node) {
 
 // Positions it after the head when form is (do ...); a macro may have produced any seq type.
 static bool is_do_form(clj_value form, clj_seq_iter *it) {
-	CLJ_ROOTS_NONE;
 	if (!clj_is_seq(form)) return false;
 	*it = clj_seq_iter_start(form);
 	clj_value head;
@@ -2087,7 +2083,6 @@ void clj_eval_exec_depth_set(uint32_t depth) {
 // The host's synchronous trampoline: a park under it is an error (design §5, host_depth), never a block.
 clj_value clj_host_invoke(clj_value f, const clj_value *args, size_t n) {
 	// The bracket opens before the point is pushed, so a landing restores the depth to the open bracket.
-	CLJ_ROOTS_NONE;
 	clj_coro *c = clj_coro_current();
 	exec_depth_enter(c);
 	c->host_depth++;

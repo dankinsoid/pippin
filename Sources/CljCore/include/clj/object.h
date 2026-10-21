@@ -28,7 +28,7 @@ typedef struct {
 
 // An edge of a heap object: a clj_value field or slot-array element its each_child visits. A bare assignment to it
 // does not compile, so every write goes through the primitives below and a publication cannot be forgotten (design
-// §4 «Запись в слот»; make slot-audit keeps other code off `.v`). Reads take `.v`.
+// §4 «Запись в слот»; make rooting-hazards keeps other code off `.v`). Reads take `.v`.
 typedef struct {
 	clj_value v;
 } clj_slot;
@@ -114,7 +114,7 @@ _Static_assert(sizeof(clj_slot) == sizeof(clj_value), "a slot is the bare word")
 #define CLJ_RC_BUFFERED ((uint32_t)1 << 30)
 #define CLJ_RC_COUNT_MASK    (CLJ_RC_BUFFERED - 1)
 
-typedef void (*clj_visitor)(clj_value child, void *ctx);
+CLJ_NO_PARK typedef void (*clj_visitor)(clj_value child, void *ctx);
 // One teardown's worklist (rc_internal.h); opaque outside rc.c and the types' drop slots.
 typedef struct clj_drop clj_drop;
 
@@ -151,22 +151,23 @@ typedef struct clj_drop clj_drop;
 // the interfaces its form names (the extend-type boundary in the design); protocols hang off user_protos.
 // Slot convention as for every function: arguments borrowed, results owned or CLJ_THROWN;
 // conj is the exception and consumes self, so a unique collection can be updated in place.
-struct clj_type {
+// Never REACH (design §7, «Биты»): a heap descriptor's registry holds it without a reference.
+CLJ_NO_CYCLE struct clj_type {
 	clj_header  h;
 	const char *name;
 	uint64_t    core_bits;
 	// Children replaced after publication (an atom's value): checked at the store (CLJ_SLOT_CHECK), not by a walk.
 	bool        mutable_children;
 	// NULL for leaf types. Drives share, the collector and the debug walks, and drop where `drop` is NULL.
-	void (*each_child)(void *self, clj_visitor visit, void *ctx);
+	CLJ_NO_PARK void (*each_child)(void *self, clj_visitor visit, void *ctx);
 	// The release of every child each_child visits, through clj_drop_value (rc_internal.h): a free specialized by
 	// type, with no call per child. NULL: each_child with a generic visitor.
-	void (*drop)(void *self, clj_drop *d);
+	CLJ_NO_PARK void (*drop)(void *self, clj_drop *d);
 	// Resources beyond child values (mutex, external buffer). NULL if none.
-	void (*finalize)(void *self);
+	CLJ_NO_PARK void (*finalize)(void *self);
 	// Runs as the last reference drops, header still intact, before the children go: for a registry that holds
 	// the object without a reference and reads its count under its own lock (specialize.c). NULL if none.
-	void (*unlink)(void *self);
+	CLJ_NO_PARK void (*unlink)(void *self);
 	// NULL when values of the type cannot be map keys; clj_hash/clj_equals abort on them.
 	uint32_t (*hash)(void *self);
 	bool     (*equals)(void *self, clj_value other);
@@ -200,19 +201,19 @@ struct clj_type {
 	void *user_protos;
 	// Debug builds: whether the running execution holds the lock a mutable_children object's slots are replaced
 	// under (clj_slot_store asks); NULL where no cheap answer exists.
-	bool (*debug_lock_held)(const void *self);
+	CLJ_NO_PARK bool (*debug_lock_held)(const void *self);
 	// The concurrent collector reads a shared object of this type under the lock its writers hold: runs inside(self,
 	// ctx) under it, false without running when the lock is busy. Its objects carry CLJ_FLAG_CC_LOCKED, so a store
 	// into one needs no barrier. NULL: each_child is read without a lock (cc.c, the lock-free protocol).
-	bool (*cc_locked)(void *self, void (*inside)(void *self, void *ctx), void *ctx);
+	CLJ_NO_PARK bool (*cc_locked)(void *self, CLJ_NO_PARK void (*inside)(void *self, void *ctx), void *ctx);
 	// The coroutines parked on an object of this type, which its waiters hold without a reference: the collector's
 	// wake edges (cc.c, design §7 «Фаза 3»). Runs inside cc_locked; visit gets each coroutine while its waiter is
 	// unclaimed, so the coroutine is alive. NULL: none.
-	void (*cc_wakes)(void *self, void (*visit)(void *coro, void *ctx), void *ctx);
+	CLJ_NO_PARK void (*cc_wakes)(void *self, CLJ_NO_PARK void (*visit)(void *coro, void *ctx), void *ctx);
 	// References the object owns outside each_child, which its finalize releases: a channel's callback waiters' fns.
 	// The collector counts them as edges (inside cc_locked); detach hands each to visit and forgets it, so a garbage
 	// cycle's teardown releases it once. NULL: none.
-	void (*cc_held)(void *self, clj_visitor visit, void *ctx, bool detach);
+	CLJ_NO_PARK void (*cc_held)(void *self, clj_visitor visit, void *ctx, bool detach);
 };
 
 extern const clj_type clj_type_type;
@@ -298,7 +299,8 @@ size_t clj_debug_cell_size(size_t size);
 size_t clj_debug_pool_used_bytes(void);
 // Test hook: replaces clj_hash for every value while set. NULL restores the default.
 void clj_debug_set_hash_override(uint32_t (*fn)(clj_value v));
-extern uint32_t (*clj_debug_hash_override)(clj_value v);
+// A test's hook, never a program's code.
+extern CLJ_NO_PARK uint32_t (*clj_debug_hash_override)(clj_value v);
 
 // After clj_slot_store into a mutable_children owner: the slot check, and the owner's lock is held (debug_lock_held).
 // Declared in every build for the tests; release builds check nothing.

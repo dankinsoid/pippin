@@ -26,7 +26,7 @@ static void atom_each_child(void *self, clj_visitor visit, void *ctx) {
 
 
 static bool atom_lock_held(const void *self);
-static bool atom_cc_locked(void *self, void (*inside)(void *self, void *ctx), void *ctx);
+static bool atom_cc_locked(void *self, CLJ_NO_PARK void (*inside)(void *self, void *ctx), void *ctx);
 
 static uint32_t atom_hash(void *self) { return clj_fmix32((uint32_t)((uintptr_t)self >> 4)); }
 
@@ -52,7 +52,7 @@ static bool held_by_me(const clj_atom *a) { return atomic_load_explicit(&a->owne
 static bool atom_lock_held(const void *self) { return held_by_me(self); }
 
 // The collector reads the four slots under the mutex every store into them takes (cc.c).
-static bool atom_cc_locked(void *self, void (*inside)(void *self, void *ctx), void *ctx) {
+static bool atom_cc_locked(void *self, CLJ_NO_PARK void (*inside)(void *self, void *ctx), void *ctx) {
 	clj_atom *a = self;
 	if (!clj_cmutex_trylock(&a->lock)) return false;
 	inside(self, ctx);
@@ -95,7 +95,6 @@ static clj_value invalid_state(clj_value cause) {
 
 // false with the exception pending. Runs under the lock: the validator sees the value before anyone else.
 static bool validate_with(clj_value validator, clj_value v) {
-	CLJ_ROOTS_NONE;
 	if (clj_is_nil(validator)) return true;
 	clj_value r = clj_invoke(validator, &v, 1);
 	if (r == CLJ_THROWN) {
@@ -115,7 +114,6 @@ typedef struct {
 
 // old and new are commit's.
 static bool notify_entry(clj_value key, clj_value f, void *ctx) {
-	CLJ_ROOTS_NONE;
 	notify_ctx *c = ctx;
 	clj_value   args[4] = {key, c->atom, c->old, c->new};
 	clj_value   r = clj_invoke(f, args, 4);
@@ -350,7 +348,6 @@ clj_value clj_atom_alter_meta(clj_value atom, clj_value f, const clj_value *args
 		return CLJ_THROWN;
 	}
 	call[0] = a->meta.v;
-	CLJ_ROOTS_NONE;
 	clj_value m = clj_invoke(f, call, nargs + 1);
 	if (call != small) free(call);
 	if (m != CLJ_THROWN && !clj_is_nil(m) && !clj_has_core(m, CLJ_CORE_MAP)) {

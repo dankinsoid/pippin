@@ -95,7 +95,7 @@ typedef struct {
 	// ex-type: the host type (hosttype.h), interned by the host that boxed the error; nil when it could not.
 	clj_slot  type;
 	void     *payload;
-	void (*release)(void *payload); // NULL when the payload needs no cleanup
+	CLJ_NO_PARK void (*release)(void *payload); // NULL when the payload needs no cleanup
 } clj_host_error;
 
 extern const clj_type clj_host_error_type;

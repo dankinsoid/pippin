@@ -8,10 +8,10 @@
 extern const clj_type clj_vector_type;
 
 // Immortal singleton.
-clj_value clj_vector_empty(void);
+CLJ_BORROWED clj_value clj_vector_empty(void);
 uint32_t  clj_vector_count(clj_value vec);
 // Borrowed (+0): valid while vec is. Aborts out of range; the bounds check that throws lives higher up.
-clj_value clj_vector_nth(clj_value vec, uint32_t i);
+CLJ_BORROWED clj_value clj_vector_nth(clj_value vec, uint32_t i);
 // nil when empty.
 clj_value clj_vector_peek(clj_value vec);
 

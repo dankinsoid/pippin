@@ -574,7 +574,6 @@ static clj_value sorted_map_reduce(clj_value self, clj_value f, clj_value init) 
 
 static bool reduce_element(clj_value key, clj_value val, void *ctx) {
 	(void)val;
-	CLJ_ROOTS_NONE;
 	return clj_reducer_step(ctx, key);
 }
 
@@ -585,7 +584,7 @@ static clj_value sorted_set_reduce(clj_value self, clj_value f, clj_value init) 
 	return clj_reducer_finish(&r);
 }
 
-static bool reduce_kv_entry(clj_value key, clj_value val, void *ctx) { CLJ_ROOTS_NONE; return clj_reducer_step_kv(ctx, key, val); }
+static bool reduce_kv_entry(clj_value key, clj_value val, void *ctx) { return clj_reducer_step_kv(ctx, key, val); }
 
 clj_value clj_sorted_map_reduce_kv(clj_value map, clj_value f, clj_value init) {
 	clj_reducer r = clj_reducer_start(f, init, 3);

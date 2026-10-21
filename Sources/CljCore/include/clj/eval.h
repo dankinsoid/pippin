@@ -25,8 +25,8 @@ typedef struct {
 typedef struct clj_call_site clj_call_site;
 typedef struct clj_derivation clj_derivation;
 
-// One per tree; a closure retains the exec of the tree it was created in.
-typedef struct {
+// One per tree; a closure retains the exec of the tree it was created in. Never REACH (design §7, «Биты»).
+CLJ_NO_CYCLE typedef struct {
 	clj_header      h;
 	const clj_node *root;   // retained
 	uint32_t        nslots; // frame slots the root needs at top level
@@ -56,7 +56,7 @@ typedef struct clj_argbuf {
 // owned by definition.
 struct clj_frame {
 	clj_value        *slots;
-	const clj_value  *captured; // borrowed from the running closure; a direct fn's frame shares its definer's
+	CLJ_BORROWED const clj_value *captured; // from the running closure; a direct fn's frame shares its definer's
 	const clj_exec   *exec;     // of the tree the running node belongs to
 	uint64_t          owned;
 	const clj_frame  *outer;    // the defining frame of a direct fn body, alive for the whole call; else NULL
@@ -171,7 +171,7 @@ bool clj_host_park_allowed(void);
 // arity resolved and enters its body directly, a plain native skips its arity check. f is borrowed and must
 // outlive the calls; a fn that takes no n arguments still goes through clj_invoke, which reports it.
 typedef struct {
-	clj_value            f;
+	CLJ_BORROWED clj_value f;
 	size_t               n;
 	const clj_fn_arity  *arity;     // of a closure for n, else NULL
 	clj_native_fn        native;    // of a plain native accepting n, else NULL

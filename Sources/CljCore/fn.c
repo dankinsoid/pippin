@@ -45,7 +45,6 @@ static bool is_compiled_closure(const clj_fn *fn, clj_value f) {
 }
 
 static clj_value fn_invoke(clj_value f, const clj_value *args, size_t n) {
-	CLJ_ROOTS_NONE;
 	const clj_fn *fn = clj_fn_of(f);
 	if (fn->kind == CLJ_FN_CLOSURE) return clj_closure_invoke(f, args, n);
 	// Its dispatcher refuses a count itself, and its min_arity is the rest arity's, above a fixed one it may have.
@@ -280,7 +279,6 @@ bool clj_fn_accepts(clj_value f, size_t n) {
 
 clj_value clj_invoke(clj_value f, const clj_value *args, size_t n) {
 	CLJ_STAT(CLJ_STAT_INVOKE);
-	CLJ_ROOTS_NONE;
 	if (clj_is_ptr(f) && clj_type_of(f)->invoke) return clj_type_of(f)->invoke(f, args, n);
 	clj_value text = clj_pr_str_max(f, CLJ_ERROR_PRINT_MAX);
 	if (text == CLJ_THROWN) return CLJ_THROWN;
