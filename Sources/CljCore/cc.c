@@ -14,6 +14,7 @@
 #include "cc_internal.h"
 #include "clj/coro.h"
 #include "clj/atom.h"
+#include "clj/box.h"
 #include "clj/compiled.h"
 #include "clj/eval.h"
 #include "clj/ice.h"
@@ -450,7 +451,8 @@ static void collecting(bool on) {
 	if (on) trace_round++;
 }
 
-// Once, on the arming thread: before a shared collection visits the target, the holder atom lets go of what it holds.
+// Once, on the arming thread: before a shared collection visits the target, the holder volatile lets go of what it
+// holds. A volatile's store takes no lock, so a release that runs a collection in its gap still never parks.
 static _Atomic(clj_header *) visit_target;
 static clj_value             visit_holder;
 static pthread_t             visit_thread;
@@ -475,7 +477,7 @@ static void before_visit(bool shared, clj_header *h) {
 	    !pthread_equal(pthread_self(), visit_thread))
 		return;
 	atomic_store_explicit(&visit_target, NULL, memory_order_relaxed);
-	clj_release(clj_atom_reset(visit_holder, CLJ_NIL));
+	clj_release(clj_volatile_reset(visit_holder, CLJ_NIL));
 	atomic_store_explicit(&visit_fired, 1, memory_order_seq_cst);
 }
 #else

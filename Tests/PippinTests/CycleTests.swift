@@ -296,18 +296,16 @@ extension CoreTests {
 			let freed = freedStat()
 			var fired = 0
 			for _ in 0..<5 where fired == 0 {
-				var h: Value? = try eval("(atom nil)")
-				let held = Value(owning: clj_retain(h!.raw))
-				_ = try eval("(fn [h] (let [x (atom nil)] (reset! x [x]) (reset! h x) nil))")(h!)
+				var a: Value? = try eval("(atom nil)")
+				_ = try eval("(fn [a] (let [x (atom nil)] (reset! x [x]) (reset! a (volatile! x)) nil))")(a!)
 				clj_cc_collect()
-				let x = clj_atom_value_borrowed(h!.raw)
+				let h = clj_atom_value_borrowed(a!.raw), x = clj_volatile_value(h)
 				_ = Value(owning: clj_retain(x))
-				_ = Value(owning: clj_retain(h!.raw))
-				clj_debug_cc_before_visit(x, h!.raw)
+				_ = Value(owning: clj_retain(h))
+				clj_debug_cc_before_visit(x, h)
 				clj_cc_collect()
 				fired = Int(clj_debug_cc_before_visit_fired())
-				withExtendedLifetime(held) {}
-				h = nil
+				a = nil
 			}
 			#expect(fired == 1)
 			clj_cc_collect()

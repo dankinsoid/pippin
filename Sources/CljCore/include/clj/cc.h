@@ -65,7 +65,8 @@ int clj_debug_cc_on_cycle(clj_value v);
 void clj_debug_cc_gap_collect(clj_value v);
 int  clj_debug_cc_gap_fired(void); // and disarms the one for v
 void clj_debug_cc_gap_every(uint32_t n);
-// Debug builds: once, on this thread, a shared collection resets the atom holder to nil right before it visits target.
+// Debug builds: once, on this thread, a shared collection resets the volatile holder to nil right before it visits
+// target.
 void clj_debug_cc_before_visit(clj_value target, clj_value holder);
 int  clj_debug_cc_before_visit_fired(void); // and disarms it
 // The filing trace of shared roots, debug builds only; CLJ_CC_TRACE=1 turns it on from the start.
