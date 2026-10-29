@@ -17,9 +17,9 @@ static inline uint32_t clj_cc_born_local(void) { return CLJ_FLAG_REACH_LOCAL | c
 // A nonzero release of an unshared REACH_LOCAL object without ONCYCLE, which files nothing: debug builds audit it.
 void clj_cc_audit_unfiled(clj_header *h);
 
-// rc.c's release paths. The shared one decrements and files in one CAS (true when it did); the local one only files.
+// rc.c's release paths: the shared one releases (true at zero) and files; the local one only files.
 bool clj_cc_enabled(void);
-bool clj_cc_shared_candidate(clj_header *h);
+bool clj_cc_shared_release(clj_header *h);
 void clj_cc_local_candidate(clj_header *h);
 // An unshared object with CLJ_FLAG_ACYCLIC whose mark the running execution's checked table makes valid.
 bool clj_cc_local_unfiled(clj_header *h);

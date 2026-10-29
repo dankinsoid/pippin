@@ -237,6 +237,51 @@ extension CoreTests {
 			  (run! deref fs)
 			  nil)
 			""", cycles: 8 * 500)
+			#expect(clj_debug_cc_trace_lost() == 0)
+		}
+
+		// The collection in the gap counts the releasing reference as outside (docs/notes/gates.md, the lost candidate).
+		// @ai-generated(solo)
+		@Test func aReleaseAcrossACollectionFilesItsRoot() throws {
+			clj_debug_cc_trace(1)
+			defer { clj_debug_cc_trace(0) }
+			let base = CoroBaseline()
+			let freed = freedStat()
+			// A background collection taking the entry first leaves no bit to read; another ring then.
+			var fired = 0
+			for _ in 0..<5 where fired == 0 {
+				var x: Value? = try eval("(let [x (atom nil)] (reset! x [x]) x)")
+				clj_cc_collect()
+				_ = Value(owning: clj_retain(x!.raw))
+				clj_debug_cc_gap_collect(x!.raw)
+				x = nil
+				fired = Int(clj_debug_cc_gap_fired())
+			}
+			#expect(fired == 1)
+			clj_cc_collect()
+			#expect(freedStat() - freed >= 2)
+			base.check()
+			#expect(clj_debug_cc_trace_lost() == 0)
+		}
+
+		// The same gap in sharedCyclesFromManyThreads' third shape, on the futures' own threads.
+		// @ai-generated(solo)
+		@Test func sharedRingsWithCollectionsInTheReleaseGap() throws {
+			clj_debug_cc_trace(1)
+			clj_debug_cc_gap_every(16)
+			defer {
+				clj_debug_cc_gap_every(0)
+				clj_debug_cc_trace(0)
+			}
+			try collected("""
+			(let [c (a/chan 64)
+			      fs (doall (for [i (range 8)]
+			                  (future (dotimes [j 500]
+			                            (let [x (atom nil)] (reset! x [x]) (a/>!! c x) (a/<!! c))))))]
+			  (run! deref fs)
+			  nil)
+			""", cycles: 8 * 500)
+			#expect(clj_debug_cc_trace_lost() == 0)
 		}
 
 		// What a test leaves in its thread's buffer is the next test's settle's only on the same thread (docs/notes/gates.md).

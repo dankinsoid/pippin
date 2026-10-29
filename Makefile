@@ -1,4 +1,4 @@
-.PHONY: model-long bench-ab corpus-bench corpus-bench-plan swift-closed swift-closed-ios port-audit c-only-audit cmutex-audit park-audit rooting-hazards open-items open-items-audit load-asan build boot bench facts-report shake test test-pool test-ubsan test-tsan test-seeded test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint ios-probe ios-app gates gates-full
+.PHONY: model-long bench-ab corpus-bench corpus-bench-plan swift-closed swift-closed-ios port-audit c-only-audit cmutex-audit park-audit rooting-hazards open-items open-items-audit load-asan build boot bench facts-report shake test test-pool test-ubsan test-tsan test-seeded test-loop test-noreuse test-all test-isolated corpus corpus-update api-diff test-compiled corpus-compiled test-eval-compiled test-compiled-asan swift-reprint ios-probe ios-app gates gates-full
 
 # A test that crashes ends with its trace and a nonzero exit; the default death waits on the crash reporter, which
 # can leave the helper unkillable (NOTES.md, "Guard").
@@ -62,6 +62,12 @@ test-tsan:
 # test-tsan; a failure prints its seed and the command that replays the test alone.
 test-seeded:
 	TEST_TIMEOUT=$(TEST_TIMEOUT) sh scripts/test-seeded.sh
+
+# One filter looped as parallel processes over one build, opt-in (scripts/test-loop.sh): LOOP_FILTER, LOOP_RUNS,
+# LOOP_JOBS, LOOP_SAN, LOOP_ENV.
+test-loop:
+	TEST_TIMEOUT=$(TEST_TIMEOUT) LOOP_FILTER='$(LOOP_FILTER)' LOOP_RUNS='$(LOOP_RUNS)' LOOP_JOBS='$(LOOP_JOBS)' \
+		LOOP_SAN='$(LOOP_SAN)' LOOP_ENV='$(LOOP_ENV)' sh scripts/test-loop.sh
 
 # The §7 invariant: clj_is_unique always false, so every in-place path degrades to a copy (NOTES.md, RC).
 test-noreuse:

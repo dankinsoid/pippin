@@ -238,10 +238,174 @@ static void shared_push(clj_header *h, bool fresh) {
 
 void clj_cc_unwatch(clj_header *h) { atomic_fetch_and_explicit(&h->rc, ~CLJ_RC_WATCH, memory_order_seq_cst); }
 
+// ---- the filing trace and the release gap (debug builds; docs/notes/gates.md, the lost candidate)
+
+static uint64_t trace_round; // under collect_mu
+
+#if CLJ_DEBUG
+// Per-thread rings: one shared log would serialize the race it records. Kinds and fields: clj_debug_cc_trace_lost.
+enum { TRACE_CAP = 1 << 15 };
+typedef struct {
+	uint64_t          seq, aux;
+	const clj_header *h;
+	uint32_t          word, word2;
+	char              kind;
+} trace_ev;
+typedef struct trace_ring {
+	struct trace_ring *next;
+	pthread_mutex_t    mu;
+	uint64_t           n;
+	trace_ev           ev[TRACE_CAP];
+} trace_ring;
+
+static _Atomic int             trace_state; // 0 unread, 1 off, 2 on
+static _Atomic uint64_t        trace_seq;
+static pthread_mutex_t         trace_mu = PTHREAD_MUTEX_INITIALIZER;
+static trace_ring             *trace_rings;
+static _Thread_local trace_ring *trace_mine;
+
+static bool trace_on(void) {
+	int s = atomic_load_explicit(&trace_state, memory_order_relaxed);
+	if (__builtin_expect(!s, 0)) {
+		const char *e = getenv("CLJ_CC_TRACE");
+		int         want = e && strcmp(e, "1") == 0 ? 2 : 1;
+		atomic_compare_exchange_strong_explicit(&trace_state, &s, want, memory_order_relaxed, memory_order_relaxed);
+		s = atomic_load_explicit(&trace_state, memory_order_relaxed);
+	}
+	return s == 2;
+}
+
+static uint64_t trace_tick(void) { return trace_on() ? atomic_fetch_add_explicit(&trace_seq, 1, memory_order_seq_cst) + 1 : 0; }
+
+static void trace(char kind, const clj_header *h, uint32_t word, uint32_t word2, uint64_t aux) {
+	if (!trace_on()) return;
+	uint64_t seq = atomic_fetch_add_explicit(&trace_seq, 1, memory_order_seq_cst) + 1;
+	if (!trace_mine) {
+		trace_ring *r = calloc(1, sizeof *r);
+		if (!r) clj_fatal("out of memory");
+		pthread_mutex_init(&r->mu, NULL);
+		pthread_mutex_lock(&trace_mu);
+		r->next = trace_rings;
+		trace_rings = r;
+		pthread_mutex_unlock(&trace_mu);
+		trace_mine = r;
+	}
+	trace_ring *r = trace_mine;
+	pthread_mutex_lock(&r->mu);
+	r->ev[r->n++ % TRACE_CAP] = (trace_ev){.seq = seq, .aux = aux, .h = h, .word = word, .word2 = word2, .kind = kind};
+	pthread_mutex_unlock(&r->mu);
+}
+
+void clj_debug_cc_trace(int on) { atomic_store_explicit(&trace_state, on ? 2 : 1, memory_order_relaxed); }
+
+static int trace_cmp(const void *a, const void *b) {
+	const trace_ev *x = a, *y = b;
+	if (x->h != y->h) return (uintptr_t)x->h < (uintptr_t)y->h ? -1 : 1;
+	return x->seq < y->seq ? -1 : x->seq > y->seq;
+}
+
+static void trace_print(const trace_ev *e) {
+	fprintf(stderr, "  %llu %c %p word %08x word2 %08x aux %llu\n", (unsigned long long)e->seq, e->kind, (const void *)e->h,
+	        e->word, e->word2, (unsigned long long)e->aux);
+}
+
+// P: a release that read BUFFERED and filed nothing (word the read, word2 the word it decremented, aux a sequence
+// number before the read). Lost: a round's W (watch) after that read, then its K (kept black, no R refile).
+int64_t clj_debug_cc_trace_lost(void) {
+	pthread_mutex_lock(&trace_mu);
+	size_t total = 0;
+	for (trace_ring *r = trace_rings; r; r = r->next) {
+		pthread_mutex_lock(&r->mu);
+		total += r->n < TRACE_CAP ? r->n : TRACE_CAP;
+		pthread_mutex_unlock(&r->mu);
+	}
+	trace_ev *all = malloc((total ? total : 1) * sizeof *all);
+	if (!all) clj_fatal("out of memory");
+	size_t n = 0;
+	for (trace_ring *r = trace_rings; r; r = r->next) {
+		pthread_mutex_lock(&r->mu);
+		size_t k = r->n < TRACE_CAP ? r->n : TRACE_CAP;
+		for (size_t i = 0; i < k && n < total; i++) all[n++] = r->ev[i];
+		r->n = 0;
+		pthread_mutex_unlock(&r->mu);
+	}
+	pthread_mutex_unlock(&trace_mu);
+	qsort(all, n, sizeof *all, trace_cmp);
+	int64_t lost = 0;
+	for (size_t i = 0; i < n; i++) {
+		const trace_ev *p = &all[i];
+		if (p->kind != 'P' || (p->word2 & CLJ_RC_BUFFERED) || (p->word2 & CLJ_RC_COUNT_MASK) <= 1) continue;
+		size_t w = i;
+		while (w > 0 && all[w - 1].h == p->h && all[w - 1].seq > p->aux) w--;
+		for (; w < n && all[w].h == p->h && !(all[w].kind == 'W' && all[w].seq > p->aux); w++) {}
+		if (w == n || all[w].h != p->h) continue;
+		size_t k = w + 1;
+		for (; k < n && all[k].h == p->h && !((all[k].kind == 'K' || all[k].kind == 'R') && all[k].aux == all[w].aux); k++) {}
+		if (k == n || all[k].h != p->h || all[k].kind != 'K') continue;
+		lost++;
+		fprintf(stderr, "cc trace: a lost filing of %p, its events:\n", (const void *)p->h);
+		size_t from = i;
+		while (from > 0 && all[from - 1].h == p->h && i - from < 16) from--;
+		for (size_t j = from; j < n && all[j].h == p->h && j <= k + 2; j++) trace_print(&all[j]);
+	}
+	free(all);
+	return lost;
+}
+
+// A shared collection between a release's read of BUFFERED and its decrement (docs/notes/gates.md).
+static _Atomic(clj_header *) gap_target;
+static _Atomic int           gap_fired;
+static _Atomic uint32_t      gap_every;
+static _Thread_local uint32_t gap_tick;
+static _Thread_local bool    collecting_here; // a shared or deep collection runs on this thread: collect_mu is held
+
+void clj_debug_cc_gap_collect(clj_value v) {
+	atomic_store_explicit(&gap_fired, 0, memory_order_relaxed);
+	atomic_store_explicit(&gap_target, clj_is_ptr(v) ? clj_header_of(v) : NULL, memory_order_seq_cst);
+}
+
+int clj_debug_cc_gap_fired(void) {
+	atomic_store_explicit(&gap_target, NULL, memory_order_seq_cst);
+	return atomic_load_explicit(&gap_fired, memory_order_seq_cst);
+}
+
+void clj_debug_cc_gap_every(uint32_t n) { atomic_store_explicit(&gap_every, n, memory_order_seq_cst); }
+
+// No lock held, as for a local collection inside a release: a teardown's finalizer may want one the caller has.
+static void gap(clj_header *h, uint32_t word) {
+	if (!(word & CLJ_RC_BUFFERED) || collecting_here) return;
+	clj_coro *c = clj_coro_here();
+	if (c && (c->cc_collecting || c->locks_held || c->cmutex_held)) return;
+	clj_header *want = h;
+	bool        armed = atomic_load_explicit(&gap_target, memory_order_relaxed) == h &&
+	             atomic_compare_exchange_strong_explicit(&gap_target, &want, NULL, memory_order_seq_cst, memory_order_relaxed);
+	uint32_t every = atomic_load_explicit(&gap_every, memory_order_relaxed);
+	if (!armed && !(every && ++gap_tick % every == 0)) return;
+	collect_shared();
+	if (armed) atomic_store_explicit(&gap_fired, 1, memory_order_seq_cst);
+}
+
+static void collecting(bool on) {
+	collecting_here = on;
+	if (on) trace_round++;
+}
+#else
+static inline uint64_t trace_tick(void) { return 0; }
+static inline void     trace(char kind, const clj_header *h, uint32_t word, uint32_t word2, uint64_t aux) {
+	(void)kind, (void)h, (void)word, (void)word2, (void)aux;
+}
+#define gap(h, word) ((void)0)
+#define collecting(on) ((void)0)
+void    clj_debug_cc_trace(int on) { (void)on; }
+int64_t clj_debug_cc_trace_lost(void) { return 0; }
+void    clj_debug_cc_gap_collect(clj_value v) { (void)v; }
+int     clj_debug_cc_gap_fired(void) { return 0; }
+void    clj_debug_cc_gap_every(uint32_t n) { (void)n; }
+#endif
 
 // The decrement and the bit in one CAS: an entry the collector takes before the decrement would count the
 // releaser's reference as external, and nothing would file the object again.
-bool clj_cc_shared_candidate(clj_header *h) {
+static bool shared_candidate(clj_header *h) {
 	if (!clj_cc_enabled()) return false;
 	uint32_t cur = atomic_load_explicit(&h->rc, memory_order_relaxed);
 	for (;;) {
@@ -250,10 +414,24 @@ bool clj_cc_shared_candidate(clj_header *h) {
 		                                          memory_order_seq_cst, memory_order_relaxed))
 			break;
 	}
+	trace('F', h, cur, cur, 0);
 	stat_add(CLJ_CC_STAT_CANDIDATES, 1);
 	stat_add(CLJ_CC_STAT_SHARED_FILED, 1);
 	shared_push(h, true);
 	return true;
+}
+
+bool clj_cc_shared_release(clj_header *h) {
+	uint64_t at = trace_tick();
+	uint32_t seen = atomic_load_explicit(&h->rc, memory_order_relaxed);
+	if (!(seen & CLJ_RC_BUFFERED) && shared_candidate(h)) return false;
+	gap(h, seen);
+	// seq_cst: the collection-flag load after a zero pairs with the collector's store (deferred frees).
+	uint32_t prev = atomic_fetch_sub_explicit(&h->rc, 1, memory_order_seq_cst);
+	CLJ_ASSERT((prev & CLJ_RC_COUNT_MASK) > 0, "release of a freed shared object");
+	if (__builtin_expect(prev & CLJ_RC_WATCH, 0)) clj_cc_unwatch(h);
+	if (seen & CLJ_RC_BUFFERED) trace('P', h, seen, prev, at);
+	return (prev & CLJ_RC_COUNT_MASK) == 1;
 }
 
 static void deep_push(clj_header *h) {
@@ -826,6 +1004,7 @@ static void watch(graph *g, uint32_t i) {
 		w = atomic_load_explicit(&nd->h->rc, memory_order_relaxed);
 		while (!atomic_compare_exchange_weak_explicit(&nd->h->rc, &w, (w & ~CLJ_RC_BUFFERED) | CLJ_RC_WATCH,
 		                                              memory_order_seq_cst, memory_order_relaxed)) {}
+		if (g->shared && !g->deep) trace('W', nd->h, w, 0, trace_round);
 	} else {
 		w = atomic_fetch_or_explicit(&nd->h->rc, CLJ_RC_WATCH, memory_order_seq_cst);
 	}
@@ -1222,6 +1401,8 @@ static void release_survivors(graph *g) {
 		bool  white = nd->flags & N_WHITE;
 		if (white && !g->kept) continue;
 		bool lost = (nd->flags & (N_ROOT | N_LOST)) == (N_ROOT | N_LOST);
+		if (g->shared && !g->deep && (nd->flags & N_ROOT))
+			trace(lost || white ? 'R' : 'K', nd->h, atomic_load_explicit(&nd->h->rc, memory_order_relaxed), 0, trace_round);
 		if (g->shared && !g->deep && (lost || (white && (nd->flags & N_ROOT)))) {
 			uint32_t cur = atomic_load_explicit(&nd->h->rc, memory_order_relaxed);
 			while (!(cur & CLJ_RC_BUFFERED)) {
@@ -1658,6 +1839,7 @@ static bool shared_intake(clj_header *h, cand_vec *later) {
 
 static int64_t collect_shared(void) {
 	pthread_mutex_lock(&collect_mu);
+	collecting(true);
 	pthread_mutex_lock(&buf_mu);
 	chunk *taken = shared_head;
 	shared_head = NULL;
@@ -1682,6 +1864,7 @@ static int64_t collect_shared(void) {
 	for (size_t i = 0; i < later.n; i++) shared_push(later.items[i], false);
 	free(later.items);
 	free(entries.items);
+	collecting(false);
 	pthread_mutex_unlock(&collect_mu);
 	return freed;
 }
@@ -1776,6 +1959,7 @@ static void retry_deep(graph *g, clj_header **waiting, size_t nwaiting, retry_ve
 // One graph for the batch: what a reload's defs share is walked once.
 static int64_t collect_deep(bool force) {
 	pthread_mutex_lock(&collect_mu);
+	collecting(true);
 	pthread_mutex_lock(&buf_mu);
 	chunk *taken = deep_head;
 	deep_head = NULL;
@@ -1839,6 +2023,7 @@ static int64_t collect_deep(bool force) {
 	free(due.items);
 	free(found.items);
 	free(waiting);
+	collecting(false);
 	pthread_mutex_unlock(&collect_mu);
 	return freed;
 }

@@ -61,5 +61,13 @@ int clj_debug_cc_acyclic(clj_value v);
 void clj_debug_cc_audit_every(uint32_t n);
 // Whether v carries CLJ_FLAG_ONCYCLE.
 int clj_debug_cc_on_cycle(clj_value v);
+// Debug builds: a shared collection between a release's read of BUFFERED and its decrement, once for v or every n-th.
+void clj_debug_cc_gap_collect(clj_value v);
+int  clj_debug_cc_gap_fired(void); // and disarms the one for v
+void clj_debug_cc_gap_every(uint32_t n);
+// The filing trace of shared roots, debug builds only; CLJ_CC_TRACE=1 turns it on from the start.
+void clj_debug_cc_trace(int on);
+// The lost filings in the trace, each printed with its object's events to stderr; the trace starts over.
+int64_t clj_debug_cc_trace_lost(void);
 
 #endif

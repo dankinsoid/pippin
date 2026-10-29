@@ -15,9 +15,7 @@ static bool release_reaches_zero(clj_header *h) {
 	uint32_t flags = h->flags;
 	if (flags & CLJ_FLAG_IMMORTAL) return false;
 	if (flags & CLJ_FLAG_SHARED) {
-		if ((flags & CLJ_FLAG_REACH) && !(atomic_load_explicit(&h->rc, memory_order_relaxed) & CLJ_RC_BUFFERED) &&
-		    clj_cc_shared_candidate(h))
-			return false;
+		if (flags & CLJ_FLAG_REACH) return clj_cc_shared_release(h);
 		// seq_cst: the collection-flag load after a zero pairs with the collector's store (cc.c, deferred frees).
 		uint32_t prev = atomic_fetch_sub_explicit(&h->rc, 1, memory_order_seq_cst);
 		CLJ_ASSERT((prev & CLJ_RC_COUNT_MASK) > 0, "release of a freed shared object");
