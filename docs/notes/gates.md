@@ -179,13 +179,33 @@
   address, which a fired timer's free may have given to another; `FutureTests.aCancelledSleepDisarmsItsTimer` waits
   for a 600 s sleep's timer to go after its cancel (it fails without the fix, run 39659202089), and `futureCancel`
   takes 0.3 s instead of 10.
-- [ ] **`CycleTests.sharedCyclesFromManyThreads` once kept a ring** (run 39657046719, one of the 240 processes
-  above). Its third shape, eight futures each making 500 rings `x → [x]` that go through a channel and back, ended 2
-  over its baseline, `atom: 12 -> 13; vector: 980 -> 981`: the collections in its window freed 3999 of the 4000
-  rings, and after the check's settle no buffer held an entry, the shared, deep, retry and deferred lists were empty.
-  So one ring lost its candidate: no entry names it and no release will file it, a leak, not a late free. Trigger:
-  the next occurrence; then the diagnostic of that loop (every buffer at a baseline, every collection in a
-  baseline's window) with each filing and each refile of a shared root logged for the rings of that shape.
+- **`CycleTests.sharedCyclesFromManyThreads` once kept a ring: a release lost its filing** (run 39657046719, one
+  of the 240 processes above; design §7 «Конкурентность — решение», «Отпускание, нашедшее бит, не теряет
+  кандидата»; NOTES "RC"). Its third shape, eight futures each making 500 rings `x → [x]` that go through a channel
+  and back, ended 2 over its baseline, `atom: 12 -> 13; vector: 980 -> 981`, with every buffer and list empty. A
+  nonzero release of a shared object with `REACH` read its word, found `BUFFERED` and filed nothing, then
+  decremented by `fetch_sub`. A shared collection that took the entry in between cleared the bit at its root's
+  watch, read a count holding the releasing reference, kept the root black, and refiled nothing, since the word had
+  not moved by its validation; the decrement then left the ring held by its own edges and named by no entry.
+  `clj_cc_shared_release` decides and decrements in one CAS (`clj_cc_deep_release`, the same for a deep release
+  under another entry's bit). `CycleTests.aReleaseAcrossACollectionFilesItsRoot` runs a shared collection in that
+  gap (`clj_debug_cc_gap_collect`), `sharedRingsWithCollectionsInTheReleaseGap` in every 16th such release of the
+  third shape on the futures' threads (`clj_debug_cc_gap_every`). Before the fix both failed in 12 of 12 processes
+  (run 40915481896), the second 196 to 391 rings over its baseline, and the filing trace printed every lost one as
+  `F` the release that filed at count 3, `W` the watch at `40000003`, `K` the root kept black at `00000003`, `P` the
+  release whose read before that watch saw `40000002` and whose decrement found `00000002`. Unwidened, the race
+  needs a whole collection between two instructions of a release, that is a preemption there.
+- **The filing trace** (`clj_debug_cc_trace`, `CLJ_CC_TRACE=1`; debug builds, `cc.c`). Per-thread rings of the
+  shared filings: `F` a release filed, `P` a nonzero release that read `BUFFERED` and filed nothing (the word it read,
+  the word it decremented), `W` a shared collection watched a root, `K` kept it black without a refile, `R` named it
+  again. `clj_debug_cc_trace_lost` prints the events of each object a `P` left unbuffered while the round that
+  watched it after that read kept it, and empties the rings. A lost candidate the trace does not explain leaves the
+  audit that would name it: at a settle, a shared object with `REACH` and a nonzero count that no list names and a
+  full trial deletion finds white. That needs the live shared objects enumerated, which the allocator does not do.
+- **Loops** (`make test-loop`, `scripts/test-loop.sh`). One filter as `LOOP_RUNS` processes, `LOOP_JOBS` side by
+  side, over one build (`LOOP_SAN=thread` or `address` for a sanitizer's), `LOOP_ENV` exported to each; every
+  process's log stays under the build's `loop-logs`, and a failed one's test lines and trace are printed. On CI:
+  `gh workflow run gates.yml -f target=test-loop -f make_args="LOOP_FILTER='CycleTests/x' LOOP_RUNS=240"`.
 - [ ] **Most in-test counts are not settled.** `BootedTrait` settles before a test, but a check at its end reads
   `clj_debug_live_objects()` at once, and a background collection in flight then (another test's candidates, a deep
   retry) holds or defers what the body just freed. Only the suites named above settle there. Trigger: the next

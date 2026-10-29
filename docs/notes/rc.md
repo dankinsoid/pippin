@@ -153,8 +153,8 @@
   clone copies it (`fn_with_meta`, `clj_view_with_meta`). A lazy seq is `MUTABLE` with the bits of its thunk only, a
   var is immortal and has none, an exec has none because its root is not a slot. The inline release takes the slow
   path for `REACH_LOCAL`; a nonzero release of a `REACH`/`REACH_LOCAL` object without `BUFFERED` files an entry
-  (`clj_cc_shared_candidate`: the decrement and the bit in one CAS; the local one: a plain store, the entry in the
-  running execution's `clj_coro.cc_local`). An entry holds no reference: a buffered object that reaches zero is torn
+  (`clj_cc_shared_release`: the decrement and the filing decision in one CAS, a release that finds `BUFFERED`
+  included; the local one: a plain store, the entry in the running execution's `clj_coro.cc_local`). An entry holds no reference: a buffered object that reaches zero is torn
   down at once (`bury` sets it aside instead of making its header a link) and its cell stays a zombie
   (`CLJ_RC_ZOMBIE`, out of the live count by `clj_dealloc_dead`) until its entry gives it back (`clj_dealloc_cell`).
   The local collection runs in the owner — at 256 entries off the main carrier and only with no `clj_lock` or cmutex

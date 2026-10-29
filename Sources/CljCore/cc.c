@@ -403,35 +403,28 @@ int     clj_debug_cc_gap_fired(void) { return 0; }
 void    clj_debug_cc_gap_every(uint32_t n) { (void)n; }
 #endif
 
-// The decrement and the bit in one CAS: an entry the collector takes before the decrement would count the
-// releaser's reference as external, and nothing would file the object again.
-static bool shared_candidate(clj_header *h) {
-	if (!clj_cc_enabled()) return false;
-	uint32_t cur = atomic_load_explicit(&h->rc, memory_order_relaxed);
-	for (;;) {
-		if ((cur & CLJ_RC_BUFFERED) || (cur & CLJ_RC_COUNT_MASK) <= 1) return false;
-		if (atomic_compare_exchange_weak_explicit(&h->rc, &cur, ((cur - 1) | CLJ_RC_BUFFERED) & ~CLJ_RC_WATCH,
-		                                          memory_order_seq_cst, memory_order_relaxed))
-			break;
-	}
-	trace('F', h, cur, cur, 0);
-	stat_add(CLJ_CC_STAT_CANDIDATES, 1);
-	stat_add(CLJ_CC_STAT_SHARED_FILED, 1);
-	shared_push(h, true);
-	return true;
-}
-
+// The filing decision and the decrement in one CAS. A BUFFERED read before a plain decrement may be gone by then:
+// the collection that took its entry counted this reference as outside, kept the root black, and refiled nothing.
 bool clj_cc_shared_release(clj_header *h) {
+	bool     on = clj_cc_enabled(), file;
 	uint64_t at = trace_tick();
-	uint32_t seen = atomic_load_explicit(&h->rc, memory_order_relaxed);
-	if (!(seen & CLJ_RC_BUFFERED) && shared_candidate(h)) return false;
-	gap(h, seen);
-	// seq_cst: the collection-flag load after a zero pairs with the collector's store (deferred frees).
-	uint32_t prev = atomic_fetch_sub_explicit(&h->rc, 1, memory_order_seq_cst);
-	CLJ_ASSERT((prev & CLJ_RC_COUNT_MASK) > 0, "release of a freed shared object");
-	if (__builtin_expect(prev & CLJ_RC_WATCH, 0)) clj_cc_unwatch(h);
-	if (seen & CLJ_RC_BUFFERED) trace('P', h, seen, prev, at);
-	return (prev & CLJ_RC_COUNT_MASK) == 1;
+	uint32_t cur = atomic_load_explicit(&h->rc, memory_order_relaxed);
+	do {
+		CLJ_ASSERT((cur & CLJ_RC_COUNT_MASK) > 0, "release of a freed shared object");
+		gap(h, cur);
+		file = on && !(cur & CLJ_RC_BUFFERED) && (cur & CLJ_RC_COUNT_MASK) > 1;
+		// seq_cst: the collection-flag load after a zero pairs with the collector's store (deferred frees).
+	} while (!atomic_compare_exchange_weak_explicit(&h->rc, &cur, ((cur - 1) | (file ? CLJ_RC_BUFFERED : 0)) & ~CLJ_RC_WATCH,
+	                                                memory_order_seq_cst, memory_order_relaxed));
+	if (file) {
+		trace('F', h, cur, cur, at);
+		stat_add(CLJ_CC_STAT_CANDIDATES, 1);
+		stat_add(CLJ_CC_STAT_SHARED_FILED, 1);
+		shared_push(h, true);
+		return false;
+	}
+	if (cur & CLJ_RC_BUFFERED) trace('P', h, cur, cur, at);
+	return (cur & CLJ_RC_COUNT_MASK) == 1;
 }
 
 static void deep_push(clj_header *h) {
@@ -461,8 +454,8 @@ void clj_cc_file(clj_header *h) {
 
 static _Thread_local int64_t deep_filed_here;
 
-// The decrement and the bit in one CAS, as for a shared candidate. An object an entry already names is left to that
-// entry, though it may be a pruned one: an entry holding a reference would keep the object past its last release.
+// One CAS decrements and decides the filing, as in clj_cc_shared_release. An object an entry already names is left to
+// that entry, though it may be a pruned one: an entry holding a reference would keep it past its last release.
 int clj_cc_deep_release(clj_header *h) {
 	uint32_t f = h->flags;
 	if ((f & (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL)) != CLJ_FLAG_SHARED || !(f & (CLJ_FLAG_REACH | CLJ_FLAG_LAZY)) ||
@@ -471,12 +464,11 @@ int clj_cc_deep_release(clj_header *h) {
 	uint32_t cur = atomic_load_explicit(&h->rc, memory_order_relaxed);
 	for (;;) {
 		CLJ_ASSERT(cur & CLJ_RC_COUNT_MASK, "release of a freed shared object");
-		if (cur & CLJ_RC_BUFFERED) return -1;
-		if ((cur & CLJ_RC_COUNT_MASK) == 1) {
+		if ((cur & CLJ_RC_COUNT_MASK) == 1 || (cur & CLJ_RC_BUFFERED)) {
 			// seq_cst: the collection-flag load after a zero pairs with the collector's store, as in rc.c.
 			if (atomic_compare_exchange_weak_explicit(&h->rc, &cur, (cur - 1) & ~CLJ_RC_WATCH, memory_order_seq_cst,
 			                                          memory_order_relaxed))
-				return 1;
+				return (cur & CLJ_RC_COUNT_MASK) == 1;
 			continue;
 		}
 		if (atomic_compare_exchange_weak_explicit(&h->rc, &cur, ((cur - 1) | CLJ_RC_BUFFERED) & ~CLJ_RC_WATCH,
