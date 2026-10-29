@@ -304,11 +304,6 @@ static int trace_cmp(const void *a, const void *b) {
 	return x->seq < y->seq ? -1 : x->seq > y->seq;
 }
 
-static void trace_print(const trace_ev *e) {
-	fprintf(stderr, "  %llu %c %p word %08x word2 %08x aux %llu\n", (unsigned long long)e->seq, e->kind, (const void *)e->h,
-	        e->word, e->word2, (unsigned long long)e->aux);
-}
-
 // P: a release that read BUFFERED and filed nothing (word the read, word2 the word it decremented, aux a sequence
 // number before the read). Lost: a round's W (watch) after that read, then its K (kept black, no R refile).
 int64_t clj_debug_cc_trace_lost(void) {
@@ -343,10 +338,11 @@ int64_t clj_debug_cc_trace_lost(void) {
 		for (; k < n && all[k].h == p->h && !((all[k].kind == 'K' || all[k].kind == 'R') && all[k].aux == all[w].aux); k++) {}
 		if (k == n || all[k].h != p->h || all[k].kind != 'K') continue;
 		lost++;
-		fprintf(stderr, "cc trace: a lost filing of %p, its events:\n", (const void *)p->h);
-		size_t from = i;
-		while (from > 0 && all[from - 1].h == p->h && i - from < 16) from--;
-		for (size_t j = from; j < n && all[j].h == p->h && j <= k + 2; j++) trace_print(&all[j]);
+		fprintf(stderr,
+		        "cc trace: a lost filing of %p: read %08x at %llu, round %llu watched %08x at %llu and kept it at %llu, "
+		        "decremented %08x at %llu\n",
+		        (const void *)p->h, p->word, (unsigned long long)p->aux, (unsigned long long)all[w].aux, all[w].word,
+		        (unsigned long long)all[w].seq, (unsigned long long)all[k].seq, p->word2, (unsigned long long)p->seq);
 	}
 	free(all);
 	return lost;

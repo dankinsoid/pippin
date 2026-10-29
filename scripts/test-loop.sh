@@ -37,7 +37,8 @@ for rc in "$LOGS"/run-*.rc; do
 	failed=$((failed + 1))
 	log=${rc%.rc}.log
 	echo "loop: $(basename "$log"): exit $(cat "$rc")"
-	grep -E '✘|cc trace|^  [0-9]+ [FPWKR] |fatal|ICE|ThreadSanitizer|AddressSanitizer|hang:' "$log" | head -80
+	grep -E '✘|cc trace|fatal|ICE|ThreadSanitizer|AddressSanitizer|hang:' "$log" | head -80
 done
+grep -h 'Test run with' "$LOGS"/run-*.log | sed 's/ after.*//' | sort | uniq -c
 echo "loop: $failed of $RUNS processes failed, $(($(date +%s) - start)) s, filter $FILTER${SAN:+, $SAN}"
 [ "$failed" = 0 ]

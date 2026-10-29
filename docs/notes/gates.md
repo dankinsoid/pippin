@@ -198,8 +198,8 @@
 - **The filing trace** (`clj_debug_cc_trace`, `CLJ_CC_TRACE=1`; debug builds, `cc.c`). Per-thread rings of the
   shared filings: `F` a release filed, `P` a nonzero release that read `BUFFERED` and filed nothing (the word it read,
   the word it decremented), `W` a shared collection watched a root, `K` kept it black without a refile, `R` named it
-  again. `clj_debug_cc_trace_lost` prints the events of each object a `P` left unbuffered while the round that
-  watched it after that read kept it, and empties the rings. A lost candidate the trace does not explain leaves the
+  again. `clj_debug_cc_trace_lost` prints a line for each `P` that left its object unbuffered while the round
+  that watched it after that read kept it, and empties the rings. A lost candidate the trace does not explain leaves the
   audit that would name it: at a settle, a shared object with `REACH` and a nonzero count that no list names and a
   full trial deletion finds white. That needs the live shared objects enumerated, which the allocator does not do.
 - **Loops** (`make test-loop`, `scripts/test-loop.sh`). One filter as `LOOP_RUNS` processes, `LOOP_JOBS` side by
