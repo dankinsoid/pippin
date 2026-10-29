@@ -288,6 +288,33 @@ extension CoreTests {
 			#expect(clj_debug_cc_trace_lost() == 0)
 		}
 
+		// A holder visited first records its edge to the root, then lets go before the root's visit: the edge, stale,
+		// blackens a garbage root (docs/notes/gates.md, the lost candidate).
+		// @ai-generated(solo)
+		@Test func aStaleEdgeIntoARootLeavesItFiled() throws {
+			let base = CoroBaseline()
+			let freed = freedStat()
+			var fired = 0
+			for _ in 0..<5 where fired == 0 {
+				var h: Value? = try eval("(atom nil)")
+				let held = Value(owning: clj_retain(h!.raw))
+				_ = try eval("(fn [h] (let [x (atom nil)] (reset! x [x]) (reset! h x) nil))")(h!)
+				clj_cc_collect()
+				let x = clj_atom_value_borrowed(h!.raw)
+				_ = Value(owning: clj_retain(x))
+				_ = Value(owning: clj_retain(h!.raw))
+				clj_debug_cc_before_visit(x, h!.raw)
+				clj_cc_collect()
+				fired = Int(clj_debug_cc_before_visit_fired())
+				withExtendedLifetime(held) {}
+				h = nil
+			}
+			#expect(fired == 1)
+			clj_cc_collect()
+			#expect(freedStat() - freed >= 2)
+			base.check()
+		}
+
 		// The same gap in sharedCyclesFromManyThreads' third shape, on the futures' own threads.
 		// @ai-generated(solo)
 		@Test func sharedRingsWithCollectionsInTheReleaseGap() throws {

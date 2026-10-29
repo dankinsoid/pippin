@@ -449,6 +449,35 @@ static void collecting(bool on) {
 	collecting_here = on;
 	if (on) trace_round++;
 }
+
+// Once, on the arming thread: before a shared collection visits the target, the holder atom lets go of what it holds.
+static _Atomic(clj_header *) visit_target;
+static clj_value             visit_holder;
+static pthread_t             visit_thread;
+static _Atomic int           visit_fired;
+
+void clj_debug_cc_before_visit(clj_value target, clj_value holder) {
+	visit_holder = clj_retain(holder);
+	visit_thread = pthread_self();
+	atomic_store_explicit(&visit_fired, 0, memory_order_relaxed);
+	atomic_store_explicit(&visit_target, clj_header_of(target), memory_order_seq_cst);
+}
+
+int clj_debug_cc_before_visit_fired(void) {
+	atomic_store_explicit(&visit_target, NULL, memory_order_seq_cst);
+	clj_release(visit_holder);
+	visit_holder = CLJ_NIL;
+	return atomic_load_explicit(&visit_fired, memory_order_seq_cst);
+}
+
+static void before_visit(bool shared, clj_header *h) {
+	if (!shared || atomic_load_explicit(&visit_target, memory_order_relaxed) != h ||
+	    !pthread_equal(pthread_self(), visit_thread))
+		return;
+	atomic_store_explicit(&visit_target, NULL, memory_order_relaxed);
+	clj_release(clj_atom_reset(visit_holder, CLJ_NIL));
+	atomic_store_explicit(&visit_fired, 1, memory_order_seq_cst);
+}
 #else
 static inline uint64_t trace_tick(void) { return 0; }
 static inline void     trace(char kind, const clj_header *h, uint32_t word, uint32_t word2, uint64_t aux) {
@@ -456,6 +485,9 @@ static inline void     trace(char kind, const clj_header *h, uint32_t word, uint
 }
 #define gap(h, word) ((void)0)
 #define collecting(on) ((void)0)
+#define before_visit(shared, h) ((void)0)
+void clj_debug_cc_before_visit(clj_value target, clj_value holder) { (void)target, (void)holder; }
+int  clj_debug_cc_before_visit_fired(void) { return 0; }
 void    clj_debug_cc_trace(int on) { (void)on; }
 int64_t clj_debug_cc_trace_lost(void) { return 0; }
 int64_t clj_debug_cc_trace_live(void) { return 0; }
@@ -1300,6 +1332,7 @@ __attribute__((noinline)) static void visit_lockfree(graph *g, uint32_t i) {
 static void visit(graph *g, uint32_t i) {
 	clj_header     *h = g->nodes[i].h;
 	const clj_type *t = h->type;
+	before_visit(g->shared && !g->deep, h);
 	g->cur = i;
 	g->cur_failed = false;
 	g->lockfree = false;
