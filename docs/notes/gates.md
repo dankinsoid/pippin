@@ -193,7 +193,7 @@
     third shape on the futures' threads (`clj_debug_cc_gap_every`); before the fix both failed in 12 of 12 processes
     (run 40915481896), the second 196 to 391 rings over its baseline. Unwidened, with the trace on, the race showed
     in 28 of 300 processes (run 40915503417), on hot objects of the second shape that later releases filed again,
-    so none leaked there; 0 of 300 after (run 40917184421).
+    so none leaked there; after the fix, no lost filing in 300 (run 40917184421).
   - One of those 300 still leaked the third shape's ring, and so did one of 400 whole-suite processes (run
     40921883536), whose trace named the atom: taken as a root at count 3, released 3 → 2 under `BUFFERED` before
     its watch (no filing, rightly by the count), watched at count 2 with two recorded edges in against one real one.
@@ -201,15 +201,25 @@
     channel, lost and so black, blackened the root through the stale edge, and the root, not lost itself, was not
     refiled. The bit goes at the intake, in the CAS that takes the collector's reference and sets the watch, so
     every visit of a collection follows every release that filed nothing for its roots.
-    `CycleTests.aStaleEdgeIntoARootLeavesItFiled` resets a holder atom right before the root's visit
-    (`clj_debug_cc_before_visit`); before the change it failed in 12 of 12 processes (run 40932119745).
+    `CycleTests.aStaleEdgeIntoARootLeavesItFiled` resets a holder right before the root's visit
+    (`clj_debug_cc_before_visit`); before the change it failed in 12 of 12 processes, with an atom for the holder
+    (run 40932119745) and with the volatile it has, whose store cannot park inside a release (run 40938704705).
+  - With both: the three interleaving tests in 24 processes (run 40932975769), the shape alone in 1800 (runs
+    40933009646 traced, 40940620954 traced, 40940631918), `CycleTests` whole in 800 traced (runs 40932986915,
+    40932997779) and 40 under TSan (run 40933021055), no failure. Before the second change one process in about
+    1600 kept a ring.
 - **The filing trace** (`clj_debug_cc_trace`, `CLJ_CC_TRACE=1`; debug builds, `cc.c`). Per-thread rings of the
   shared filings: `F` a release filed, `P` a nonzero release that read `BUFFERED` and filed nothing (the word it read,
-  the word it decremented), `W` a shared collection watched a root, `K` kept it black without a refile, `R` named it
-  again. `clj_debug_cc_trace_lost` prints a line for each `P` that left its object unbuffered while the round
-  that watched it after that read kept it, and empties the rings. A lost candidate the trace does not explain leaves the
-  audit that would name it: at a settle, a shared object with `REACH` and a nonzero count that no list names and a
-  full trial deletion finds white. That needs the live shared objects enumerated, which the allocator does not do.
+  the word it decremented), `W` a shared collection took a root (its intake, which is its watch), `I` an intake that
+  left the entry for later (1) or gave a zombie's cell back (2), `G` a node's verdict (its count and the collector's
+  references; its `N_*` flags and recorded edges in), `K` a root kept black without a refile, `R` one named again,
+  and `B`/`X` an atom's birth and death. `clj_debug_cc_trace_lost` prints a line for each `P` that left its object
+  unbuffered while the round that took it after that read kept it, and empties the rings;
+  `clj_debug_cc_trace_live` prints each atom born in the trace and not dead, with its word, its children and their
+  events, which the third shape of `sharedCyclesFromManyThreads` does on a leak. What the trace does not explain
+  leaves the audit that would name a lost candidate: at a settle, a shared object with `REACH` and a nonzero count
+  that no list names and a full trial deletion finds white. That needs the live shared objects enumerated, which
+  the allocator does not do.
 - **Loops** (`make test-loop`, `scripts/test-loop.sh`). One filter as `LOOP_RUNS` processes, `LOOP_JOBS` side by
   side, over one build (`LOOP_SAN=thread` or `address` for a sanitizer's), `LOOP_ENV` exported to each; every
   process's log stays under the build's `loop-logs`, and a failed one's test lines and trace are printed. On CI:
