@@ -12,6 +12,7 @@
 #endif
 
 #include "alloc.h"
+#include "cc_internal.h"
 #include "stats_internal.h"
 #include "tsd_internal.h"
 
@@ -365,6 +366,7 @@ void *clj_alloc(const clj_type *type, size_t size) {
 	h->flags |= clj_debug_owner_here() << CLJ_OWNER_SHIFT;
 #endif
 	LIVE_ADD(type, 1);
+	CLJ_CC_TRACE_LIFE(h, 'B');
 #if CLJ_STATS
 	clj_stats_alloc(h, type, size, cls);
 #endif
@@ -394,6 +396,7 @@ void *clj_alloc_uninit(const clj_type *type, size_t size) {
 	h->flags |= clj_debug_owner_here() << CLJ_OWNER_SHIFT;
 #endif
 	LIVE_ADD(type, 1);
+	CLJ_CC_TRACE_LIFE(h, 'B');
 #if CLJ_STATS
 	clj_stats_alloc(h, type, size, cls);
 #endif
@@ -420,6 +423,7 @@ void clj_cell_reborn(clj_header *h, const clj_type *type, size_t size, bool pois
 	clj_census_death(h);
 	uint32_t cls = (h->flags & CLJ_FLAG_LARGE) ? CLJ_CENSUS_LARGE : slab_of(h)->cls;
 #endif
+	CLJ_CC_TRACE_LIFE(h, 'X');
 	LIVE_ADD(h->type, -1);
 	// The old object's reach, shape and meta bits describe children it no longer has: the constructor sets its own.
 	h->flags &= CLJ_FLAG_LARGE;
@@ -433,6 +437,7 @@ void clj_cell_reborn(clj_header *h, const clj_type *type, size_t size, bool pois
 	atomic_store_explicit(&h->rc, 1, memory_order_relaxed);
 	h->type = type;
 	LIVE_ADD(type, 1);
+	CLJ_CC_TRACE_LIFE(h, 'B');
 #if CLJ_STATS
 	clj_stats_reborn(h, type, cls);
 #endif
@@ -488,6 +493,7 @@ void clj_dealloc(clj_header *h) {
 #if CLJ_STATS
 	clj_census_death(h);
 #endif
+	CLJ_CC_TRACE_LIFE(h, 'X');
 	LIVE_ADD(h->type, -1);
 	CLJ_STAT(CLJ_STAT_FREE);
 	if (h->flags & CLJ_FLAG_LARGE) free(h);
@@ -499,6 +505,7 @@ void clj_dealloc_dead(clj_header *h) {
 #if CLJ_STATS
 	clj_census_death(h);
 #endif
+	CLJ_CC_TRACE_LIFE(h, 'X');
 	LIVE_ADD(h->type, -1);
 	CLJ_STAT(CLJ_STAT_FREE);
 }

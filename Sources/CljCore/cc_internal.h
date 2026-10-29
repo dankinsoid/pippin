@@ -64,6 +64,19 @@ void           clj_cc_oracle_named(clj_cc_oracle *o, clj_value v);
 void           clj_cc_oracle_end(clj_cc_oracle *o);
 #endif
 
+#if CLJ_DEBUG
+// The filing trace's state (2 on) and its record of an atom's birth (B) or death (X) by the allocator.
+extern _Atomic int clj_cc_trace_state;
+void               clj_cc_trace_life(const clj_header *h, char kind);
+#define CLJ_CC_TRACE_LIFE(h, kind)                                                                                     \
+	do {                                                                                                               \
+		if (__builtin_expect(atomic_load_explicit(&clj_cc_trace_state, memory_order_relaxed) == 2, 0))               \
+			clj_cc_trace_life((h), (kind));                                                                            \
+	} while (0)
+#else
+#define CLJ_CC_TRACE_LIFE(h, kind) ((void)0)
+#endif
+
 // clj_share without the owner check: a dying thread's TLS is gone.
 void clj_share_unowned(clj_value v);
 

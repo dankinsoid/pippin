@@ -13,6 +13,7 @@
 #include "alloc.h"
 #include "cc_internal.h"
 #include "clj/coro.h"
+#include "clj/atom.h"
 #include "clj/compiled.h"
 #include "clj/eval.h"
 #include "clj/ice.h"
@@ -244,7 +245,7 @@ static uint64_t trace_round; // under collect_mu
 
 #if CLJ_DEBUG
 // Per-thread rings: one shared log would serialize the race it records. Kinds and fields: clj_debug_cc_trace_lost.
-enum { TRACE_CAP = 1 << 15 };
+enum { TRACE_CAP = 1 << 17 };
 typedef struct {
 	uint64_t          seq, aux;
 	const clj_header *h;
@@ -258,19 +259,19 @@ typedef struct trace_ring {
 	trace_ev           ev[TRACE_CAP];
 } trace_ring;
 
-static _Atomic int             trace_state; // 0 unread, 1 off, 2 on
+_Atomic int                    clj_cc_trace_state; // 0 unread, 1 off, 2 on
 static _Atomic uint64_t        trace_seq;
 static pthread_mutex_t         trace_mu = PTHREAD_MUTEX_INITIALIZER;
 static trace_ring             *trace_rings;
 static _Thread_local trace_ring *trace_mine;
 
 static bool trace_on(void) {
-	int s = atomic_load_explicit(&trace_state, memory_order_relaxed);
+	int s = atomic_load_explicit(&clj_cc_trace_state, memory_order_relaxed);
 	if (__builtin_expect(!s, 0)) {
 		const char *e = getenv("CLJ_CC_TRACE");
 		int         want = e && strcmp(e, "1") == 0 ? 2 : 1;
-		atomic_compare_exchange_strong_explicit(&trace_state, &s, want, memory_order_relaxed, memory_order_relaxed);
-		s = atomic_load_explicit(&trace_state, memory_order_relaxed);
+		atomic_compare_exchange_strong_explicit(&clj_cc_trace_state, &s, want, memory_order_relaxed, memory_order_relaxed);
+		s = atomic_load_explicit(&clj_cc_trace_state, memory_order_relaxed);
 	}
 	return s == 2;
 }
@@ -296,7 +297,7 @@ static void trace(char kind, const clj_header *h, uint32_t word, uint32_t word2,
 	pthread_mutex_unlock(&r->mu);
 }
 
-void clj_debug_cc_trace(int on) { atomic_store_explicit(&trace_state, on ? 2 : 1, memory_order_relaxed); }
+void clj_debug_cc_trace(int on) { atomic_store_explicit(&clj_cc_trace_state, on ? 2 : 1, memory_order_relaxed); }
 
 static int trace_cmp(const void *a, const void *b) {
 	const trace_ev *x = a, *y = b;
@@ -304,9 +305,12 @@ static int trace_cmp(const void *a, const void *b) {
 	return x->seq < y->seq ? -1 : x->seq > y->seq;
 }
 
-// P: a release that read BUFFERED and filed nothing (word the read, word2 the word it decremented, aux a sequence
-// number before the read). Lost: a round's W (watch) after that read, then its K (kept black, no R refile).
-int64_t clj_debug_cc_trace_lost(void) {
+void clj_cc_trace_life(const clj_header *h, char kind) {
+	if (h->type == &clj_atom_type && trace_on()) trace(kind, h, atomic_load_explicit(&h->rc, memory_order_relaxed), h->flags, 0);
+}
+
+// Every ring's events sorted by object, then by sequence number; clear: the rings start over.
+static trace_ev *trace_gather(size_t *count, bool clear) {
 	pthread_mutex_lock(&trace_mu);
 	size_t total = 0;
 	for (trace_ring *r = trace_rings; r; r = r->next) {
@@ -321,11 +325,71 @@ int64_t clj_debug_cc_trace_lost(void) {
 		pthread_mutex_lock(&r->mu);
 		size_t k = r->n < TRACE_CAP ? r->n : TRACE_CAP;
 		for (size_t i = 0; i < k && n < total; i++) all[n++] = r->ev[i];
-		r->n = 0;
+		if (clear) r->n = 0;
 		pthread_mutex_unlock(&r->mu);
 	}
 	pthread_mutex_unlock(&trace_mu);
 	qsort(all, n, sizeof *all, trace_cmp);
+	*count = n;
+	return all;
+}
+
+static void trace_history(const trace_ev *all, size_t n, const clj_header *h) {
+	size_t lo = 0, hi = n;
+	while (lo < hi) {
+		size_t mid = (lo + hi) / 2;
+		if ((uintptr_t)all[mid].h < (uintptr_t)h) lo = mid + 1;
+		else hi = mid;
+	}
+	size_t end = lo;
+	while (end < n && all[end].h == h) end++;
+	for (size_t j = end > lo + 48 ? end - 48 : lo; j < end; j++)
+		fprintf(stderr, "    %llu %c word %08x word2 %08x aux %llu\n", (unsigned long long)all[j].seq, all[j].kind, all[j].word,
+		        all[j].word2, (unsigned long long)all[j].aux);
+}
+
+static void trace_child(clj_value v, void *ctx) {
+	if (!clj_is_ptr(v)) return;
+	const trace_ev *all = ((const trace_ev **)ctx)[0];
+	size_t          n = (size_t)((const trace_ev **)ctx)[1];
+	clj_header     *c = clj_header_of(v);
+	fprintf(stderr, "  child %s %p rc %08x flags %08x\n", c->type->name, (void *)c, atomic_load_explicit(&c->rc, memory_order_relaxed),
+	        c->flags);
+	trace_history(all, n, c);
+}
+
+// The atoms born in the trace and not dead since, each with its rc word, its children and their events.
+int64_t clj_debug_cc_trace_live(void) {
+	size_t    n;
+	trace_ev *all = trace_gather(&n, false);
+	int64_t   live = 0;
+	for (size_t i = 0; i < n; i++) {
+		if (i + 1 < n && all[i + 1].h == all[i].h) continue;
+		const trace_ev *last = NULL;
+		for (size_t j = i + 1; j-- > 0 && all[j].h == all[i].h;) {
+			if (all[j].kind == 'B' || all[j].kind == 'X') {
+				last = &all[j];
+				break;
+			}
+		}
+		if (!last || last->kind != 'B') continue;
+		clj_header *h = (clj_header *)all[i].h;
+		live++;
+		fprintf(stderr, "cc trace: a live atom %p rc %08x flags %08x\n", (void *)h, atomic_load_explicit(&h->rc, memory_order_relaxed),
+		        h->flags);
+		trace_history(all, n, h);
+		const void *ctx[2] = {all, (const void *)n};
+		h->type->each_child(h, trace_child, ctx);
+	}
+	free(all);
+	return live;
+}
+
+// P: a release that read BUFFERED and filed nothing (word the read, word2 the word it decremented, aux a sequence
+// number before the read). Lost: a round's W (watch) after that read, then its K (kept black, no R refile).
+int64_t clj_debug_cc_trace_lost(void) {
+	size_t    n;
+	trace_ev *all = trace_gather(&n, true);
 	int64_t lost = 0;
 	for (size_t i = 0; i < n; i++) {
 		const trace_ev *p = &all[i];
@@ -394,6 +458,7 @@ static inline void     trace(char kind, const clj_header *h, uint32_t word, uint
 #define collecting(on) ((void)0)
 void    clj_debug_cc_trace(int on) { (void)on; }
 int64_t clj_debug_cc_trace_lost(void) { return 0; }
+int64_t clj_debug_cc_trace_live(void) { return 0; }
 void    clj_debug_cc_gap_collect(clj_value v) { (void)v; }
 int     clj_debug_cc_gap_fired(void) { return 0; }
 void    clj_debug_cc_gap_every(uint32_t n) { (void)n; }
@@ -1387,6 +1452,8 @@ static void release_survivors(graph *g) {
 	for (uint32_t i = 0; i < g->n; i++) {
 		node *nd = &g->nodes[i];
 		bool  white = nd->flags & N_WHITE;
+		if (g->shared && !g->deep)
+			trace('G', nd->h, nd->count | nd->ours << 24, nd->flags | nd->internal << 16, trace_round);
 		if (white && !g->kept) continue;
 		bool lost = (nd->flags & (N_ROOT | N_LOST)) == (N_ROOT | N_LOST);
 		if (g->shared && !g->deep && (nd->flags & N_ROOT))
@@ -1809,11 +1876,14 @@ static pthread_mutex_t collect_mu = PTHREAD_MUTEX_INITIALIZER;
 // An entry of the shared buffer holds no reference: a zombie gives its cell back, an object on its way to zero waits
 // for the next round, a live one is held by the collector for the walk. Under `active`, so its cell stays put.
 static bool shared_intake(clj_header *h, cand_vec *later) {
-	if (atomic_load_explicit(&h->rc, memory_order_acquire) == CLJ_RC_ZOMBIE) {
+	uint32_t rc = atomic_load_explicit(&h->rc, memory_order_acquire);
+	if (rc == CLJ_RC_ZOMBIE) {
+		trace('I', h, rc, 2, trace_round);
 		clj_dealloc_cell(h);
 		return false;
 	}
 	if (!try_retain(h)) {
+		trace('I', h, rc, 1, trace_round);
 		vec_push(later, h);
 		return false;
 	}
@@ -1822,6 +1892,7 @@ static bool shared_intake(clj_header *h, cand_vec *later) {
 		clj_rc_drop(h, false);
 		return false;
 	}
+	trace('I', h, rc, 0, trace_round);
 	return true;
 }
 

@@ -67,6 +67,8 @@ int  clj_debug_cc_gap_fired(void); // and disarms the one for v
 void clj_debug_cc_gap_every(uint32_t n);
 // The filing trace of shared roots, debug builds only; CLJ_CC_TRACE=1 turns it on from the start.
 void clj_debug_cc_trace(int on);
+// The atoms the trace saw born and not dead, printed with their rc words, children and events; the number of them.
+int64_t clj_debug_cc_trace_live(void);
 // The lost filings in the trace, each printed with its object's events to stderr; the trace starts over.
 int64_t clj_debug_cc_trace_lost(void);
 

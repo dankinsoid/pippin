@@ -18,6 +18,16 @@ private func stat(_ i: Int) -> Int64 {
 
 private func freedStat() -> Int64 { stat(CLJ_CC_STAT_FREED) }
 
+// @ai-generated(solo)
+private func liveTypes() -> [String: Int64] {
+	var types = [UnsafePointer<clj_type>?](repeating: nil, count: 512)
+	var counts = [Int64](repeating: 0, count: 512)
+	let n = clj_debug_live_by_type(&types, &counts, 512)
+	var out: [String: Int64] = [:]
+	for i in 0..<n { out[String(cString: types[i]!.pointee.name)] = counts[i] }
+	return out
+}
+
 extension CoreTests {
 	@Suite struct CycleTests {
 		init() throws {
@@ -229,14 +239,28 @@ extension CoreTests {
 			  (reset! st nil)
 			  nil)
 			""", cycles: 0) // the reset! breaks the only ring, so RC frees it all; what is checked is no leak and no early free
-			try collected("""
+			#expect(clj_debug_cc_trace_lost() == 0)
+			let base = CoroBaseline()
+			let types = liveTypes()
+			let freed = freedStat()
+			_ = try eval("""
 			(let [c (a/chan 64)
 			      fs (doall (for [i (range 8)]
 			                  (future (dotimes [j 500]
 			                            (let [x (atom nil)] (reset! x [x]) (a/>!! c x) (a/<!! c))))))]
 			  (run! deref fs)
 			  nil)
-			""", cycles: 8 * 500)
+			""")
+			clj_cc_collect()
+			base.check()
+			if settledLiveObjects("after the check") != base.objects {
+				let now = liveTypes()
+				let diff = Set(now.keys).union(types.keys).sorted().compactMap { k in
+					now[k, default: 0] == types[k, default: 0] ? nil : "\(k): \(types[k, default: 0]) -> \(now[k, default: 0])"
+				}
+				print("cycle-tests: leaked \(diff.joined(separator: "; ")), shared pending \(clj_debug_cc_pending_shared()), retries \(clj_debug_cc_deep_retries()), live atoms in the trace \(clj_debug_cc_trace_live())")
+			}
+			#expect(freedStat() - freed >= 8 * 500)
 			#expect(clj_debug_cc_trace_lost() == 0)
 		}
 
@@ -273,14 +297,28 @@ extension CoreTests {
 				clj_debug_cc_gap_every(0)
 				clj_debug_cc_trace(0)
 			}
-			try collected("""
+			#expect(clj_debug_cc_trace_lost() == 0)
+			let base = CoroBaseline()
+			let types = liveTypes()
+			let freed = freedStat()
+			_ = try eval("""
 			(let [c (a/chan 64)
 			      fs (doall (for [i (range 8)]
 			                  (future (dotimes [j 500]
 			                            (let [x (atom nil)] (reset! x [x]) (a/>!! c x) (a/<!! c))))))]
 			  (run! deref fs)
 			  nil)
-			""", cycles: 8 * 500)
+			""")
+			clj_cc_collect()
+			base.check()
+			if settledLiveObjects("after the check") != base.objects {
+				let now = liveTypes()
+				let diff = Set(now.keys).union(types.keys).sorted().compactMap { k in
+					now[k, default: 0] == types[k, default: 0] ? nil : "\(k): \(types[k, default: 0]) -> \(now[k, default: 0])"
+				}
+				print("cycle-tests: leaked \(diff.joined(separator: "; ")), shared pending \(clj_debug_cc_pending_shared()), retries \(clj_debug_cc_deep_retries()), live atoms in the trace \(clj_debug_cc_trace_live())")
+			}
+			#expect(freedStat() - freed >= 8 * 500)
 			#expect(clj_debug_cc_trace_lost() == 0)
 		}
 
