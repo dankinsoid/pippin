@@ -1081,19 +1081,11 @@ static void visit_child(clj_value v, void *ctx) {
 	edge_push(g, i);
 }
 
+// A root was watched at its intake (shared_intake).
 static void watch(graph *g, uint32_t i) {
-	node    *nd = &g->nodes[i];
-	uint32_t w;
-	if (nd->flags & N_ROOT) {
-		// The buffer's bit goes now: a mutator's release from here on makes a candidate for the next collection.
-		w = atomic_load_explicit(&nd->h->rc, memory_order_relaxed);
-		while (!atomic_compare_exchange_weak_explicit(&nd->h->rc, &w, (w & ~CLJ_RC_BUFFERED) | CLJ_RC_WATCH,
-		                                              memory_order_seq_cst, memory_order_relaxed)) {}
-		if (g->shared && !g->deep) trace('W', nd->h, w, 0, trace_round);
-	} else {
-		w = atomic_fetch_or_explicit(&nd->h->rc, CLJ_RC_WATCH, memory_order_seq_cst);
-	}
-	nd->count = w & CLJ_RC_COUNT_MASK;
+	node *nd = &g->nodes[i];
+	if (nd->flags & N_ROOT) return;
+	nd->count = atomic_fetch_or_explicit(&nd->h->rc, CLJ_RC_WATCH, memory_order_seq_cst) & CLJ_RC_COUNT_MASK;
 }
 
 // A coroutine parked on the object being visited: an uncounted edge to it. One that cannot be held is not recorded,
@@ -1347,12 +1339,10 @@ static void visit(graph *g, uint32_t i) {
 	} else if (t == &clj_coro_type) {
 		if (!clj_coro_cc_locked((clj_coro *)h, visit_coro_locked, g)) {
 			g->nodes[i].flags |= N_LOST;
-			if (g->nodes[i].flags & N_ROOT) atomic_fetch_and_explicit(&h->rc, ~CLJ_RC_BUFFERED, memory_order_seq_cst);
 		}
 	} else if (t->cc_locked) {
 		if (!t->cc_locked(h, visit_locked, g)) {
 			g->nodes[i].flags |= N_LOST;
-			if (g->nodes[i].flags & N_ROOT) atomic_fetch_and_explicit(&h->rc, ~CLJ_RC_BUFFERED, memory_order_seq_cst);
 		}
 	} else if (h->flags & CLJ_FLAG_MUTABLE) {
 		visit_lockfree(g, i);
@@ -1710,12 +1700,19 @@ static void audit_overcount(const graph *g) {
 }
 #endif
 
-static int64_t run(graph *g, clj_header **roots, size_t n) {
+// counts: a shared root's count at its intake, NULL for a local graph.
+static int64_t run(graph *g, clj_header **roots, const uint32_t *counts, size_t n) {
 	if (g->shared && !g->deep && (g->report_ns = park_report_threshold())) g->now = clj_sched_now();
 	for (size_t r = 0; r < n; r++) {
 		uint32_t i = find(g, roots[r]);
-		if (i == NONE) add_node(g, roots[r], g->shared ? 1 : 0, N_ROOT);
-		else if (g->shared) g->nodes[i].ours++;
+		if (i == NONE) {
+			i = add_node(g, roots[r], g->shared ? 1 : 0, N_ROOT);
+			if (counts) g->nodes[i].count = counts[r];
+		} else if (g->shared) {
+			// A second intake set the watch again over whatever came between.
+			g->nodes[i].ours++;
+			g->nodes[i].flags |= N_LOST;
+		}
 	}
 	while (g->nw) visit(g, g->work[--g->nw]);
 	judge_wakes(g);
@@ -1908,24 +1905,30 @@ static pthread_mutex_t collect_mu = PTHREAD_MUTEX_INITIALIZER;
 
 // An entry of the shared buffer holds no reference: a zombie gives its cell back, an object on its way to zero waits
 // for the next round, a live one is held by the collector for the walk. Under `active`, so its cell stays put.
-static bool shared_intake(clj_header *h, cand_vec *later) {
-	uint32_t rc = atomic_load_explicit(&h->rc, memory_order_acquire);
-	if (rc == CLJ_RC_ZOMBIE) {
-		trace('I', h, rc, 2, trace_round);
+// The intake is a root's watch: one CAS takes the collector's reference and BUFFERED and sets WATCH, and *count is
+// the count then. A release from here on files the root again and makes it lost, so no release this collection
+// cannot see goes unfiled: an edge recorded later and gone stale never blackens a root no one will file (design §7).
+static bool shared_intake(clj_header *h, cand_vec *later, uint32_t *count) {
+	uint32_t w = atomic_load_explicit(&h->rc, memory_order_acquire);
+	if (w == CLJ_RC_ZOMBIE) {
+		trace('I', h, w, 2, trace_round);
 		clj_dealloc_cell(h);
 		return false;
 	}
-	if (!try_retain(h)) {
-		trace('I', h, rc, 1, trace_round);
-		vec_push(later, h);
-		return false;
-	}
+	do {
+		if (!(w & CLJ_RC_COUNT_MASK)) {
+			trace('I', h, w, 1, trace_round);
+			vec_push(later, h);
+			return false;
+		}
+	} while (!atomic_compare_exchange_weak_explicit(&h->rc, &w, ((w + 1) & ~CLJ_RC_BUFFERED) | CLJ_RC_WATCH, memory_order_seq_cst,
+	                                                memory_order_relaxed));
 	if ((h->flags & CLJ_FLAG_IMMORTAL) || opaque(h->type)) {
-		atomic_fetch_and_explicit(&h->rc, ~CLJ_RC_BUFFERED, memory_order_seq_cst);
 		clj_rc_drop(h, false);
 		return false;
 	}
-	trace('I', h, rc, 0, trace_round);
+	trace('W', h, w, 0, trace_round);
+	*count = (w + 1) & CLJ_RC_COUNT_MASK;
 	return true;
 }
 
@@ -1944,13 +1947,16 @@ static int64_t collect_shared(void) {
 	cand_vec later = {0};
 	if (entries.n) {
 		activate();
+		uint32_t *counts = malloc(entries.n * sizeof *counts);
+		if (!counts) clj_fatal("out of memory");
 		size_t n = 0;
 		for (size_t i = 0; i < entries.n; i++) {
-			if (shared_intake(entries.items[i], &later)) entries.items[n++] = entries.items[i];
+			if (shared_intake(entries.items[i], &later, &counts[n])) entries.items[n++] = entries.items[i];
 		}
 		graph g = {.shared = true};
-		if (n) freed = run(&g, entries.items, n);
+		if (n) freed = run(&g, entries.items, counts, n);
 		graph_free(&g);
+		free(counts);
 		deactivate();
 	}
 	for (size_t i = 0; i < later.n; i++) shared_push(later.items[i], false);
@@ -1967,11 +1973,12 @@ static uint64_t retry_period(uint32_t attempt) {
 	return DEEP_RETRY_BASE_NS << (attempt < DEEP_RETRY_MAX_SHIFT ? attempt : DEEP_RETRY_MAX_SHIFT);
 }
 
-// A root of the deep graph holds one collector reference: the intake's try-retain, or the entry's own.
-static void deep_root(graph *g, clj_header *h, uint8_t flag, uint32_t attempt) {
+// A root of the deep graph holds one collector reference: the intake's, with its count, or the retry's own.
+static void deep_root(graph *g, clj_header *h, uint8_t flag, uint32_t attempt, uint32_t count) {
 	uint32_t i = find(g, h);
 	if (i == NONE) {
 		i = add_node(g, h, 1, flag);
+		if (flag == N_ROOT) g->nodes[i].count = count;
 	} else {
 		g->nodes[i].ours++;
 		g->nodes[i].flags |= flag;
@@ -2083,9 +2090,10 @@ static int64_t collect_deep(bool force) {
 		activate();
 		graph g = {.shared = true, .deep = true};
 		for (size_t i = 0; i < entries.n; i++) {
-			if (shared_intake(entries.items[i], &later)) deep_root(&g, entries.items[i], N_ROOT, 0);
+			uint32_t count;
+			if (shared_intake(entries.items[i], &later, &count)) deep_root(&g, entries.items[i], N_ROOT, 0, count);
 		}
-		for (size_t i = 0; i < due.n; i++) deep_root(&g, due.items[i].h, N_HELD, due.items[i].attempt + 1);
+		for (size_t i = 0; i < due.n; i++) deep_root(&g, due.items[i].h, N_HELD, due.items[i].attempt + 1, 0);
 		if (nwaiting) qsort(waiting, nwaiting, sizeof *waiting, cmp_ptr);
 		while (g.nw) visit(&g, g.work[--g.nw]);
 		validate(&g);
@@ -2155,7 +2163,7 @@ static int64_t collect_local(clj_coro *c, size_t max, bool mark) {
 	if (n) {
 		c->cc_collecting = true;
 		graph g = {.shared = false, .ck = ck, .mark = mark && ck};
-		freed = run(&g, roots, n);
+		freed = run(&g, roots, NULL, n);
 		graph_free(&g);
 		c->cc_collecting = false;
 	}

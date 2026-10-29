@@ -179,22 +179,30 @@
   address, which a fired timer's free may have given to another; `FutureTests.aCancelledSleepDisarmsItsTimer` waits
   for a 600 s sleep's timer to go after its cancel (it fails without the fix, run 39659202089), and `futureCancel`
   takes 0.3 s instead of 10.
-- **`CycleTests.sharedCyclesFromManyThreads` once kept a ring: a release lost its filing** (run 39657046719, one
-  of the 240 processes above; design §7 «Конкурентность — решение», «Отпускание, нашедшее бит, не теряет
-  кандидата»; NOTES "RC"). Its third shape, eight futures each making 500 rings `x → [x]` that go through a channel
-  and back, ended 2 over its baseline, `atom: 12 -> 13; vector: 980 -> 981`, with every buffer and list empty. A
-  nonzero release of a shared object with `REACH` read its word, found `BUFFERED` and filed nothing, then
-  decremented by `fetch_sub`. A shared collection that took the entry in between cleared the bit at its root's
-  watch, read a count holding the releasing reference, kept the root black, and refiled nothing, since the word had
-  not moved by its validation; the decrement then left the ring held by its own edges and named by no entry.
-  `clj_cc_shared_release` decides and decrements in one CAS (`clj_cc_deep_release`, the same for a deep release
-  under another entry's bit). `CycleTests.aReleaseAcrossACollectionFilesItsRoot` runs a shared collection in that
-  gap (`clj_debug_cc_gap_collect`), `sharedRingsWithCollectionsInTheReleaseGap` in every 16th such release of the
-  third shape on the futures' threads (`clj_debug_cc_gap_every`). Before the fix both failed in 12 of 12 processes
-  (run 40915481896), the second 196 to 391 rings over its baseline, and the filing trace printed every lost one as
-  `F` the release that filed at count 3, `W` the watch at `40000003`, `K` the root kept black at `00000003`, `P` the
-  release whose read before that watch saw `40000002` and whose decrement found `00000002`. Unwidened, the race
-  needs a whole collection between two instructions of a release, that is a preemption there.
+- **`CycleTests.sharedCyclesFromManyThreads` once kept a ring: two ways to lose a shared candidate** (run
+  39657046719, one of the 240 processes above; design §7 «Конкурентность — решение», «Кандидат не теряется: приём
+  записи — наблюдение корня»; NOTES "RC"). Its third shape, eight futures each making 500 rings `x → [x]` that go
+  through a channel and back, ended 2 over its baseline, `atom: 12 -> 13; vector: 980 -> 981`, with every buffer and
+  list empty: no entry named the ring and no release would file it.
+  - A nonzero release of a shared object with `REACH` read its word, found `BUFFERED` and filed nothing, then
+    decremented by `fetch_sub`. A shared collection that took the entry in between cleared the bit at the root's
+    watch, read a count holding the releasing reference and kept the root black; its watch intact at validation, it
+    refiled nothing. `clj_cc_shared_release` decides and decrements in one CAS (`clj_cc_deep_release` the same).
+    `CycleTests.aReleaseAcrossACollectionFilesItsRoot` runs a shared collection in that gap
+    (`clj_debug_cc_gap_collect`), `sharedRingsWithCollectionsInTheReleaseGap` in every 16th such release of the
+    third shape on the futures' threads (`clj_debug_cc_gap_every`); before the fix both failed in 12 of 12 processes
+    (run 40915481896), the second 196 to 391 rings over its baseline. Unwidened, with the trace on, the race showed
+    in 28 of 300 processes (run 40915503417), on hot objects of the second shape that later releases filed again,
+    so none leaked there; 0 of 300 after (run 40917184421).
+  - One of those 300 still leaked the third shape's ring, and so did one of 400 whole-suite processes (run
+    40921883536), whose trace named the atom: taken as a root at count 3, released 3 → 2 under `BUFFERED` before
+    its watch (no filing, rightly by the count), watched at count 2 with two recorded edges in against one real one.
+    The channel, visited first, recorded its edge to the atom; a `<!!` moved the atom out and dropped it; the
+    channel, lost and so black, blackened the root through the stale edge, and the root, not lost itself, was not
+    refiled. The bit goes at the intake, in the CAS that takes the collector's reference and sets the watch, so
+    every visit of a collection follows every release that filed nothing for its roots.
+    `CycleTests.aStaleEdgeIntoARootLeavesItFiled` resets a holder atom right before the root's visit
+    (`clj_debug_cc_before_visit`); before the change it failed in 12 of 12 processes (run 40932119745).
 - **The filing trace** (`clj_debug_cc_trace`, `CLJ_CC_TRACE=1`; debug builds, `cc.c`). Per-thread rings of the
   shared filings: `F` a release filed, `P` a nonzero release that read `BUFFERED` and filed nothing (the word it read,
   the word it decremented), `W` a shared collection watched a root, `K` kept it black without a refile, `R` named it
