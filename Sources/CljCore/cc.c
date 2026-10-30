@@ -775,6 +775,8 @@ static int64_t collect_local(clj_coro *c, size_t max, bool mark);
 
 // An entry as a release's, with no collection nor hand-off from here.
 static void file_local(clj_coro *c, clj_header *h) {
+	// Not proved acyclic; and the inline release tests this bit, never BUFFERED (object.h).
+	h->flags |= CLJ_FLAG_ONCYCLE;
 	uint32_t rc = CLJ_RC_UNSHARED_LOAD(h);
 	if (rc & CLJ_RC_BUFFERED) return;
 	CLJ_RC_UNSHARED_STORE(h, rc | CLJ_RC_BUFFERED);

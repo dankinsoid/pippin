@@ -308,7 +308,9 @@
   `clj_cc_store_check`: a walk from the value through what a local collection enters, validly marked nodes skipped,
   at most 256 nodes and 4096 children read; meeting the owner, a backward pass from it over the recorded edges flags
   every node with a path to it. A lazy-seq realization walks 8 nodes and 64 children at most. Past the budget the
-  owner is filed as a local candidate without a collection or a hand-off (the slot is not written yet); a local collection
+  owner takes `ONCYCLE` and is filed as a local candidate without a collection or a hand-off (the slot is not written
+  yet): an unshared object with `BUFFERED` and none of `CLJ_RELEASE_SLOW_ALWAYS` meets the inline release's `rc == 1`
+  with the bit set and stays at zero, never torn down; a local collection
   flags every black cyclic Tarjan component it builds. A nonzero release files an unshared object only with
   `ONCYCLE`; the inline `clj_release`/`clj_drop_value` test it instead of `REACH_LOCAL` (debug builds test both, for
   the audit). An immutable owner is never checked: it is edited only while unique from an owned root down. The shared
@@ -317,13 +319,16 @@
   owner takes from a child, so it equals `REACH_LOCAL`: the old rule. Debug builds audit one
   nonzero release in 16 of a `REACH_LOCAL` object without `ONCYCLE` (every one in the store-check tests): the old
   rule's graph from it, up to 1024 nodes, without freeing; a cyclic component with neither every member flagged nor
-  one buffered dies with `cc/store-check-missed`. Stats `CLJ_CC_STAT_STORE_CHECKS`, `_STORE_NODES`, `_STORE_CYCLES`,
+  one buffered dies with `cc/store-check-missed`. The last release of an unshared object with `BUFFERED` and none of
+  `CLJ_RELEASE_SLOW_ALWAYS` dies with `rc/buffered-inline-release`; Swift's inline release is a release build's in
+  every build (the importer reads `object.h` without `CLJ_DEBUG`). Stats `CLJ_CC_STAT_STORE_CHECKS`, `_STORE_NODES`, `_STORE_CYCLES`,
   `_STORE_FLAGGED`, `_STORE_DEFERRED`, `_SHARED_FILED`; a `-DCLJ_STATS` build also counts the edges, first edges and the
   walk the check would run unbounded (`CLJ_STAT_SC_*`, corpus-bench's "Store check census"). Tests in CycleTests
   (`StoreCheckTests.swift`): self-edges, two reference types in each order with each member released last, the two age
   rule counterexamples of design §7, in-place edits through a volatile, transients, lazy seqs (a self-cycle through a
   volatile, a cell realized before the ring's own, a promise), an atom holding a closure over itself, two threads
-  closing one ring of atoms, a check past its budget, and no flag where no cycle is.
+  closing one ring of atoms, a check past its budget, the last release of an owner filed past it (a store and a
+  realization from C, a store from Swift), and no flag where no cycle is.
   Measured (bench/RESULTS.md, "The cycle check at a store" and "… the inline cost", run 38883821458 against main
   83884f8): datascript closed 0.750, dev 0.796, interp 0.849; its candidates 1.06M → 90.6k per iteration, collections
   4.1k → 16.5, table lookups 8.38M → 0, 87.6k checks over 0.92M nodes (73.7k realizations past their 8-node budget,
