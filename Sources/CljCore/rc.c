@@ -33,6 +33,10 @@ static bool release_reaches_zero(clj_header *h) {
 	}
 #if CLJ_DEBUG
 	if (rc != 1 && (flags & (CLJ_FLAG_REACH_LOCAL | CLJ_FLAG_ONCYCLE)) == CLJ_FLAG_REACH_LOCAL) clj_cc_audit_unfiled(h);
+	// A release build's inline release takes this one: its rc == 1 fails on the bit, and nothing tears the object down.
+	if ((rc & CLJ_RC_BUFFERED) && (rc & CLJ_RC_COUNT_MASK) == 1 && !(flags & CLJ_RELEASE_SLOW_ALWAYS))
+		clj_ice("rc/buffered-inline-release", NULL, "the last release of a buffered %s without CLJ_FLAG_ONCYCLE",
+		        h->type->name);
 #endif
 	CLJ_RC_UNSHARED_STORE(h, rc - 1);
 	return (rc & CLJ_RC_COUNT_MASK) == 1;

@@ -38,6 +38,7 @@ static inline void clj_drop_value(clj_drop *d, clj_value v) {
 	CLJ_OWNER_CHECK(h);
 	uint32_t rc = CLJ_RC_UNSHARED_LOAD(h);
 	CLJ_ASSERT(rc > 0, "release of a freed object");
+	CLJ_ASSERT(!(rc & CLJ_RC_BUFFERED), "a buffered object on the inline release");
 	CLJ_RC_UNSHARED_STORE(h, rc - 1);
 	if (rc == 1) clj_drop_dead(d, h);
 }

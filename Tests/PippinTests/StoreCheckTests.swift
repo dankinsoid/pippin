@@ -162,6 +162,43 @@ extension CoreTests.CycleTests {
 		base.check()
 	}
 
+	// The filed owner's last release comes before the local collection that would take its entry.
+	@Test func theLastReleaseOfAnOwnerFiledPastItsBudget() throws {
+		for form in [
+			"(let [v (volatile! nil) h [v] big (mapv volatile! (range 2000))] (vreset! v big) nil)",
+			"(let [v (volatile! 0) s (lazy-seq (cons @v (mapv volatile! (range 20)))) h [s]] (seq s) nil)",
+		] {
+			try prepared()
+			let deferred = stat(CLJ_CC_STAT_STORE_DEFERRED)
+			try dropped(form, cycles: 0)
+			#expect(stat(CLJ_CC_STAT_STORE_DEFERRED) - deferred >= 1, "\(form)")
+		}
+	}
+
+	// Swift's inline release is a release build's in every build (object.h).
+	@Test func aSwiftLastReleaseOfAnOwnerFiledPastItsBudget() throws {
+		try prepared()
+		let base = CoroBaseline()
+		let deferred = stat(CLJ_CC_STAT_STORE_DEFERRED)
+		let owner = clj_array_new(CLJ_ARRAY_OBJECT, 1)
+		let holder = clj_vector_conj(clj_vector_empty(), owner)
+		var big = clj_vector_empty()
+		for _ in 0..<300 {
+			let a = clj_array_new(CLJ_ARRAY_OBJECT, 1)
+			big = clj_vector_conj(big, a)
+			clj_release(a)
+		}
+		_ = clj_array_set(owner, 0, big)
+		#expect(stat(CLJ_CC_STAT_STORE_DEFERRED) - deferred == 1)
+		clj_release(big)
+		clj_release(holder)
+		clj_release(owner)
+		_ = clj_debug_cc_collect_local()
+		clj_cc_collect()
+		base.check()
+		clj_debug_cc_audit_every(0)
+	}
+
 	// No cycle, no flag: a tree of arrays filled before any heap edge reaches them, and a store of plain data.
 	@Test func noCycleNoFlag() throws {
 		try prepared()

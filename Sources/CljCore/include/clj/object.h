@@ -503,12 +503,15 @@ static inline clj_value clj_retain(clj_value v) {
 	return v;
 }
 
-// ONCYCLE in the mask: an unshared object that may lie on a cycle becomes a candidate on a nonzero release. Debug
-// builds take REACH_LOCAL too, for the audit of the releases that file nothing (cc.c).
+// ONCYCLE in the mask: an unshared object that may lie on a cycle becomes a candidate on a nonzero release. Every
+// unshared object with CLJ_RC_BUFFERED has one of these bits: the inline count test below does not mask it.
+#define CLJ_RELEASE_SLOW_ALWAYS (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL | CLJ_FLAG_ONCYCLE)
+// Debug builds take REACH_LOCAL too, for the audit of the releases that file nothing (cc.c). Swift reads this
+// header without CLJ_DEBUG, so its inline release is a release build's in every build.
 #if CLJ_DEBUG
-#define CLJ_RELEASE_SLOW (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL | CLJ_FLAG_ONCYCLE | CLJ_FLAG_REACH_LOCAL)
+#define CLJ_RELEASE_SLOW (CLJ_RELEASE_SLOW_ALWAYS | CLJ_FLAG_REACH_LOCAL)
 #else
-#define CLJ_RELEASE_SLOW (CLJ_FLAG_SHARED | CLJ_FLAG_IMMORTAL | CLJ_FLAG_ONCYCLE)
+#define CLJ_RELEASE_SLOW CLJ_RELEASE_SLOW_ALWAYS
 #endif
 static inline void clj_release(clj_value v) {
 	if (!clj_is_ptr(v)) return;
@@ -522,6 +525,7 @@ static inline void clj_release(clj_value v) {
 	CLJ_OWNER_CHECK(h);
 	uint32_t rc = CLJ_RC_UNSHARED_LOAD(h);
 	CLJ_ASSERT(rc > 0, "release of a freed object");
+	CLJ_ASSERT(!(rc & CLJ_RC_BUFFERED), "a buffered object on the inline release");
 	if (rc == 1) {
 		clj_release_slow(h);
 		return;
